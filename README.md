@@ -4,10 +4,14 @@ Pan/zoom canvas page for a claude.ai/design project, with level of detail:
 live iframes near 1:1 or in focus, snapshots when zoomed out.
 
 - `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view, snapshots).
-- `canvas-page.jsx` — reads `canvas.json` and lays one page out on the canvas.
+- `canvas-page.jsx` — reads `canvas.json` and lays one page out as a single free
+  canvas: every artboard and note at its own x/y. Drag a card by its grip to
+  move it; the spot is saved to the section state file, or to the browser when
+  that file cannot be written.
   Its `flows` array draws arrows between artboards on the canvas itself
   (`CanvasFlows`): `{ page, from, to, label, fs, ts, dashed }`, where `fs`/`ts`
-  are the source/target anchor sides (`l`, `r`, `t`, `b`).
+  are the source/target anchor sides (`l`, `r`, `t`, `b`). Curves bend around
+  any page they would otherwise cross.
 - `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with
   `flows`, and an `index.html` that runs the canvas on them.
 
