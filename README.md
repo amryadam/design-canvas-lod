@@ -10,7 +10,10 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
   it survives a reload even where the file cannot be written.
   Its `flows` array draws arrows between artboards on the canvas itself
   (`CanvasFlows`): `{ page, from, to, label, fs, ts, dashed }`, where `fs`/`ts`
-  are the source/target anchor sides (`l`, `r`, `t`, `b`). Curves route through
+  are the source/target anchor sides (`l`, `r`, `t`, `b`). Hover an arrow and
+  drag the handle at either end to another side of its page; the choice is
+  saved with the section state and wins over canvas.json (the page's ⋯ menu
+  has "Reset arrow sides"). Curves route through
   the gutters around every page and note they would otherwise cross (shortest
   clear path over the page corners, then smoothed).
 - Variants: copies of one screen fold into one slot. A file whose CamelCase

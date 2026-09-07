@@ -671,6 +671,8 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
             position={placed && placed[k]} moved={!!(sec.positions && sec.positions[k])}
             onMove={(p) => ctx && ctx.patchSection(sid, (x) => ({ positions: { ...(x.positions || {}), [k]: p } }))}
             onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
+            arrowsMoved={Object.keys(sec.arrows || {}).some((key) => dcArrowTouches(key, k))}
+            onResetArrows={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.arrows || {}) }; Object.keys(n).forEach((key) => { if (dcArrowTouches(key, k)) delete n[key]; }); return { arrows: n }; })}
             label={(sec.labels || {})[k] ?? byId[k].props.label}
             onRename={(v) => ctx && ctx.patchSection(sid, (x) => ({ labels: { ...x.labels, [k]: v } }))}
             onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
@@ -751,7 +753,11 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
 }
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, size, onSize, onMove, onResetPosition, onRename, onReorder, onFocus, onDelete }) {
+// Arrow-side overrides (canvas-page.jsx CanvasFlows) are keyed "from>to>label";
+// does this key touch the slot `file`?
+const dcArrowTouches = (key, file) => key.startsWith(file + '>') || key.includes('>' + file + '>');
+
+function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
   const id = rawId ?? rawLabel;
   // With size variants the slot follows the chosen size; `children` may be a
@@ -845,6 +851,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, s
               <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                 {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
                 {moved && <button onClick={() => { setMenuOpen(false); onResetPosition && onResetPosition(); }}>Reset position</button>}
+                {arrowsMoved && <button onClick={() => { setMenuOpen(false); onResetArrows && onResetArrows(); }}>Reset arrow sides</button>}
                 {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'png').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download PNG</button>}
                 {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'html').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download HTML</button>}
                 {href && <hr />}

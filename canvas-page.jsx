@@ -15,6 +15,7 @@ const CF = {
   // Line, dash and arrowhead match fatoora's flow map (flow-map.jsx FmConnectors).
   stroke: '#b9a991', hover: '#c96442', width: 2,
   arrowLen: 11, arrowHalf: 6.5,
+  handleR: 6,           // endpoint handle radius (screen px) while a flow is hovered
   // Pills and arrowheads hold screen size down to 8% zoom (a whole flow map
   // on one screen, as in fatoora), then shrink with the world so they never
   // balloon over the artboards when zoomed far out.
@@ -195,6 +196,14 @@ function cfPlaceLabels(paths, s) {
   }
 }
 
+// A flow's identity for saved overrides: endpoints and label, not its index.
+const cfFlowKey = (f) => `${f.from}>${f.to}>${f.label || ''}`;
+// Side of `box` nearest to world point p: the edge the point is closest to.
+function cfNearestSide(box, p) {
+  const d = { l: Math.abs(p.x - box.x), r: Math.abs(p.x - (box.x + box.w)), t: Math.abs(p.y - box.y), b: Math.abs(p.y - (box.y + box.h)) };
+  return Object.keys(d).reduce((m, k) => (d[k] < d[m] ? k : m), 'l');
+}
+
 // Whole-pixel world boxes: measurements at different zooms differ by float
 // noise, and a changed signature would re-render every connector for nothing.
 const cfRound = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
@@ -236,7 +245,7 @@ function cfMeasure(world, flows) {
     // its own page.
     const obstacles = allBoxes.filter((r) => r.file !== f.from && r.file !== f.to).concat([{ file: f.from, ...fb }, { file: f.to, ...tb }]);
     const curve = cfRoute(a, f.fs, b, f.ts, obstacles);
-    out.push({ key: `${f.from}>${f.to}#${i}`, d: curve.d, mid: curve.mid, angle: curve.angle, end: b, label: f.label, dashed: !!f.dashed, at: curve.at });
+    out.push({ key: `${f.from}>${f.to}#${i}`, id: cfFlowKey(f), d: curve.d, mid: curve.mid, angle: curve.angle, start: a, end: b, fb, tb, label: f.label, dashed: !!f.dashed, at: curve.at });
   });
   cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
@@ -244,10 +253,40 @@ function cfMeasure(world, flows) {
   return out;
 }
 
-function CanvasFlows({ flows }) {
+function CanvasFlows({ flows: authored, section }) {
   const [world, setWorld] = React.useState(null);
   const [paths, setPaths] = React.useState([]);
   const [hover, setHover] = React.useState(null);
+  const dragging = React.useRef(false);
+  // Arrow sides dragged on the canvas are saved in the section state
+  // (sec.arrows[flow key] = { fs, ts }) and win over canvas.json.
+  const ctx = React.useContext(DCCtx);
+  const arrows = (ctx && section && ctx.section(section).arrows) || null;
+  const flows = React.useMemo(() => (arrows ? authored.map((f) => ({ ...f, ...(arrows[cfFlowKey(f)] || {}) })) : authored), [authored, arrows]);
+  const setSide = (p, which, side) => {
+    if (!ctx || !section) return;
+    ctx.patchSection(section, (x) => ({ arrows: { ...(x.arrows || {}), [p.id]: { ...((x.arrows || {})[p.id] || {}), [which]: side } } }));
+  };
+  // Drag a handle: the endpoint snaps to whichever side of its page the pointer
+  // is nearest to. Only a changed side writes state (and re-measures).
+  const onHandleDown = (e, i, which) => {
+    e.preventDefault(); e.stopPropagation();
+    const p = paths[i], box = which === 'fs' ? p.fb : p.tb;
+    const wr = world.getBoundingClientRect(), scale = wr.width / world.offsetWidth || 1;
+    const vp = world.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
+    let last = null;
+    dragging.current = true; setHover(i);
+    const move = (ev) => {
+      const side = cfNearestSide(box, { x: (ev.clientX - wr.left) / scale, y: (ev.clientY - wr.top) / scale });
+      if (side !== last) { last = side; setSide(p, which, side); }
+    };
+    const up = () => {
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
+      dragging.current = false; vp && vp.classList.remove('dc-moving');
+    };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+  };
+  const leave = () => { if (!dragging.current) setHover(null); };
 
   React.useEffect(() => {
     const el = document.querySelector('.design-canvas > div');
@@ -310,13 +349,20 @@ function CanvasFlows({ flows }) {
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
                 style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
-                style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
+                style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={leave} />
+              {on && [['fs', p.start], ['ts', p.end]].map(([which, pt]) => (
+                <circle key={which} cx={pt.x} cy={pt.y} r={CF.handleR} fill="#fff" stroke={CF.hover} strokeWidth={2}
+                  style={{ pointerEvents: 'auto', cursor: 'grab', transform: `scale(${CF.inv})`, transformOrigin: `${pt.x}px ${pt.y}px` }}
+                  onPointerDown={(e) => onHandleDown(e, i, which)} onPointerEnter={() => setHover(i)} onPointerLeave={leave}>
+                  <title>Drag to another side of the page</title>
+                </circle>
+              ))}
             </g>
           );
         })}
       </svg>
       {paths.map((p, i) => p.label && (
-        <div key={p.key} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} style={{
+        <div key={p.key} onPointerEnter={() => setHover(i)} onPointerLeave={leave} style={{
           position: 'absolute', left: p.mid.x, top: p.mid.y, transform: `translate(-50%, -50%) scale(${CF.inv})`,
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
@@ -435,7 +481,7 @@ function CanvasPage({ page, stateFile }) {
           );
         })}
       </DCSection>
-      <CanvasFlows flows={flows} />
+      <CanvasFlows flows={flows} section={page} />
     </DesignCanvas>
   );
 }
