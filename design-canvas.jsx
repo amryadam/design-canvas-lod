@@ -16,6 +16,7 @@
 
 const DC = {
   bg: '#f0eee9', grid: 'rgba(0,0,0,0.06)',
+  gridSize: 120,        // grid pitch in world px; the viewport draws it at gridSize * zoom
   liveScale: 0.5,       // live iframe at or above this zoom
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   settleMs: 150,        // wait after the last zoom/pan change before switching modes
@@ -392,6 +393,7 @@ function DesignCanvas({ children, minScale, maxScale, style, stateFile = DC_STAT
 function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const vpRef = React.useRef(null);
   const worldRef = React.useRef(null);
+  const gridRef = React.useRef(null);
   const tf = React.useRef({ x: 0, y: 0, scale: 1 });
   const tfKey = 'dc-viewport-v3:' + location.pathname;
   const saveT = React.useRef(0);
@@ -405,6 +407,14 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     el.style.setProperty('--dc-inv-zoom', String(1 / scale));
+    // The grid sits outside the world, so it follows the transform by hand and
+    // covers the viewport at any pan — no finite box to run off the edge of.
+    const g = gridRef.current;
+    if (g) {
+      const px = DC.gridSize * scale;
+      g.style.backgroundSize = `${px}px ${px}px`;
+      g.style.backgroundPosition = `${x}px ${y}px`;
+    }
     dcSetZoom(scale);
     if (lastPostedScale.current !== scale) {
       lastPostedScale.current = scale;
@@ -548,8 +558,8 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   return (
     <div ref={vpRef} className="design-canvas"
       style={{ height: '100vh', width: '100vw', background: DC.bg, overflow: 'hidden', overscrollBehavior: 'none', touchAction: 'none', position: 'relative', fontFamily: DC.font, boxSizing: 'border-box', ...style }}>
+      <div ref={gridRef} style={{ position: 'absolute', inset: 0, backgroundImage: gridSvg, backgroundSize: `${DC.gridSize}px ${DC.gridSize}px`, pointerEvents: 'none' }} />
       <div ref={worldRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: 'calc(72px * var(--dc-inv-zoom,1)) 0 80px' }}>
-        <div style={{ position: 'absolute', inset: -8000, backgroundImage: gridSvg, backgroundSize: '120px 120px', pointerEvents: 'none', zIndex: -1 }} />
         {children}
       </div>
     </div>
