@@ -196,11 +196,18 @@ function cfPlaceLabels(paths, s) {
   }
 }
 
-// A flow's identity for saved overrides: endpoints and label, not its index.
-const cfFlowKey = (f) => `${f.from}>${f.to}>${f.label || ''}`;
-// Side of `box` nearest to world point p: the edge the point is closest to.
+// A flow's identity for saved overrides: endpoints and label, not its index
+// (dcFlowKey, design-canvas.jsx, so the engine can read the key back).
+const cfFlowKey = dcFlowKey;
+// Side of `box` nearest to world point p, measured to the side as a segment
+// (not the whole edge line), so a pointer above a narrow page reads as top.
 function cfNearestSide(box, p) {
-  const d = { l: Math.abs(p.x - box.x), r: Math.abs(p.x - (box.x + box.w)), t: Math.abs(p.y - box.y), b: Math.abs(p.y - (box.y + box.h)) };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const x0 = box.x, x1 = box.x + box.w, y0 = box.y, y1 = box.y + box.h;
+  const d = {
+    l: Math.hypot(p.x - x0, p.y - clamp(p.y, y0, y1)), r: Math.hypot(p.x - x1, p.y - clamp(p.y, y0, y1)),
+    t: Math.hypot(p.x - clamp(p.x, x0, x1), p.y - y0), b: Math.hypot(p.x - clamp(p.x, x0, x1), p.y - y1),
+  };
   return Object.keys(d).reduce((m, k) => (d[k] < d[m] ? k : m), 'l');
 }
 
@@ -245,7 +252,7 @@ function cfMeasure(world, flows) {
     // its own page.
     const obstacles = allBoxes.filter((r) => r.file !== f.from && r.file !== f.to).concat([{ file: f.from, ...fb }, { file: f.to, ...tb }]);
     const curve = cfRoute(a, f.fs, b, f.ts, obstacles);
-    out.push({ key: `${f.from}>${f.to}#${i}`, id: cfFlowKey(f), d: curve.d, mid: curve.mid, angle: curve.angle, start: a, end: b, fb, tb, label: f.label, dashed: !!f.dashed, at: curve.at });
+    out.push({ key: `${f.from}>${f.to}#${i}`, flowKey: cfFlowKey(f), d: curve.d, mid: curve.mid, angle: curve.angle, start: a, end: b, fb, tb, label: f.label, dashed: !!f.dashed, at: curve.at });
   });
   cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
@@ -265,28 +272,26 @@ function CanvasFlows({ flows: authored, section }) {
   const flows = React.useMemo(() => (arrows ? authored.map((f) => ({ ...f, ...(arrows[cfFlowKey(f)] || {}) })) : authored), [authored, arrows]);
   const setSide = (p, which, side) => {
     if (!ctx || !section) return;
-    ctx.patchSection(section, (x) => ({ arrows: { ...(x.arrows || {}), [p.id]: { ...((x.arrows || {})[p.id] || {}), [which]: side } } }));
+    ctx.patchSection(section, (x) => dcMapPatch(x, 'arrows', p.flowKey, { ...((x.arrows || {})[p.flowKey] || {}), [which]: side }));
   };
+  // Hover lingers for a beat so the pointer can travel from the line onto a
+  // handle without the handle unmounting under it; a drag pins it.
+  const hoverTimer = React.useRef(0);
+  const enter = (i) => { clearTimeout(hoverTimer.current); setHover(i); };
+  const leave = () => { if (dragging.current) return; clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setHover(null), 120); };
   // Drag a handle: the endpoint snaps to whichever side of its page the pointer
   // is nearest to. Only a changed side writes state (and re-measures).
+  const cancelDrag = React.useRef(null);
   const onHandleDown = (e, i, which) => {
-    e.preventDefault(); e.stopPropagation();
     const p = paths[i], box = which === 'fs' ? p.fb : p.tb;
-    const wr = world.getBoundingClientRect(), scale = wr.width / world.offsetWidth || 1;
-    const vp = world.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
     let last = null;
-    dragging.current = true; setHover(i);
-    const move = (ev) => {
-      const side = cfNearestSide(box, { x: (ev.clientX - wr.left) / scale, y: (ev.clientY - wr.top) / scale });
-      if (side !== last) { last = side; setSide(p, which, side); }
-    };
-    const up = () => {
-      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
-      dragging.current = false; vp && vp.classList.remove('dc-moving');
-    };
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+    dragging.current = true; enter(i);
+    cancelDrag.current = dcDragSession(e, world, {
+      move: (dx, dy, scale, at) => { const side = cfNearestSide(box, at); if (side !== last) { last = side; setSide(p, which, side); } },
+      up: () => { dragging.current = false; cancelDrag.current = null; setHover(null); },
+    });
   };
-  const leave = () => { if (!dragging.current) setHover(null); };
+  React.useEffect(() => () => { clearTimeout(hoverTimer.current); cancelDrag.current && cancelDrag.current(); }, []);
 
   React.useEffect(() => {
     const el = document.querySelector('.design-canvas > div');
@@ -349,11 +354,11 @@ function CanvasFlows({ flows: authored, section }) {
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
                 style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
-                style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={leave} />
+                style={{ pointerEvents: 'stroke' }} onPointerEnter={() => enter(i)} onPointerLeave={leave} />
               {on && [['fs', p.start], ['ts', p.end]].map(([which, pt]) => (
                 <circle key={which} cx={pt.x} cy={pt.y} r={CF.handleR} fill="#fff" stroke={CF.hover} strokeWidth={2}
                   style={{ pointerEvents: 'auto', cursor: 'grab', transform: `scale(${CF.inv})`, transformOrigin: `${pt.x}px ${pt.y}px` }}
-                  onPointerDown={(e) => onHandleDown(e, i, which)} onPointerEnter={() => setHover(i)} onPointerLeave={leave}>
+                  onPointerDown={(e) => onHandleDown(e, i, which)} onPointerEnter={() => enter(i)} onPointerLeave={leave}>
                   <title>Drag to another side of the page</title>
                 </circle>
               ))}
@@ -362,7 +367,7 @@ function CanvasFlows({ flows: authored, section }) {
         })}
       </svg>
       {paths.map((p, i) => p.label && (
-        <div key={p.key} onPointerEnter={() => setHover(i)} onPointerLeave={leave} style={{
+        <div key={p.key} onPointerEnter={() => enter(i)} onPointerLeave={leave} style={{
           position: 'absolute', left: p.mid.x, top: p.mid.y, transform: `translate(-50%, -50%) scale(${CF.inv})`,
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
@@ -455,7 +460,7 @@ function CanvasPage({ page, stateFile }) {
     const seen = new Set();
     return (data.flows || []).filter((f) => f.page === page).map((f) => ({ ...f, from: layout.primaryOf(f.from), to: layout.primaryOf(f.to) }))
       .filter((f) => f.from !== f.to)
-      .filter((f) => { const k = `${f.from}>${f.to}>${f.label || ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      .filter((f) => { const k = cfFlowKey(f); if (seen.has(k)) return false; seen.add(k); return true; });
   }, [data, layout, page]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 

@@ -493,7 +493,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav');
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav, .dc-flows');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
       vp.setPointerCapture(e.pointerId);
@@ -667,14 +667,24 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
         ))}
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
-            size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => ({ variant: { ...(x.variant || {}), [k]: file } }))}
+            size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file))}
             position={placed && placed[k]} moved={!!(sec.positions && sec.positions[k])}
-            onMove={(p) => ctx && ctx.patchSection(sid, (x) => ({ positions: { ...(x.positions || {}), [k]: p } }))}
+            onMove={(p) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p))}
             onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
-            arrowsMoved={Object.keys(sec.arrows || {}).some((key) => dcArrowTouches(key, k))}
-            onResetArrows={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.arrows || {}) }; Object.keys(n).forEach((key) => { if (dcArrowTouches(key, k)) delete n[key]; }); return { arrows: n }; })}
+            arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
+            onResetArrows={() => ctx && ctx.patchSection(sid, (x) => {
+              // Only the end that meets this page: the far page keeps its side.
+              const n = {};
+              Object.entries(x.arrows || {}).forEach(([key, o]) => {
+                const { from, to } = dcFlowKeyParts(key), r = { ...o };
+                if (from === k) delete r.fs;
+                if (to === k) delete r.ts;
+                if (Object.keys(r).length) n[key] = r;
+              });
+              return { arrows: n };
+            })}
             label={(sec.labels || {})[k] ?? byId[k].props.label}
-            onRename={(v) => ctx && ctx.patchSection(sid, (x) => ({ labels: { ...x.labels, [k]: v } }))}
+            onRename={(v) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v))}
             onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
             onDelete={() => ctx && ctx.patchSection(sid, (x) => ({ hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey }))}
             onFocus={() => ctx && ctx.setFocus(`${sid}/${k}`)} />
@@ -735,27 +745,44 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
 }
 
 // One pointer drag on a slot: marks the slot and viewport as moving, reports
-// pointer deltas in world px (screen px ÷ zoom), and cleans up on release.
+// pointer deltas in world px (screen px ÷ zoom), and cleans up on release or
+// cancel. `me` sets the scale (its screen width over its layout width) and
+// gets the dragging class. `move` also receives the pointer's world position,
+// measured against `me`'s current rect so a zoom mid-drag does not go stale.
 // `keepMoving` leaves the viewport's moving flag for the caller to clear.
+// Returns a cancel function for unmounts.
 function dcDragSession(e, me, { move, up, keepMoving }) {
   e.preventDefault(); e.stopPropagation();
-  const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
   const sx = e.clientX, sy = e.clientY;
+  const scaleOf = () => me.getBoundingClientRect().width / me.offsetWidth || 1;
+  const scale = scaleOf();
   me.classList.add('dc-dragging');
   const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
-  const onMove = (ev) => move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale);
-  const onUp = () => {
-    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp);
+  const onMove = (ev) => {
+    const r = me.getBoundingClientRect(), z = scaleOf();
+    move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
+  };
+  let done = false;
+  const finish = (cancelled) => {
+    if (done) return; done = true;
+    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onCancel);
     me.classList.remove('dc-dragging');
     if (!keepMoving && vp) vp.classList.remove('dc-moving');
-    up(scale, vp);
+    up(scale, vp, cancelled);
   };
-  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
+  const onUp = () => finish(false), onCancel = () => finish(true);
+  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onCancel);
+  return onCancel;
 }
 
-// Arrow-side overrides (canvas-page.jsx CanvasFlows) are keyed "from>to>label";
-// does this key touch the slot `file`?
-const dcArrowTouches = (key, file) => key.startsWith(file + '>') || key.includes('>' + file + '>');
+// Flow identity shared with canvas-page.jsx (CanvasFlows): endpoints and
+// label, joined with a separator no file name or label carries. Arrow-side
+// overrides in the section state are keyed by it.
+const DC_KEY_SEP = '\x1f';
+const dcFlowKey = (f) => [f.from, f.to, f.label || ''].join(DC_KEY_SEP);
+const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP); return { from, to, label }; };
+// Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
+const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
 function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
@@ -917,7 +944,7 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const size = dcSize(artboard.props, (sec.variant || {})[aid]);
   const { width, height, href } = size;
   const children = typeof artboard.props.children === 'function' ? artboard.props.children(size.cur, size) : artboard.props.children;
-  const onSize = (file) => ctx.patchSection(sectionId, (x) => ({ variant: { ...(x.variant || {}), [aid]: file } }));
+  const onSize = (file) => ctx.patchSection(sectionId, (x) => dcMapPatch(x, 'variant', aid, file));
   const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
   React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
   const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
@@ -988,4 +1015,4 @@ function DCPostIt({ children, width = 320, rotate = -1 }) {
 // Renders nothing; lets a host mount this file purely to load the globals.
 function DCLib() { return null; }
 
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch });
