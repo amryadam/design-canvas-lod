@@ -1,0 +1,66 @@
+{
+  "planPath": "docs/superpowers/plans/2026-09-08-canvas-performance.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 1: Fix the CanvasFlows world lookup",
+      "status": "pending",
+      "description": "**Goal:** Arrows render again by finding the transformed world through a stable hook instead of by sibling position.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 the `worldRef` div in `DCViewport` (add `data-dc-world`)\n- Modify: `canvas-page.jsx:299` \u2014 the world lookup in `CanvasFlows`\n\n**Acceptance Criteria:**\n- [ ] `document.querySelectorAll('.dc-flows svg path').length` is greater than 0 on the sample\n- [ ] `document.querySelector('[data-dc-world]')` returns the element carrying the scale transform, not the grid layer\n- [ ] Arrow labels are visible and follow their pages when a page is dragged\n- [ ] Hovering an arrow still shows the two round drag handles\n\n**Verify:** With the sample open, run `({paths: document.querySelectorAll('.dc-flows svg path').length, world: !!document.querySelector('[data-dc-world]'), slotsInWorld: document.querySelector('[data-dc-world]').querySelectorAll('[data-dc-slot]').length})` \u2192 expected `{paths: 24, world: true, slotsInWorld: 10}`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"canvas-page.jsx\"], \"verifyCommand\": \"open http://localhost:8000/sample/ and evaluate the Verify snippet in the page console\", \"acceptanceCriteria\": [\"dc-flows svg path count > 0\", \"[data-dc-world] is the transformed layer\", \"labels follow a dragged page\", \"arrow handles still appear on hover\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 2: Add the perf bench harness and baseline",
+      "status": "pending",
+      "blockedBy": [
+        0
+      ],
+      "description": "**Goal:** A single pasteable script that reproduces every number the later tasks are judged against, plus a recorded baseline for this machine.\n\n**Files:**\n- Create: `perf/bench.js`\n- Modify: `docs/superpowers/plans/2026-09-08-canvas-performance.md` \u2014 fill in the Baseline table in Task 2\n\n**Acceptance Criteria:**\n- [ ] `dcBench.all()` returns without throwing on the sample and reports every key in the Baseline table\n- [ ] `dcBench.zoomFrames()` reports `over16` and a median frame time\n- [ ] `dcBench.invWrites()` reports how many times `--dc-inv-zoom` changed during one 90-tick gesture\n- [ ] `dcBench.liveByZoom()` reports the live iframe count at 0.05, 0.15, 0.3, 0.5 and 0.8\n- [ ] `dcBench.flowCost()` reports milliseconds per `cfMeasure` call\n- [ ] `dcBench.dragFlowCost()` reports total `cfMeasure` milliseconds over a 40-frame grip drag\n- [ ] `dcBench.patchCost()` reports the milliseconds a variant-chip click costs to the next frame\n- [ ] The Baseline table in the plan is filled in with this machine's numbers\n\n**Verify:** `node --check perf/bench.js` \u2192 no output, then paste the file into the sample console and run `await dcBench.all()` \u2192 an object with all seven sections populated\n\n```json:metadata\n{\"files\": [\"perf/bench.js\", \"docs/superpowers/plans/2026-09-08-canvas-performance.md\"], \"verifyCommand\": \"node --check perf/bench.js\", \"acceptanceCriteria\": [\"node --check passes\", \"dcBench.all() populates all seven sections\", \"Baseline table filled in\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 3: Write the zoom variable only on settle",
+      "status": "pending",
+      "blockedBy": [
+        1
+      ],
+      "description": "**Goal:** A pinch stops invalidating style for the whole world on every frame; `--dc-inv-zoom` is written once the gesture settles.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 `DCViewport`: the `flushNow` callback and the `useLayoutEffect` cleanup that clears the fit and rescue timers\n\n**Acceptance Criteria:**\n- [ ] `dcBench.invWrites()` reports at most 3 writes for a 90-tick gesture (was 90)\n- [ ] `dcBench.zoomFrames().median` is no worse than the Task 2 baseline and `over16` is no higher\n- [ ] After a pinch ends, header labels, section gaps and the section title settle to their correct screen size within DC.settleMs\n- [ ] Headers are the right size on first paint, before any gesture\n- [ ] The Back to content pill still appears when the view is panned off the pages, and its tween lands with the right header sizes\n\n**Verify:** `await dcBench.invWrites()` \u2192 `{ticks: 90, invWrites: <= 3}`, then `await dcBench.zoomFrames()` \u2192 median and over16 no worse than baseline\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\"], \"verifyCommand\": \"await dcBench.invWrites() then await dcBench.zoomFrames() in the sample console\", \"acceptanceCriteria\": [\"invWrites <= 3 for 90 ticks\", \"zoomFrames median and over16 no worse than baseline\", \"chrome settles to the right size after a pinch\", \"headers correct on first paint\", \"Back to content pill still works\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 4: Swap snapshots for a live iframe budget",
+      "status": "pending",
+      "blockedBy": [
+        2
+      ],
+      "description": "**Goal:** The zoomed-out picture is gone and a slot is a live iframe at any zoom, with at most DC.liveBudget alive at once \u2014 the ones nearest the viewport centre.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 `DC` config, styles block, the snapshot section (`dcSnap`, `dcHash`, `dcRasterize`), `dcFontCss`, the LOD registry (`dcZoom`, `dcLodRun`, `dcLodSubscribe`), `DCLazyFrame`, the header comment block\n- Modify: `README.md` \u2014 intro sentence, the `design-canvas.jsx` bullet, and the whole 'How snapshots work' section\n\n**Acceptance Criteria:**\n- [ ] `document.querySelectorAll('img.dc-thumb').length` is 0 at every zoom\n- [ ] `dcBench.liveByZoom()` reports live <= 8 at every zoom, including 0.05 where all 10 slots are on screen\n- [ ] `dcBench.zoomFrames().over16` is 0 with the whole page on screen (unbudgeted all-live gave 14 of 88)\n- [ ] `dcBench.zoomFrames().max` is under 20 ms (unbudgeted all-live gave 83.9 ms)\n- [ ] The slot nearest the pointer is always live at both 0.05 and 0.8\n- [ ] Download PNG and Download HTML both still produce a correct file\n- [ ] `dcSnap`, `dcHash`, `dcRasterize`, `DC.liveScale` and `DC.snapWidth` no longer appear in `design-canvas.jsx`\n- [ ] No `[dc-snap]` warnings in the console\n- [ ] `README.md` no longer describes snapshots\n\n**Verify:** `await dcBench.liveByZoom()` \u2192 every row live <= 8; `await dcBench.zoomFrames()` \u2192 over16 0 and max < 20; `grep -c \"dcSnap\\|dcRasterize\\|liveScale\\|snapWidth\\|dc-thumb\" design-canvas.jsx` \u2192 0\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"README.md\"], \"verifyCommand\": \"grep -c 'dcSnap\\\\|dcRasterize\\\\|liveScale\\\\|snapWidth\\\\|dc-thumb' design-canvas.jsx\", \"acceptanceCriteria\": [\"no img.dc-thumb at any zoom\", \"liveByZoom live <= 8 everywhere\", \"zoomFrames over16 == 0\", \"zoomFrames max < 20 ms\", \"PNG and HTML export still work\", \"grep for removed symbols returns 0\", \"README no longer describes snapshots\"], \"modelTier\": \"frontier\"}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 5: Re-render only the artboards a patch changed",
+      "status": "pending",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** One `patchSection` re-renders the slots it changed, not all of them.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 the `api` memo in `DesignCanvas`, the body of `DCSection`, and `DCArtboardFrame`'s signature, body and memo wrapper\n\n**Acceptance Criteria:**\n- [ ] `dcBench.patchCost().framesRenderedPerPatch` is at most 2 on the sample (was 10, one per slot)\n- [ ] `dcBench.patchCost().variantSwitchMs` is at most 60 % of the Task 2 baseline\n- [ ] Renaming a label, dragging a page, resetting a position, switching a variant, deleting a page and focusing a page all still work\n- [ ] Reordering by dragging a grip in a non-free section still works\n- [ ] The `DC.renders` counter goes up by 1 for every artboard frame render\n\n**Verify:** `await dcBench.patchCost()` \u2192 `{framesRenderedPerPatch: <= 2, variantSwitchMs: <= 0.6 * baseline}`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\"], \"verifyCommand\": \"await dcBench.patchCost() in the sample console\", \"acceptanceCriteria\": [\"framesRenderedPerPatch <= 2\", \"variantSwitchMs <= 60% of baseline\", \"rename, drag, reset, variant, delete, focus all still work\", \"grip reorder still works\", \"DC.renders increments once per frame render\"], \"modelTier\": \"frontier\"}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 6: Re-route only the arrows a drag moves",
+      "status": "pending",
+      "blockedBy": [
+        4
+      ],
+      "description": "**Goal:** Dragging a page re-routes the arrows that touch it, instead of every arrow on the page, every frame.\n\n**Files:**\n- Modify: `canvas-page.jsx` \u2014 `cfMeasure` (add the reuse path) and the `measure` callback inside `CanvasFlows`\n\n**Acceptance Criteria:**\n- [ ] `dcBench.dragFlowCost().cfMs` is at most 40 % of the Task 2 baseline for the same `dragFrames`\n- [ ] Arrows attached to the dragged page follow it while the drag is in progress\n- [ ] Arrows not attached to the dragged page do not move during the drag\n- [ ] After the drop every arrow and label is in its final place, including labels that had to move to avoid a collision\n- [ ] Dragging an arrow handle to another side still works and still saves\n\n**Verify:** `await dcBench.dragFlowCost()` \u2192 cfMs at most 40 % of the Task 2 baseline, with cfCalls about the same\n\n```json:metadata\n{\"files\": [\"canvas-page.jsx\"], \"verifyCommand\": \"await dcBench.dragFlowCost() in the sample console\", \"acceptanceCriteria\": [\"cfMs <= 40% of baseline\", \"arrows on the dragged page follow it\", \"other arrows hold still during the drag\", \"everything settles correctly after the drop\", \"arrow handle drag still saves\"], \"modelTier\": \"frontier\"}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 7: Make the first-load fit survive a slow read",
+      "status": "pending",
+      "blockedBy": [
+        5
+      ],
+      "description": "**Goal:** The canvas opens fitted to the page every time, not only when the section state resolves inside 60 ms.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 the `useLayoutEffect` in `DCViewport` holding the fit timer, and the pointer/wheel handlers in the effect below it\n\n**Acceptance Criteria:**\n- [ ] With the viewport key cleared, five reloads in a row all open with `dcZoom.scale < 1` and at least one slot on screen\n- [ ] With `[data-dc-row]` absent at the 60 ms mark, the fit still lands once the row appears\n- [ ] The fit gives up after about 1.5 s rather than retrying forever\n- [ ] A pan or zoom made before the fit lands cancels it \u2014 the view does not jump\n- [ ] A restored viewport (a reload with the key present) is not re-fitted\n\n**Verify:** Run the five-reload loop in Step 5 \u2192 `scale < 1` and `onScreen >= 1` on all five reloads\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\"], \"verifyCommand\": \"clear localStorage dc-viewport-v3 keys, reload five times, check dcZoom.scale < 1 and onScreen >= 1 each time\", \"acceptanceCriteria\": [\"five clean reloads all fit\", \"fit lands after a late row\", \"fit stops after ~1.5 s\", \"user pan or zoom cancels the fit\", \"a restored viewport is not re-fitted\"], \"modelTier\": \"standard\"}\n```"
+    }
+  ],
+  "lastUpdated": "2026-09-08T00:42:50"
+}
