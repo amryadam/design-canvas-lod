@@ -575,7 +575,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions }) {
           {subtitle && <div style={{ fontSize: 16, color: DC.subtitle }}>{subtitle}</div>}
         </div>
       </div>
-      {rest.length > 0 && <div className="dc-notes" style={{ padding: '0 60px 40px', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{rest}</div>}
+      {rest.length > 0 && <div className="dc-notes" style={{ padding: '0 60px calc(40px * var(--dc-inv-zoom, 1))', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{rest}</div>}
       <div data-dc-row="" style={freeBox
         ? { position: 'relative', margin: '0 60px', width: freeBox.w, height: freeBox.h }
         : { display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
