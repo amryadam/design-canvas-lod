@@ -7,10 +7,12 @@
 // ---- Flow connectors ---------------------------------------------------------
 // Renders into the canvas world (the transformed child of .design-canvas) so the
 // layer pans and zooms with the artboards. Each artboard's box is measured from
-// [data-dc-slot="<file>"] .dc-card and converted to world coordinates.
+// the [data-dc-slot="<file>"] element itself (never the .dc-card inside it —
+// that has content-visibility:auto, and reading its rect would force layout of
+// off-screen skipped subtrees) and converted to world coordinates.
 
 const CF = {
-  stroke: '#b9a991', width: 2, dash: '5 6',
+  stroke: '#b9a991', hover: '#c96442', width: 2, dash: '5 6',
   arrowLen: 11, arrowHalf: 6.5,
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
@@ -31,7 +33,10 @@ function cfCurve(a, fs, b, ts) {
   const dist = Math.hypot(b.x - a.x, b.y - a.y);
   let k = Math.max(70, dist * 0.42);
   const vertical = (s) => s === 't' || s === 'b';
-  if (vertical(fs) && vertical(ts)) k = Math.min(k, 70);
+  // Loops between same-side anchors still get a bounded bulge, but one that
+  // scales with the span — a fixed 70px reads as a straight line at canvas
+  // distances (fatoora-style curvature).
+  if (vertical(fs) && vertical(ts)) k = Math.min(k, Math.max(90, dist * 0.3));
   const [nx1, ny1] = CF_NORMAL[fs] || CF_NORMAL.r;
   const [nx2, ny2] = CF_NORMAL[ts] || CF_NORMAL.l;
   const c1 = { x: a.x + nx1 * k, y: a.y + ny1 * k };
@@ -66,10 +71,9 @@ function cfMeasure(world, flows) {
   const box = (file) => {
     if (boxes.has(file)) return boxes.get(file);
     const slot = slots.get(file);
-    const card = slot && slot.querySelector('.dc-card');
     let b = null;
-    if (card) {
-      const r = card.getBoundingClientRect();
+    if (slot) {
+      const r = slot.getBoundingClientRect();
       b = { x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale };
     }
     boxes.set(file, b);
@@ -90,6 +94,7 @@ function cfMeasure(world, flows) {
 function CanvasFlows({ flows }) {
   const [world, setWorld] = React.useState(null);
   const [paths, setPaths] = React.useState([]);
+  const [hover, setHover] = React.useState(null);
 
   React.useEffect(() => {
     const el = document.querySelector('.design-canvas > div');
@@ -114,8 +119,13 @@ function CanvasFlows({ flows }) {
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
     const mo = new MutationObserver((recs) => {
-      // The world's own style changes on every pan/zoom; world coordinates don't.
-      if (recs.some((r) => r.target !== world)) schedule();
+      // Skip the world's own pan/zoom style writes AND anything inside a card:
+      // iframe mounts / snapshot swaps never change card geometry, and reacting
+      // to them caused a re-measure storm while slots were going live.
+      if (recs.some((r) => {
+        const t = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        return t && t !== world && !t.closest('.dc-card');
+      })) schedule();
     });
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
@@ -129,19 +139,28 @@ function CanvasFlows({ flows }) {
   return ReactDOM.createPortal(
     <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
-        {paths.map((p) => (
-          <g key={p.key} fill="none" stroke={CF.stroke} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round">
-            <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
-            <polygon points={cfArrow(p.end, p.angle)} fill={CF.stroke} stroke="none"
-              style={{ transform: 'scale(var(--dc-inv-zoom, 1))', transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
-          </g>
-        ))}
+        {paths.map((p, i) => {
+          const on = hover === i, dim = hover != null && !on;
+          const ink = on ? CF.hover : CF.stroke;
+          return (
+            <g key={p.key} fill="none" stroke={ink} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round"
+              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
+              <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
+              <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
+                style={{ transform: 'scale(var(--dc-inv-zoom, 1))', transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
+              <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
+                style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
+            </g>
+          );
+        })}
       </svg>
-      {paths.map((p) => p.label && (
-        <div key={p.key} style={{
+      {paths.map((p, i) => p.label && (
+        <div key={p.key} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} style={{
           position: 'absolute', left: p.mid.x, top: p.mid.y, transform: 'translate(-50%, -50%) scale(var(--dc-inv-zoom, 1))',
-          font: CF.pill.font, color: CF.pill.color, background: CF.pill.bg, border: CF.pill.border,
+          font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
+          border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
           borderRadius: 999, padding: '5px 11px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
+          pointerEvents: 'auto', transition: 'opacity .15s, color .15s, border-color .15s',
         }}>{p.label}</div>
       ))}
     </div>,
@@ -170,7 +189,7 @@ function CanvasPage({ page, stateFile }) {
     // Short annotation sitting just above the row → its title.
     const titleNote = notes.filter((n) => n.text.length < 90 && n.y < y && n.y >= y - 450 && !n.text.includes('\n'))
       .sort((a, b) => b.y - a.y)[0];
-    return { y, items, title: titleNote ? titleNote.text : (ys.length > 1 ? `Row ${i + 1}` : pageName), titleNote };
+    return { y, items, title: titleNote ? titleNote.text : (ys.length > 1 ? `${pageName} · ${i + 1}` : pageName), titleNote };
   });
   const used = new Set(rows.map((r) => r.titleNote).filter(Boolean));
   // Remaining notes attach to the first row whose y is at or after them (else the first row).
