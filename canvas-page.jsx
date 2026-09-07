@@ -13,12 +13,17 @@
 
 const CF = {
   // Line, dash and arrowhead match fatoora's flow map (flow-map.jsx FmConnectors).
-  stroke: '#b9a991', hover: '#c96442', width: 2, dash: '5 6',
+  stroke: '#b9a991', hover: '#c96442', width: 2,
   arrowLen: 11, arrowHalf: 6.5,
   // Pills and arrowheads hold screen size down to 8% zoom (a whole flow map
   // on one screen, as in fatoora), then shrink with the world so they never
   // balloon over the artboards when zoomed far out.
   inv: 'min(var(--dc-inv-zoom, 1), 12)',
+  // Line width in world units: 2 screen px down to 50% zoom, then it thins
+  // with the world to a 1 screen px floor, so zoomed-out maps stay hairline.
+  strokeW: 'max(calc(2px * min(var(--dc-inv-zoom, 1), 2)), calc(1px * var(--dc-inv-zoom, 1)))',
+  // Dashes are in world units too, so they scale with the zoom to stay 5/6 screen px.
+  dashW: 'calc(5px * var(--dc-inv-zoom, 1)) calc(6px * var(--dc-inv-zoom, 1))',
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -301,7 +306,7 @@ function CanvasFlows({ flows }) {
           return (
             <g key={p.key} fill="none" stroke={ink} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round"
               opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
-              <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
+              <path d={p.d} style={{ strokeWidth: CF.strokeW, strokeDasharray: p.dashed ? CF.dashW : undefined }} />
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
                 style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"

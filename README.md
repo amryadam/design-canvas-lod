@@ -28,8 +28,8 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
   slot), `lang`, `state` (free text, shown as the chip).
 - `flow-layout.js` — `node flow-layout.js canvas.json [page-id]` lays a page out
   the way fatoora's flow map does: stages left to right, branches stacked under
-  each other, a gutter of one card width between stages and 0.8 of a card
-  height between rows, anchors chosen from geometry. Rewrites x/y and fs/ts in
+  each other, a gutter of 0.35 of a card width between stages and 0.3 of a
+  card height between rows, anchors chosen from geometry. Rewrites x/y and fs/ts in
   place. Positions saved in the browser win over canvas.json, so clear the
   page's saved layout (localStorage key `dc-state:…`) to see the new one.
 - `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with

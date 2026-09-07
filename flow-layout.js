@@ -9,10 +9,10 @@
 // card width, row gap ≈ 0.8 card height.
 const fs = require('fs');
 
-const COL_GAP = 1.0;   // × widest artboard in the two columns
-const ROW_GAP = 0.8;   // × taller artboard of the two rows (fatoora: 170 / 220)
+const COL_GAP = 0.35;  // × widest artboard in the two columns
+const ROW_GAP = 0.3;   // × taller artboard of the two rows
 const HEADER = 0;      // extra world px above each row; the title hangs in the row gap
-const GROUP_GAP = 1.5; // × ROW gap between unconnected flow groups
+const GROUP_GAP = 1.2; // × ROW gap between unconnected flow groups
 const ORPHAN_COLS = 4; // artboards that take part in no flow, gridded at the bottom
 
 function layoutPage(data, page) {
