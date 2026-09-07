@@ -23,6 +23,7 @@ const DC = {
   snapWidth: 720,       // snapshot bitmap width; they only show below liveScale
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
+  noteReserveH: 240,    // height a free-placed note reserves in the page box
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 
@@ -561,26 +562,25 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   }, [sec.order, srcOrder.join('|')]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
   // Persisted moves override the authored positions.
-  const eff = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
+  const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
+  // In free mode every note is placed too; one without a position sits at the origin.
+  const noteAt = (n) => (notePositions && n && n.props && notePositions[n.props.id]) || { x: 0, y: 0 };
   const freeBox = React.useMemo(() => {
-    if (!eff) return null;
+    if (!placed) return null;
     let w = 0, h = 0;
     order.forEach((k) => {
-      const p = eff[k], a = byId[k];
+      const p = placed[k], a = byId[k];
       if (!p || !a) return;
       w = Math.max(w, p.x + (a.props.width || 0));
       h = Math.max(h, p.y + (a.props.height || 0));
     });
     rest.forEach((n) => {
-      const p = notePositions && n && n.props && notePositions[n.props.id];
-      if (!p) return;
-      w = Math.max(w, p.x + (n.props.width || 320));
-      h = Math.max(h, p.y + 200);
+      const p = noteAt(n);
+      w = Math.max(w, p.x + (p.w || (n.props && n.props.width) || 320));
+      h = Math.max(h, p.y + DC.noteReserveH);
     });
     return { w: w + 60, h };
-  }, [eff, notePositions, order.join('|'), rest.length]);
-  const placedNotes = freeBox && notePositions ? rest.filter((n) => n && n.props && notePositions[n.props.id]) : [];
-  const flowNotes = freeBox && notePositions ? rest.filter((n) => !(n && n.props && notePositions[n.props.id])) : rest;
+  }, [placed, notePositions, order.join('|'), rest.length]);
 
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
@@ -592,16 +592,16 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           {subtitle && <div style={{ fontSize: 16, color: DC.subtitle }}>{subtitle}</div>}
         </div>
       </div>
-      {flowNotes.length > 0 && <div className="dc-notes" style={{ padding: '0 60px calc(40px * var(--dc-inv-zoom, 1))', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{flowNotes}</div>}
+      {!freeBox && rest.length > 0 && <div className="dc-notes" style={{ padding: '0 60px calc(40px * var(--dc-inv-zoom, 1))', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{rest}</div>}
       <div data-dc-row="" style={freeBox
         ? { position: 'relative', margin: '0 60px', width: freeBox.w, height: freeBox.h }
         : { display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
-        {placedNotes.map((n) => (
-          <div key={n.props.id} data-dc-note={n.props.id} style={{ position: 'absolute', left: notePositions[n.props.id].x, top: notePositions[n.props.id].y }}>{n}</div>
+        {freeBox && rest.map((n, i) => (
+          <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x, top: noteAt(n).y }}>{n}</div>
         ))}
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
-            position={eff && eff[k]} moved={!!(sec.positions && sec.positions[k])}
+            position={placed && placed[k]} moved={!!(sec.positions && sec.positions[k])}
             onMove={(p) => ctx && ctx.patchSection(sid, (x) => ({ positions: { ...(x.positions || {}), [k]: p } }))}
             onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
             label={(sec.labels || {})[k] ?? byId[k].props.label}
@@ -665,6 +665,25 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   );
 }
 
+// One pointer drag on a slot: marks the slot and viewport as moving, reports
+// pointer deltas in world px (screen px ÷ zoom), and cleans up on release.
+// `keepMoving` leaves the viewport's moving flag for the caller to clear.
+function dcDragSession(e, me, { move, up, keepMoving }) {
+  e.preventDefault(); e.stopPropagation();
+  const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
+  const sx = e.clientX, sy = e.clientY;
+  me.classList.add('dc-dragging');
+  const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
+  const onMove = (ev) => move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale);
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp);
+    me.classList.remove('dc-dragging');
+    if (!keepMoving && vp) vp.classList.remove('dc-moving');
+    up(scale, vp);
+  };
+  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
+}
+
 function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, onMove, onResetPosition, onRename, onReorder, onFocus, onDelete }) {
   const { id: rawId, label: rawLabel, width = 260, height = 480, children, style = {}, href } = artboard.props;
   const id = rawId ?? rawLabel;
@@ -684,66 +703,51 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, o
   // drag is a transform (React never writes one on the slot), the drop commits
   // a snapped, clamped position to the section state.
   const onMoveDown = (e) => {
-    e.preventDefault(); e.stopPropagation();
     const me = ref.current;
-    const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
-    const sx = e.clientX, sy = e.clientY;
     let dx = 0, dy = 0;
-    me.classList.add('dc-dragging');
-    const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
-    const move = (ev) => {
-      dx = (ev.clientX - sx) / scale; dy = (ev.clientY - sy) / scale;
-      me.style.transform = `translate(${dx}px, ${dy}px)`;
-    };
-    const up = () => {
-      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
-      me.classList.remove('dc-dragging'); vp && vp.classList.remove('dc-moving');
-      me.style.transition = 'none'; me.style.transform = '';
-      requestAnimationFrame(() => { me.style.transition = ''; });
-      if (Math.hypot(dx, dy) < 4) return;
-      const snap = (v) => Math.max(0, Math.round(v / 10) * 10);
-      onMove && onMove({ x: snap(position.x + dx), y: snap(position.y + dy) });
-    };
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+    dcDragSession(e, me, {
+      move: (wx, wy) => { dx = wx; dy = wy; me.style.transform = `translate(${dx}px, ${dy}px)`; },
+      up: () => {
+        me.style.transition = 'none'; me.style.transform = '';
+        requestAnimationFrame(() => { me.style.transition = ''; });
+        if (Math.hypot(dx, dy) < 4) return;
+        const snap = (v) => Math.max(0, Math.round(v / 10) * 10);
+        onMove && onMove({ x: snap(position.x + dx), y: snap(position.y + dy) });
+      },
+    });
   };
 
   const onGripDown = (e) => {
     if (position) return onMoveDown(e);
-    e.preventDefault(); e.stopPropagation();
     const me = ref.current;
-    const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
     const peers = Array.from(document.querySelectorAll(`[data-dc-section="${sectionId}"] [data-dc-slot]`));
     const homes = peers.map((el) => ({ el, id: el.dataset.dcSlot, x: el.getBoundingClientRect().left }));
     const slotXs = homes.map((h) => h.x);
     const startIdx = order.indexOf(id);
-    const startX = e.clientX;
     let liveOrder = order.slice();
-    me.classList.add('dc-dragging');
-    const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
-    const layout = () => {
+    const layout = (scale) => {
       for (const h of homes) { if (h.id === id) continue; h.el.style.transform = `translateX(${(slotXs[liveOrder.indexOf(h.id)] - h.x) / scale}px)`; }
     };
-    const move = (ev) => {
-      const dx = ev.clientX - startX;
-      me.style.transform = `translateX(${dx / scale}px)`;
-      const cur = homes[startIdx].x + dx;
-      let nearest = 0, best = Infinity;
-      for (let i = 0; i < slotXs.length; i++) { const d = Math.abs(slotXs[i] - cur); if (d < best) { best = d; nearest = i; } }
-      if (liveOrder.indexOf(id) !== nearest) { liveOrder = order.filter((k) => k !== id); liveOrder.splice(nearest, 0, id); layout(); }
-    };
-    const up = () => {
-      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
-      const finalSlot = liveOrder.indexOf(id);
-      me.classList.remove('dc-dragging');
-      me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
-      setTimeout(() => {
-        for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
-        if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
-        vp && vp.classList.remove('dc-moving');
-        requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
-      }, 180);
-    };
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+    dcDragSession(e, me, {
+      keepMoving: true,
+      move: (wx, wy, scale) => {
+        me.style.transform = `translateX(${wx}px)`;
+        const cur = homes[startIdx].x + wx * scale;
+        let nearest = 0, best = Infinity;
+        for (let i = 0; i < slotXs.length; i++) { const d = Math.abs(slotXs[i] - cur); if (d < best) { best = d; nearest = i; } }
+        if (liveOrder.indexOf(id) !== nearest) { liveOrder = order.filter((k) => k !== id); liveOrder.splice(nearest, 0, id); layout(scale); }
+      },
+      up: (scale, vp) => {
+        const finalSlot = liveOrder.indexOf(id);
+        me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
+        setTimeout(() => {
+          for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+          if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
+          vp && vp.classList.remove('dc-moving');
+          requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
+        }, 180);
+      },
+    });
   };
 
   return (

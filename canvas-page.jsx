@@ -20,6 +20,8 @@ const CF = {
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
+// Outward normals of the source and target sides; unknown sides read as r → l.
+const cfNormals = (fs, ts) => [CF_NORMAL[fs] || CF_NORMAL.r, CF_NORMAL[ts] || CF_NORMAL.l];
 
 function cfAnchor(box, side) {
   const { x, y, w, h } = box;
@@ -38,8 +40,7 @@ function cfCurve(a, fs, b, ts, kMul = 1) {
   let k = Math.max(70, dist * 0.42);
   if (fs === ts && (fs === 't' || fs === 'b')) k = Math.min(k, Math.max(90, dist * 0.3));
   k *= kMul;
-  const [nx1, ny1] = CF_NORMAL[fs] || CF_NORMAL.r;
-  const [nx2, ny2] = CF_NORMAL[ts] || CF_NORMAL.l;
+  const [[nx1, ny1], [nx2, ny2]] = cfNormals(fs, ts);
   return cfSeg(a, { x: a.x + nx1 * k, y: a.y + ny1 * k }, { x: b.x + nx2 * k, y: b.y + ny2 * k }, b);
 }
 
@@ -57,8 +58,10 @@ function cfSeg(a, c1, c2, b) {
 }
 
 const cfInside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
-// Number of sample points that fall inside a page; 0 means the curve is clear.
-function cfHits(curve, obstacles, n = 24) {
+// Number of sample points that fall inside an obstacle; 0 means the curve is
+// clear. Every candidate is sampled at the same density so counts compare.
+const CF_SAMPLES = 24;
+function cfHits(curve, obstacles, n = CF_SAMPLES) {
   let hits = 0;
   for (let i = 1; i < n; i++) {
     const p = curve.at(i / n);
@@ -71,20 +74,24 @@ function cfHits(curve, obstacles, n = 24) {
 // follow the anchors' normals, interior tangents follow the direction of
 // travel; `m1`/`m2` scale the tangent lengths at a and b.
 function cfVia(pts, fs, ts, m1, m2) {
-  const [nx1, ny1] = CF_NORMAL[fs] || CF_NORMAL.r;
-  const [nx2, ny2] = CF_NORMAL[ts] || CF_NORMAL.l;
+  const [[nx1, ny1], [nx2, ny2]] = cfNormals(fs, ts);
   const n = pts.length - 1, segs = [];
-  const tan = (i) => { const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n, i + 1)]; const l = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: (q.x - p.x) / l, y: (q.y - p.y) / l }; };
+  // Unit direction of travel through point i (previous point → next point).
+  const dirAt = (i) => { const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n, i + 1)]; const l = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: (q.x - p.x) / l, y: (q.y - p.y) / l }; };
   for (let i = 0; i < n; i++) {
     const p = pts[i], q = pts[i + 1], len = Math.hypot(q.x - p.x, q.y - p.y);
     const k0 = Math.max(40, len * 0.4 * (i === 0 ? m1 : 1)), k1 = Math.max(40, len * 0.4 * (i === n - 1 ? m2 : 1));
-    const t0 = i === 0 ? { x: nx1, y: ny1 } : tan(i), t1 = i === n - 1 ? { x: -nx2, y: -ny2 } : tan(i + 1);
+    const t0 = i === 0 ? { x: nx1, y: ny1 } : dirAt(i), t1 = i === n - 1 ? { x: -nx2, y: -ny2 } : dirAt(i + 1);
     const f0 = i === 0 ? 1 : 0.5, f1 = i === n - 1 ? 1 : 0.5;
     segs.push(cfSeg(p, { x: p.x + t0.x * k0 * f0, y: p.y + t0.y * k0 * f0 }, { x: q.x - t1.x * k1 * f1, y: q.y - t1.y * k1 * f1 }, q));
   }
   const at = (t) => { const i = Math.min(n - 1, Math.floor(t * n)); return segs[i].at(t * n - i); };
   return { d: segs.map((g, i) => (i ? g.d.replace(/^M [^C]+/, '') : g.d)).join(' '), mid: at(0.5), angle: segs[n - 1].angle, at };
 }
+
+// Tangent-length scales (source, target) tried for each bend. Short target
+// tangents let a curve slip into a narrow gap under a neighbouring page.
+const CF_TANGENT_SCALES = [[1, 1], [1, 0.5], [0.5, 0.2], [0.2, 0.1]];
 
 // Route a→b around pages. Candidates, in order: the plain curve, the same
 // curve with shorter or longer tangents, a bend through one waypoint beside
@@ -96,24 +103,23 @@ function cfRoute(a, fs, b, ts, obstacles) {
   if (!obstacles.length) return plain;
   let best = plain, bestHits = cfHits(plain, obstacles);
   if (!bestHits) return plain;
-  const consider = (c) => { const h = cfHits(c, obstacles, 32); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
+  const consider = (c) => { const h = cfHits(c, obstacles); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
   for (const m of [0.6, 0.35, 0.2, 1.6, 2.4]) if (consider(cfCurve(a, fs, b, ts, m))) return best;
   let hit = null;
-  for (let i = 1; i < 24 && !hit; i++) { const p = plain.at(i / 24); hit = obstacles.find((r) => cfInside(p, r)) || null; }
+  for (let i = 1; i < CF_SAMPLES && !hit; i++) { const p = plain.at(i / CF_SAMPLES); hit = obstacles.find((r) => cfInside(p, r)) || null; }
   if (!hit) return best;
   const M = 60, L = hit.x - M, R = hit.x + hit.w + M, T = hit.y - M, B = hit.y + hit.h + M;
   const cx = Math.min(Math.max((a.x + b.x) / 2, hit.x), hit.x + hit.w);
   const cy = Math.min(Math.max((a.y + b.y) / 2, hit.y), hit.y + hit.h);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const near = (p, q) => Math.hypot(p.x - mid.x, p.y - mid.y) - Math.hypot(q.x - mid.x, q.y - mid.y);
-  const ways = [{ x: L, y: cy }, { x: R, y: cy }, { x: cx, y: T }, { x: cx, y: B }].sort(near);
-  const ms = [[1, 1], [1, 0.5], [0.5, 0.5], [1, 0.2], [0.5, 0.2], [0.2, 0.2], [0.2, 0.1]];
-  for (const w of ways) for (const [m1, m2] of ms) if (consider(cfVia([a, w, b], fs, ts, m1, m2))) return best;
+  const byDistanceToMid = (p, q) => Math.hypot(p.x - mid.x, p.y - mid.y) - Math.hypot(q.x - mid.x, q.y - mid.y);
+  const ways = [{ x: L, y: cy }, { x: R, y: cy }, { x: cx, y: T }, { x: cx, y: B }].sort(byDistanceToMid);
+  for (const w of ways) for (const [m1, m2] of CF_TANGENT_SCALES) if (consider(cfVia([a, w, b], fs, ts, m1, m2))) return best;
   // Edge runs: the two corners of one side, nearest corner to a first.
   const edges = [[{ x: L, y: T }, { x: R, y: T }], [{ x: L, y: B }, { x: R, y: B }], [{ x: L, y: T }, { x: L, y: B }], [{ x: R, y: T }, { x: R, y: B }]]
     .map(([p, q]) => (Math.hypot(p.x - a.x, p.y - a.y) <= Math.hypot(q.x - a.x, q.y - a.y) ? [p, q] : [q, p]))
-    .sort((e, f) => near({ x: (e[0].x + e[1].x) / 2, y: (e[0].y + e[1].y) / 2 }, { x: (f[0].x + f[1].x) / 2, y: (f[0].y + f[1].y) / 2 }));
-  for (const [c1, c2] of edges) for (const [m1, m2] of ms) if (consider(cfVia([a, c1, c2, b], fs, ts, m1, m2))) return best;
+    .sort((e, f) => byDistanceToMid({ x: (e[0].x + e[1].x) / 2, y: (e[0].y + e[1].y) / 2 }, { x: (f[0].x + f[1].x) / 2, y: (f[0].y + f[1].y) / 2 }));
+  for (const [c1, c2] of edges) for (const [m1, m2] of CF_TANGENT_SCALES) if (consider(cfVia([a, c1, c2, b], fs, ts, m1, m2))) return best;
   return best;
 }
 
@@ -144,10 +150,16 @@ function cfMeasure(world, flows) {
     boxes.set(file, b);
     return b;
   };
-  // Every page is an obstacle for every flow that does not start or end on it.
+  // Every page and note is an obstacle for every flow that does not start or
+  // end on it.
   const PAD = 24;
+  const pad = (r, file) => ({ file, x: r.x - PAD, y: r.y - PAD, w: r.w + 2 * PAD, h: r.h + 2 * PAD });
   const allBoxes = [];
-  slots.forEach((_, file) => { const r = box(file); if (r) allBoxes.push({ file, x: r.x - PAD, y: r.y - PAD, w: r.w + 2 * PAD, h: r.h + 2 * PAD }); });
+  slots.forEach((_, file) => { const r = box(file); if (r) allBoxes.push(pad(r, file)); });
+  world.querySelectorAll('[data-dc-note]').forEach((el) => {
+    const r = el.getBoundingClientRect();
+    allBoxes.push(pad({ x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale }, null));
+  });
   const out = [];
   flows.forEach((f, i) => {
     const fb = box(f.from), tb = box(f.to);
@@ -247,25 +259,30 @@ function CanvasPage({ page, stateFile }) {
     fetch('./canvas.json').then((r) => r.json()).then(setData).catch((e) => console.error('[canvas-page]', e));
   }, []);
   const flows = React.useMemo(() => ((data && data.flows) || []).filter((f) => f.page === page), [data, page]);
-  if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
-
-  const boards = data.artboards.filter((a) => a.page === page);
-  const notes = data.annotations.filter((a) => a.page === page);
-  const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
-
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
-  const bandOf = (b) => (b.band != null ? b.band : b.y);
-  const items = boards.slice().sort((a, b) => bandOf(a) - bandOf(b) || a.x - b.x);
-  const all = [...boards, ...notes];
-  const minX = Math.min(...all.map((o) => o.x)), minY = Math.min(...all.map((o) => o.y));
-  const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
-  const notePositions = Object.fromEntries(notes.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }]));
+  // Memoised so DCSection's layout memo sees stable objects.
+  const layout = React.useMemo(() => {
+    if (!data) return null;
+    const boards = data.artboards.filter((a) => a.page === page);
+    const notes = data.annotations.filter((a) => a.page === page);
+    const bandOf = (b) => (b.band != null ? b.band : b.y);
+    const items = boards.slice().sort((a, b) => bandOf(a) - bandOf(b) || a.x - b.x);
+    const all = [...boards, ...notes];
+    const minX = Math.min(...all.map((o) => o.x)), minY = Math.min(...all.map((o) => o.y));
+    const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
+    const notePositions = Object.fromEntries(notes.map((n) => [n.id, { x: n.x - minX, y: n.y - minY, w: Math.min(n.w || 480, 760) }]));
+    return { boards, notes, items, positions, notePositions };
+  }, [data, page]);
+  if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
+
+  const { boards, notes, items, positions, notePositions } = layout;
+  const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
       <DCSection id={page} title={pageName} subtitle={`${boards.length} screens`} positions={positions} notePositions={notePositions}>
-        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={Math.min(n.w || 480, 760)}>{n.text}</DCPostIt>)}
+        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={notePositions[n.id].w}>{n.text}</DCPostIt>)}
         {items.map((b) => {
           const stem = b.file.split('/').pop().replace('.dc.html', '');
           return (
