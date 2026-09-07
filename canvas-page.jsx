@@ -179,14 +179,20 @@ function CanvasPage({ page, stateFile }) {
   const notes = data.annotations.filter((a) => a.page === page);
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
 
-  // Rows: distinct y values, in order.
-  const ys = [...new Set(boards.map((b) => b.y))].sort((a, b) => a - b);
+  // Sections: grouped by `band` (the stage's base y). Inside a section the
+  // screens keep their authored x/y, so the stage reads left to right and
+  // staggers instead of sitting on one baseline.
+  const bandOf = (b) => (b.band != null ? b.band : b.y);
+  const ys = [...new Set(boards.map(bandOf))].sort((a, b) => a - b);
   const rows = ys.map((y, i) => {
-    const items = boards.filter((b) => b.y === y).sort((a, b) => a.x - b.x);
+    const items = boards.filter((b) => bandOf(b) === y).sort((a, b) => a.x - b.x);
+    const minX = Math.min(...items.map((b) => b.x));
+    const minY = Math.min(...items.map((b) => b.y));
+    const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
     // Short annotation sitting just above the row → its title.
     const titleNote = notes.filter((n) => n.text.length < 90 && n.y < y && n.y >= y - 450 && !n.text.includes('\n'))
       .sort((a, b) => b.y - a.y)[0];
-    return { y, items, title: titleNote ? titleNote.text : (ys.length > 1 ? `${pageName} · ${i + 1}` : pageName), titleNote };
+    return { y, items, positions, title: titleNote ? titleNote.text : (ys.length > 1 ? `${pageName} · ${i + 1}` : pageName), titleNote };
   });
   const used = new Set(rows.map((r) => r.titleNote).filter(Boolean));
   // Remaining notes attach to the first row whose y is at or after them (else the first row).
@@ -200,7 +206,7 @@ function CanvasPage({ page, stateFile }) {
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
       {rows.map((r, i) => (
-        <DCSection key={r.y} id={`${page}-row-${i}`} title={r.title}
+        <DCSection key={r.y} id={`${page}-row-${i}`} title={r.title} positions={r.positions}
           subtitle={i === 0 ? `${boards.length} screens` : undefined}>
           {r.notes.map((n) => <DCPostIt key={n.id} width={Math.min(n.w || 480, 760)}>{n.text}</DCPostIt>)}
           {r.items.map((b) => {

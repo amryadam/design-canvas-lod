@@ -534,7 +534,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   );
 }
 
-function DCSection({ id, title, subtitle, children, gap = 48 }) {
+// `positions` (id -> {x, y}, section-local px) switches the section from a flex
+// row to free placement: slots sit exactly where the canvas file puts them, so a
+// flow can stagger down and across instead of snapping to one baseline.
+function DCSection({ id, title, subtitle, children, gap = 48, positions }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
   const all = React.Children.toArray(dcFlatten(children));
@@ -550,9 +553,20 @@ function DCSection({ id, title, subtitle, children, gap = 48 }) {
     return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
   }, [sec.order, srcOrder.join('|')]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
+  const freeBox = React.useMemo(() => {
+    if (!positions) return null;
+    let w = 0, h = 0;
+    order.forEach((k) => {
+      const p = positions[k], a = byId[k];
+      if (!p || !a) return;
+      w = Math.max(w, p.x + (a.props.width || 0));
+      h = Math.max(h, p.y + (a.props.height || 0));
+    });
+    return { w: w + 60, h };
+  }, [positions, order.join('|')]);
 
   return (
-    <div data-dc-section={sid} style={{ marginBottom: 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
+    <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
       <div style={{ padding: '0 60px' }}>
         <div className="dc-sectionhead" style={{ paddingBottom: 36 }}>
           <DCEditable tag="div" value={sec.title ?? title}
@@ -562,9 +576,12 @@ function DCSection({ id, title, subtitle, children, gap = 48 }) {
         </div>
       </div>
       {rest.length > 0 && <div className="dc-notes" style={{ padding: '0 60px 40px', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{rest}</div>}
-      <div data-dc-row="" style={{ display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
+      <div data-dc-row="" style={freeBox
+        ? { position: 'relative', margin: '0 60px', width: freeBox.w, height: freeBox.h }
+        : { display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
+            position={positions && positions[k]}
             label={(sec.labels || {})[k] ?? byId[k].props.label}
             onRename={(v) => ctx && ctx.patchSection(sid, (x) => ({ labels: { ...x.labels, [k]: v } }))}
             onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
@@ -626,7 +643,7 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   );
 }
 
-function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorder, onFocus, onDelete }) {
+function DCArtboardFrame({ sectionId, artboard, label, order, position, onRename, onReorder, onFocus, onDelete }) {
   const { id: rawId, label: rawLabel, width = 260, height = 480, children, style = {}, href } = artboard.props;
   const id = rawId ?? rawLabel;
   const ref = React.useRef(null);
@@ -680,12 +697,14 @@ function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorde
   };
 
   return (
-    <div ref={ref} data-dc-slot={id} style={{ position: 'relative', flexShrink: 0 }}>
+    <div ref={ref} data-dc-slot={id} style={position
+      ? { position: 'absolute', left: position.x, top: position.y }
+      : { position: 'relative', flexShrink: 0 }}>
       <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="dc-labelrow">
-          <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
+          {!position && <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
             <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6.5" r="1.1"/><circle cx="7" cy="6.5" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
-          </div>
+          </div>}
           <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
             <DCEditable value={label} onChange={onRename} onClick={(e) => e.stopPropagation()} style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
           </div>
