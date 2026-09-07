@@ -179,7 +179,8 @@ const dcSnap = {
   emit(src, data) { const s = this.subs.get(src); if (s) s.forEach((cb) => { try { cb(data); } catch {} }); },
   async make({ src, w, h }) {
     const html = await (await fetch(src)).text();
-    const hash = dcHash(html) + ':' + w + 'x' + h;
+    // Invalidate snapshots made before CSS assets/font subsets were inlined.
+    const hash = 'v2:' + dcHash(html) + ':' + w + 'x' + h;
     let cached = this.mem.get(src) || (await this.dbGet(src));
     if (cached && cached.hash === hash) { this.mem.set(src, cached); this.emit(src, cached.data); return; }
     const data = await dcRasterize(html, new URL(src, location.href).href, w, h);
@@ -217,31 +218,74 @@ const dcBlobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileRea
 function dcFontCss(href) {
   if (!dcSnap.fontCss.has(href)) dcSnap.fontCss.set(href, (async () => {
     const css = await (await fetch(href)).text();
-    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
-      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
-    const out = [];
-    for (const b of blocks) {
-      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
-      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
-    }
-    return out.join('\n');
+    // A subset comment belongs to the following rule, including the last face.
+    // Some responses have no subset comments; keep those faces as well.
+    const blocks = [...css.matchAll(/(?:\/\*\s*([^*]*?)\s*\*\/\s*)?@font-face\s*\{[^}]*\}/g)]
+      .filter((m) => !m[1] || /^(latin|arabic)$/.test(m[1].trim()))
+      .map((m) => m[0]);
+    return dcInlineCss(blocks.join('\n'), href);
   })().catch(() => ''));
   return dcSnap.fontCss.get(href);
 }
 
-// Fetch-free inliner shared by snapshots and exports: parse → strip scripts →
+async function dcReplaceAsync(text, pattern, replace) {
+  let out = '', last = 0;
+  for (const m of text.matchAll(pattern)) {
+    out += text.slice(last, m.index) + await replace(m);
+    last = m.index + m[0].length;
+  }
+  return out + text.slice(last);
+}
+
+// Resolve each stylesheet's resources against its own URL before embedding it.
+// Expand imports first so nested relative URLs retain the correct base.
+async function dcInlineCss(css, baseHref, ancestors = new Set()) {
+  const chain = new Set(ancestors); chain.add(baseHref);
+  const unquote = (s) => s.trim().replace(/^(['"])([\s\S]*)\1$/, '$2');
+  css = await dcReplaceAsync(css, /\/\*[\s\S]*?\*\/|@import\s+(?:url\(\s*((?:"[^"]*"|'[^']*'|[^)])*)\s*\)|("[^"]*"|'[^']*'))\s*([^;]*);/gi, async (m) => {
+    if (m[0].startsWith('/*')) return m[0];
+    try {
+      const href = new URL(unquote(m[1] || m[2]), baseHref).href;
+      if (chain.has(href)) return '';
+      const response = await fetch(href); if (!response.ok) return '';
+      const body = await dcInlineCss(await response.text(), href, chain);
+      const media = m[3].trim();
+      return media ? `@media ${media}{${body}}` : body;
+    } catch { return ''; }
+  });
+  return dcReplaceAsync(css, /\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^)]*)\s*\)/gi, async (m) => {
+    if (m[1] === undefined) return m[0];
+    const raw = unquote(m[1]);
+    if (!raw || /^(data:|#)/i.test(raw)) return m[0];
+    try {
+      const url = new URL(raw, baseHref);
+      const response = await fetch(url.href); if (!response.ok) return 'url("")';
+      const data = await dcBlobToDataUrl(await response.blob());
+      return `url("${data}${url.hash}")`;
+    } catch { return 'url("")'; }
+  });
+}
+
+// Self-contained document inliner shared by snapshots and exports: strip scripts →
 // inline same-origin CSS/images + Google Fonts → serialized XHTML.
 async function dcInlineDoc(html, baseHref) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const base = doc.createElement('base'); base.href = baseHref; doc.head.prepend(base);
   doc.querySelectorAll('script, iframe, video, audio, noscript').forEach((e) => e.remove());
+  for (const style of [...doc.querySelectorAll('style')]) style.textContent = await dcInlineCss(style.textContent, baseHref);
+  for (const el of [...doc.querySelectorAll('[style]')]) el.setAttribute('style', await dcInlineCss(el.getAttribute('style'), baseHref));
   for (const link of [...doc.querySelectorAll('link[rel~="stylesheet"]')]) {
     const url = link.href; let css = '';
     try {
       if (/^https:\/\/fonts\.googleapis\.com\//.test(url)) css = await dcFontCss(url);
-      else if (new URL(url).origin === location.origin) css = await (await fetch(url)).text();
+      else if (new URL(url).origin === location.origin) {
+        const response = await fetch(url);
+        if (response.ok) css = await dcInlineCss(await response.text(), url);
+      }
     } catch {}
-    const st = doc.createElement('style'); st.textContent = css; link.replaceWith(st);
+    const st = doc.createElement('style'); st.textContent = css;
+    if (link.media) st.media = link.media;
+    link.replaceWith(st);
   }
   doc.querySelectorAll('link').forEach((e) => e.remove());
   for (const img of [...doc.images]) {
@@ -304,42 +348,58 @@ function dcFlatten(children) {
 
 const DC_STATE_FILE = '.design-canvas.state.json';
 
-function DesignCanvas({ children, minScale, maxScale, style, stateFile = DC_STATE_FILE }) {
-  const [state, setState] = React.useState({ sections: {}, focus: null });
-  const [ready, setReady] = React.useState(false);
-  const didRead = React.useRef(false);
-  const skipNextWrite = React.useRef(false);
-
-  // Outside claude.ai/design the state file cannot be written, so the browser
-  // keeps a copy: read it when the file is missing, write it alongside.
+function DesignCanvas({ stateFile = DC_STATE_FILE, ...props }) {
+  // A different document gets a fresh restoration, focus and save lifecycle.
   const lsKey = 'dc-state:' + location.pathname + ':' + stateFile;
+  return <DCStateCanvas key={lsKey} {...props} stateFile={stateFile} lsKey={lsKey} />;
+}
+
+function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }) {
+  const [state, setState] = React.useState({ sections: {}, focus: null, updatedAt: 0 });
+  const [ready, setReady] = React.useState(false);
+  const savedSections = React.useRef(null);
+  const fileWrites = React.useRef(Promise.resolve());
+
+  // Prefer the newest revision. For unversioned legacy saves, the browser copy
+  // wins: it may hold edits made where the existing file cannot be written.
   React.useEffect(() => {
     let off = false;
-    fetch('./' + stateFile)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const valid = (s) => s && s.sections && typeof s.sections === 'object' && !Array.isArray(s.sections);
+    const revision = (s) => Number.isFinite(s?.updatedAt) ? s.updatedAt : 0;
+    fetch('./' + stateFile, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
       .then((saved) => {
-        if (!saved || !saved.sections) { try { saved = JSON.parse(localStorage.getItem(lsKey) || 'null'); } catch { saved = null; } }
-        if (off || !saved || !saved.sections) return;
-        skipNextWrite.current = true;
-        setState((s) => ({ ...s, sections: saved.sections }));
+        let local = null;
+        try { local = JSON.parse(localStorage.getItem(lsKey) || 'null'); } catch {}
+        if (valid(local) && (!valid(saved) || revision(local) >= revision(saved))) saved = local;
+        if (off) return;
+        const sections = valid(saved) ? saved.sections : {};
+        savedSections.current = sections;
+        setState({ sections, focus: null, updatedAt: revision(saved) });
       })
       .catch(() => {})
-      .finally(() => { didRead.current = true; if (!off) setReady(true); });
-    const t = setTimeout(() => { if (!off) setReady(true); }, 150);
-    return () => { off = true; clearTimeout(t); };
-  }, []);
+      .finally(() => { clearTimeout(timeout); if (!off) setReady(true); });
+    return () => { off = true; clearTimeout(timeout); controller.abort(); };
+  }, [lsKey, stateFile]);
 
   React.useEffect(() => {
-    if (!didRead.current) return;
-    if (skipNextWrite.current) { skipNextWrite.current = false; return; }
-    const t = setTimeout(() => {
-      const json = JSON.stringify({ sections: state.sections });
-      try { localStorage.setItem(lsKey, json); } catch {}
-      try { window.omelette?.writeFile(stateFile, json).catch(() => {}); } catch {}
-    }, 400);
-    return () => clearTimeout(t);
-  }, [state.sections]);
+    if (!ready || state.sections === savedSections.current) return;
+    const json = JSON.stringify({ sections: state.sections, updatedAt: state.updatedAt });
+    // Save locally immediately, including when navigation beats the file debounce.
+    try { localStorage.setItem(lsKey, json); } catch {}
+    const write = () => {
+      clearTimeout(t);
+      if (savedSections.current === state.sections) return;
+      savedSections.current = state.sections;
+      fileWrites.current = fileWrites.current.then(() => window.omelette?.writeFile(stateFile, json)).catch(() => {});
+    };
+    const t = setTimeout(write, 400);
+    window.addEventListener('pagehide', write);
+    return () => { clearTimeout(t); window.removeEventListener('pagehide', write); };
+  }, [ready, state.sections, state.updatedAt, lsKey, stateFile]);
 
   const registry = {}, sectionMeta = {}, sectionOrder = [];
   dcFlatten(children).forEach((sec) => {
@@ -373,7 +433,8 @@ function DesignCanvas({ children, minScale, maxScale, style, stateFile = DC_STAT
     state,
     section: (id) => state.sections[id] || {},
     patchSection: (id, p) => setState((s) => ({
-      ...s, sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
     })),
     setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
   }), [state]);
@@ -404,6 +465,12 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const saveT = React.useRef(0);
   const raf = React.useRef(0);
   const lastPostedScale = React.useRef();
+  // Restoration and first fit: the fit waits until the saved view has been
+  // read and the children exist, so it cannot run against an empty world.
+  const restoredView = React.useRef(false);
+  const fittedView = React.useRef(false);
+  const hasContent = React.Children.toArray(children).length > 0;
+
   // Back to content: shown once the view settles with no section on screen.
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
@@ -498,39 +565,47 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
   React.useLayoutEffect(() => {
     const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
-    let restored = false;
     try {
       const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
       if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
         tf.current = { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) };
-        restored = true; apply(true);
+        restoredView.current = true; apply(true);
       }
     } catch {}
-    // First visit: fit the widest section to the viewport width.
-    const fit = setTimeout(() => {
-      if (restored) return;
+    window.addEventListener('pagehide', flush);
+    // The pill timer and the Back to content tween live as long as the
+    // viewport, so they are stopped here and not in the fit effect, which
+    // re-runs whenever the content or the scale bounds change.
+    return () => {
+      clearTimeout(lostT.current);
+      if (tween.current) cancelAnimationFrame(tween.current);
+      window.removeEventListener('pagehide', flush); flush();
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!hasContent) return;
+    // Wait for actual content, not a timer racing the state-file request.
+    const fit = requestAnimationFrame(() => {
+      if (restoredView.current || fittedView.current) return;
       const w = worldRef.current; if (!w) return;
       let maxW = 0;
       w.querySelectorAll('[data-dc-row]').forEach((r) => { maxW = Math.max(maxW, r.scrollWidth + 120); });
       if (!maxW) return;
-      const s = Math.min(1, Math.max(minScale, (window.innerWidth) / maxW));
+      const s = Math.min(1, maxScale, Math.max(minScale, vpRef.current.clientWidth / maxW));
+      fittedView.current = true;
       tf.current = { x: 0, y: 0, scale: s }; apply(true);
-    }, 60);
+    });
     const rescue = setTimeout(() => {
-      const slots = document.querySelectorAll('[data-dc-slot]');
+      const slots = worldRef.current.querySelectorAll('[data-dc-slot]');
       if (!slots.length) return;
       const vw = window.innerWidth, vh = window.innerHeight;
       for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > 0 && r.left < vw && r.bottom > 0 && r.top < vh) return; }
       const r = slots[0].getBoundingClientRect(); const t = tf.current;
       t.x += 60 - r.left; t.y += 100 - r.top; apply(true);
     }, 500);
-    window.addEventListener('pagehide', flush);
-    return () => {
-      clearTimeout(fit); clearTimeout(rescue); clearTimeout(lostT.current);
-      if (tween.current) cancelAnimationFrame(tween.current);
-      window.removeEventListener('pagehide', flush); flush();
-    };
-  }, []);
+    return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
+  }, [hasContent, apply, minScale, maxScale]);
 
   // The pages can also leave the screen with the view held still: the window
   // gets smaller, or the section box grows as a page is moved. Neither goes
@@ -642,7 +717,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     <div ref={vpRef} className="design-canvas"
       style={{ height: '100vh', width: '100vw', background: DC.bg, overflow: 'hidden', overscrollBehavior: 'none', touchAction: 'none', position: 'relative', fontFamily: DC.font, boxSizing: 'border-box', ...style }}>
       <div style={{ position: 'absolute', inset: 0, backgroundImage: `radial-gradient(${DC.dot} 1px, transparent 1px)`, backgroundSize: `${DC.dotSize}px ${DC.dotSize}px`, pointerEvents: 'none' }} />
-      <div ref={worldRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: 'calc(72px * var(--dc-inv-zoom,1)) 0 80px' }}>
+      <div ref={worldRef} data-dc-world="" style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: 'calc(72px * var(--dc-inv-zoom,1)) 0 80px' }}>
         {children}
       </div>
       {lost && (

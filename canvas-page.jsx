@@ -258,7 +258,7 @@ function cfMeasure(world, flows) {
   });
   cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
-  out.sig = out.map((o) => o.d + '@' + Math.round(o.mid.x) + ',' + Math.round(o.mid.y)).join('|');
+  out.sig = JSON.stringify(out.map((o) => [o.key, o.flowKey, o.label, o.dashed, o.d, Math.round(o.mid.x), Math.round(o.mid.y), o.fb, o.tb]));
   return out;
 }
 
@@ -296,12 +296,14 @@ function CanvasFlows({ flows: authored, section }) {
   React.useEffect(() => () => { clearTimeout(hoverTimer.current); cancelDrag.current && cancelDrag.current(); }, []);
 
   React.useEffect(() => {
-    const el = document.querySelector('.design-canvas > div');
+    // The world is the transformed layer, not whatever sits first under the
+    // viewport: the grid layer is a sibling in front of it.
+    const el = document.querySelector('[data-dc-world]');
     if (el) setWorld(el);
   }, []);
 
   React.useEffect(() => {
-    if (!world || !flows.length) return;
+    if (!world || !flows.length) { setPaths([]); setHover(null); return; }
     let raf = 0, timer = 0, off = false;
     const measure = () => {
       if (off) return;
