@@ -667,20 +667,23 @@ Keep `dcBlobToDataUrl`, `dcFontCss`, `dcInlineDoc` and `dcExportArtboard`.
 const dcFontCache = new Map();
 ```
 
-and inside the function replace the three `dcSnap.fontCss` uses:
+and then change ONLY the two cache lines inside the function — the first line
+and the last. **Leave the body exactly as it is.** The `dev` merge rewrote it:
+the subset comment now attaches to the rule that FOLLOWS it, faces with no
+subset comment are kept, and the inlining is delegated to `dcInlineCss`. The
+regression check "Google Fonts preserves Arabic and final Latin face" asserts
+that behaviour, and the older `css.split('@font-face')` version fails it.
 
 ```js
 function dcFontCss(href) {
   if (!dcFontCache.has(href)) dcFontCache.set(href, (async () => {
     const css = await (await fetch(href)).text();
-    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
-      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
-    const out = [];
-    for (const b of blocks) {
-      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
-      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
-    }
-    return out.join('\n');
+    // A subset comment belongs to the following rule, including the last face.
+    // Some responses have no subset comments; keep those faces as well.
+    const blocks = [...css.matchAll(/(?:\/\*\s*([^*]*?)\s*\*\/\s*)?@font-face\s*\{[^}]*\}/g)]
+      .filter((m) => !m[1] || /^(latin|arabic)$/.test(m[1].trim()))
+      .map((m) => m[0]);
+    return dcInlineCss(blocks.join('\n'), href);
   })().catch(() => ''));
   return dcFontCache.get(href);
 }
