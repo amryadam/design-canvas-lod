@@ -19,6 +19,9 @@ const CF = {
   // on one screen, as in fatoora), then shrink with the world so they never
   // balloon over the artboards when zoomed far out.
   inv: 'min(var(--dc-inv-zoom, 1), 12)',
+  // Lines thicken as the canvas zooms out (2 px at 100%, 4 px at 25%, 6 px
+  // from 11% down), so they stay visible beside tiny cards.
+  thick: 'clamp(1, sqrt(var(--dc-inv-zoom, 1)), 3)',
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -299,11 +302,11 @@ function CanvasFlows({ flows }) {
           const on = hover === i, dim = hover != null && !on;
           const ink = on ? CF.hover : CF.stroke;
           return (
-            <g key={p.key} fill="none" stroke={ink} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round"
-              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
+            <g key={p.key} fill="none" stroke={ink} strokeLinecap="round" strokeLinejoin="round"
+              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s', strokeWidth: `calc(${CF.width}px * ${CF.thick})` }}>
               <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
-                style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
+                style={{ transform: `scale(calc(${CF.inv} * ${CF.thick}))`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
             </g>
@@ -333,6 +336,40 @@ const cpChip = (w) => CP_CHIPS[w] || String(w);
 // it instead, so a primary with size variants drops it from its label.
 const cpStripSize = (t) => t.replace(/\s*·\s*\d{3,4}\s*[×x]\s*\d{3,4}[^·]*$/u, '').trim() || t;
 
+// ---- Variants ----------------------------------------------------------------
+// Copies of one screen (sizes, Arabic, error and empty states) fold into one
+// slot. Nothing in canvas.json has to change: a file whose CamelCase name
+// starts with another file's name on the same page is a variant of it
+// (SignInWrong → SignIn, UserCreated2K → UserCreated, Main2K → Main), and the
+// longest such name wins (UserCreateMinimizedPhone → UserCreateMinimized →
+// UserCreate). Explicit fields override the guess: `variantOf` (a file, or
+// null to stay a slot), `lang` ("ar"), `state` (free text, the chip label).
+const CP_SIZE_WORDS = new Set(['Desktop', '2K', '4K', 'Tablet', 'Phone', 'Laptop', 'Mobile']);
+const cpTokens = (file) => file.split('/').pop().replace(/\.dc\.html$/, '').match(/\d+[A-Z]?(?![a-z])|[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) || [];
+function cpVariants(onPage) {
+  const byFile = new Map(onPage.map((a) => [a.file, a]));
+  const parentOf = (a) => {
+    if ('variantOf' in a) return a.variantOf && byFile.has(a.variantOf) ? a.variantOf : null;
+    const dir = a.file.includes('/') ? a.file.slice(0, a.file.lastIndexOf('/') + 1) : '';
+    const t = cpTokens(a.file);
+    for (let n = t.length - 1; n >= 1; n--) { const f = dir + t.slice(0, n).join('') + '.dc.html'; if (byFile.has(f)) return f; }
+    return null;
+  };
+  const primaryOf = (file) => {
+    const seen = new Set();
+    for (let a = byFile.get(file), p; a && (p = parentOf(a)) && !seen.has(a.file); a = byFile.get(p)) { seen.add(a.file); file = p; }
+    return file;
+  };
+  const axesOf = (a, root) => {
+    const extra = cpTokens(a.file).slice(cpTokens(root.file).length);
+    const arabic = extra.includes('Arabic') || /\bRTL\b/.test(a.title || '');
+    const lang = a.lang || (arabic ? 'ar' : 'en');
+    const state = a.state != null ? a.state : extra.filter((w) => w !== 'Arabic' && !CP_SIZE_WORDS.has(w)).join(' ');
+    return { lang, state };
+  };
+  return { primaryOf, axesOf };
+}
+
 function CanvasPage({ page, stateFile }) {
   const [data, setData] = React.useState(null);
   React.useEffect(() => {
@@ -340,18 +377,12 @@ function CanvasPage({ page, stateFile }) {
   }, []);
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
-  // An artboard with `variantOf` is a size variant of another file on the
-  // same page: it takes no slot of its own, but joins the primary's size
-  // chips. Memoised so DCSection's layout memo sees stable objects.
+  // Variants (see cpVariants) take no slot of their own; they join the
+  // primary's chips. Memoised so DCSection's layout memo sees stable objects.
   const layout = React.useMemo(() => {
     if (!data) return null;
     const onPage = data.artboards.filter((a) => a.page === page);
-    const files = new Set(onPage.map((a) => a.file));
-    const primaryOf = (file) => {
-      const seen = new Set();
-      for (let b = onPage.find((a) => a.file === file); b && b.variantOf && files.has(b.variantOf) && !seen.has(b.file); b = onPage.find((a) => a.file === b.variantOf)) { seen.add(b.file); file = b.variantOf; }
-      return file;
-    };
+    const { primaryOf, axesOf } = cpVariants(onPage);
     const boards = onPage.filter((a) => primaryOf(a.file) === a.file);
     const sizesOf = Object.fromEntries(boards.map((b) => [b.file, [b]]));
     onPage.forEach((a) => { const p = primaryOf(a.file); if (p !== a.file) sizesOf[p].push(a); });
@@ -366,7 +397,7 @@ function CanvasPage({ page, stateFile }) {
       const list = sizesOf[b.file];
       if (list.length < 2) return [b.file, null];
       list.sort((p, q) => (q.w - p.w) || (q.h - p.h));
-      return [b.file, list.map((s) => ({ file: s.file, w: s.w, h: s.h, href: './' + s.file, title: s.title || s.file, chip: cpChip(s.w) }))];
+      return [b.file, list.map((s) => ({ file: s.file, w: s.w, h: s.h, href: './' + s.file, title: s.title || s.file, chip: cpChip(s.w), primary: s.file === b.file, ...axesOf(s, b) }))];
     }));
     return { boards, notes, items, positions, notePositions, sizes, primaryOf, variants: onPage.length - boards.length };
   }, [data, page]);
@@ -375,13 +406,14 @@ function CanvasPage({ page, stateFile }) {
     if (!data || !layout) return [];
     const seen = new Set();
     return (data.flows || []).filter((f) => f.page === page).map((f) => ({ ...f, from: layout.primaryOf(f.from), to: layout.primaryOf(f.to) }))
+      .filter((f) => f.from !== f.to)
       .filter((f) => { const k = `${f.from}>${f.to}>${f.label || ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
   }, [data, layout, page]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 
   const { notes, items, positions, notePositions, sizes, variants } = layout;
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
-  const subtitle = `${items.length} screens` + (variants ? ` · ${variants} more sizes` : '');
+  const subtitle = `${items.length} screens` + (variants ? ` · ${variants} variant${variants === 1 ? '' : 's'}` : '');
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
@@ -392,7 +424,7 @@ function CanvasPage({ page, stateFile }) {
           const label = sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
           return (
             <DCArtboard key={b.file} id={b.file} label={label}
-              width={b.w} height={b.h} href={'./' + b.file} sizes={sizes[b.file]}>
+              width={b.w} height={b.h} href={'./' + b.file} variants={sizes[b.file]}>
               {(s) => {
                 const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
                 return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;

@@ -16,13 +16,23 @@ const GROUP_GAP = 1.5; // × ROW gap between unconnected flow groups
 const ORPHAN_COLS = 4; // artboards that take part in no flow, gridded at the bottom
 
 function layoutPage(data, page) {
-  // Size variants (`variantOf`) share their primary's slot: they get no
-  // position of their own, and a flow drawn on one lands on the primary.
+  // Variants share their primary's slot (same rule as canvas-page.jsx: a file
+  // whose CamelCase name starts with another file's name folds into it, and
+  // `variantOf` overrides the guess): they get no position of their own, and a
+  // flow drawn on one lands on the primary.
   const onPage = data.artboards.filter((a) => a.page === page);
-  const files = new Set(onPage.map((a) => a.file));
+  const byFile0 = new Map(onPage.map((a) => [a.file, a]));
+  const tokens = (file) => file.split('/').pop().replace(/\.dc\.html$/, '').match(/\d+[A-Z]?(?![a-z])|[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) || [];
+  const parentOf = (a) => {
+    if ('variantOf' in a) return a.variantOf && byFile0.has(a.variantOf) ? a.variantOf : null;
+    const dir = a.file.includes('/') ? a.file.slice(0, a.file.lastIndexOf('/') + 1) : '';
+    const t = tokens(a.file);
+    for (let n = t.length - 1; n >= 1; n--) { const f = dir + t.slice(0, n).join('') + '.dc.html'; if (byFile0.has(f)) return f; }
+    return null;
+  };
   const primaryOf = (file) => {
     const seen = new Set();
-    for (let b = onPage.find((a) => a.file === file); b && b.variantOf && files.has(b.variantOf) && !seen.has(b.file); b = onPage.find((a) => a.file === b.variantOf)) { seen.add(b.file); file = b.variantOf; }
+    for (let a = byFile0.get(file), p; a && (p = parentOf(a)) && !seen.has(a.file); a = byFile0.get(p)) { seen.add(a.file); file = p; }
     return file;
   };
   const boards = onPage.filter((a) => primaryOf(a.file) === a.file);
