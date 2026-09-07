@@ -19,9 +19,6 @@ const CF = {
   // on one screen, as in fatoora), then shrink with the world so they never
   // balloon over the artboards when zoomed far out.
   inv: 'min(var(--dc-inv-zoom, 1), 12)',
-  // Lines thicken as the canvas zooms out (2 px at 100%, 4 px at 25%, 6 px
-  // from 11% down), so they stay visible beside tiny cards.
-  thick: 'clamp(1, sqrt(var(--dc-inv-zoom, 1)), 3)',
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -302,11 +299,11 @@ function CanvasFlows({ flows }) {
           const on = hover === i, dim = hover != null && !on;
           const ink = on ? CF.hover : CF.stroke;
           return (
-            <g key={p.key} fill="none" stroke={ink} strokeLinecap="round" strokeLinejoin="round"
-              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s', strokeWidth: `calc(${CF.width}px * ${CF.thick})` }}>
+            <g key={p.key} fill="none" stroke={ink} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round"
+              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
               <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
-                style={{ transform: `scale(calc(${CF.inv} * ${CF.thick}))`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
+                style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
             </g>
