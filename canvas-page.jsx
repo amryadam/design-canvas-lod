@@ -1,6 +1,6 @@
-// canvas-page.jsx — reads canvas.json, groups one page's artboards into rows
-// (sections) by their y coordinate, and renders them on DesignCanvas with each
-// screen embedded as a lazy iframe of its .dc.html file. Flow connectors
+// canvas-page.jsx — reads canvas.json and renders one page as a single free
+// canvas: every artboard and note at its own x/y, each screen embedded as a
+// lazy iframe of its .dc.html file. Flow connectors
 // from canvas.json "flows" are drawn between artboards by CanvasFlows.
 // Requires design-canvas.jsx to be loaded first (globals DesignCanvas etc).
 
@@ -182,47 +182,29 @@ function CanvasPage({ page, stateFile }) {
   const notes = data.annotations.filter((a) => a.page === page);
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
 
-  // Sections: grouped by `band` (the stage's base y). Inside a section the
-  // screens keep their authored x/y, so the stage reads left to right and
-  // staggers instead of sitting on one baseline.
+  // One free canvas per page: every artboard and note sits at its canvas.json
+  // x/y, relative to the page's top-left corner (notes can sit above y = 0).
   const bandOf = (b) => (b.band != null ? b.band : b.y);
-  const ys = [...new Set(boards.map(bandOf))].sort((a, b) => a - b);
-  const rows = ys.map((y, i) => {
-    const items = boards.filter((b) => bandOf(b) === y).sort((a, b) => a.x - b.x);
-    const minX = Math.min(...items.map((b) => b.x));
-    const minY = Math.min(...items.map((b) => b.y));
-    const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
-    // Short annotation sitting just above the row → its title.
-    const titleNote = notes.filter((n) => n.text.length < 90 && n.y < y && n.y >= y - 450 && !n.text.includes('\n'))
-      .sort((a, b) => b.y - a.y)[0];
-    return { y, items, positions, title: titleNote ? titleNote.text : (ys.length > 1 ? `${pageName} · ${i + 1}` : pageName), titleNote };
-  });
-  const used = new Set(rows.map((r) => r.titleNote).filter(Boolean));
-  // Remaining notes attach to the first row whose y is at or after them (else the first row).
-  const longNotes = notes.filter((n) => !used.has(n));
-  rows.forEach((r) => (r.notes = []));
-  longNotes.forEach((n) => {
-    const r = rows.find((row) => row.y >= n.y) || rows[0];
-    if (r) r.notes.push(n);
-  });
+  const items = boards.slice().sort((a, b) => bandOf(a) - bandOf(b) || a.x - b.x);
+  const all = [...boards, ...notes];
+  const minX = Math.min(...all.map((o) => o.x)), minY = Math.min(...all.map((o) => o.y));
+  const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
+  const notePositions = Object.fromEntries(notes.map((n) => [n.id, { x: n.x - minX, y: n.y - minY }]));
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
-      {rows.map((r, i) => (
-        <DCSection key={r.y} id={`${page}-row-${i}`} title={r.title} positions={r.positions}
-          subtitle={i === 0 ? `${boards.length} screens` : undefined}>
-          {r.notes.map((n) => <DCPostIt key={n.id} width={Math.min(n.w || 480, 760)}>{n.text}</DCPostIt>)}
-          {r.items.map((b) => {
-            const stem = b.file.split('/').pop().replace('.dc.html', '');
-            return (
-              <DCArtboard key={b.file} id={b.file} label={b.title || stem}
-                width={b.w} height={b.h} href={'./' + b.file}>
-                <DCLazyFrame src={'./' + b.file} href={b.file} title={b.title || b.file} width={b.w} height={b.h} />
-              </DCArtboard>
-            );
-          })}
-        </DCSection>
-      ))}
+      <DCSection id={page} title={pageName} subtitle={`${boards.length} screens`} positions={positions} notePositions={notePositions}>
+        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={Math.min(n.w || 480, 760)}>{n.text}</DCPostIt>)}
+        {items.map((b) => {
+          const stem = b.file.split('/').pop().replace('.dc.html', '');
+          return (
+            <DCArtboard key={b.file} id={b.file} label={b.title || stem}
+              width={b.w} height={b.h} href={'./' + b.file}>
+              <DCLazyFrame src={'./' + b.file} href={b.file} title={b.title || b.file} width={b.w} height={b.h} />
+            </DCArtboard>
+          );
+        })}
+      </DCSection>
       <CanvasFlows flows={flows} />
     </DesignCanvas>
   );
