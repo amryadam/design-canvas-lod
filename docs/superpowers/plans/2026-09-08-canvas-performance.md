@@ -437,16 +437,38 @@ Fill the table below in with the numbers you got. Later tasks compare against **
 
 #### Baseline (fill in — reference numbers from the profiling run in brackets)
 
-| Measure | This machine | Reference |
-|---|---|---|
-| `zoomFrameCost.transformOnly` | | 0.01 ms |
-| `zoomFrameCost.withInvZoom` | | 0.33–0.42 ms |
-| `invWrites.invWrites` | | 90 |
-| `zoomFrames.median` / `over16` | | 8.3 ms / 0 (thumbs) |
-| `liveByZoom` at 0.05 | | 0 live (snapshots) |
-| `flowCost.msPerCall` | | 0.51 ms |
-| `dragFlowCost.cfCalls` / `cfMs` | | 44 / ~22 ms |
-| `patchCost.variantSwitchMs` / `controlMs` | | 6.7 ms / 2.0 ms |
+Taken on 2026-09-08 at base `e8e871c`, worktree served on :8020, viewport
+1066 x 666, DPR 3, ~144 Hz display (6.9 ms frame budget), no CPU throttling,
+regression suite 11/11 PASS.
+
+| Measure | This machine | Reference | Verdict |
+|---|---|---|---|
+| `zoomFrameCost.transformOnly` | **0.01 ms** | 0.01 ms | matches |
+| `zoomFrameCost.withInvZoom` | **0.31 ms** (0.22 of it from an unread property) | 0.33–0.42 ms | matches |
+| `invWrites.invWrites` | **90** of 90 ticks | 90 | matches |
+| `zoomFrames.median` / `over16` | **6.9 ms / 0** (max 8.6, 0 live, 10 on screen) | 8.3 ms / 0 | matches |
+| `liveByZoom` at 0.05 | **0 live**, 10 on screen | 0 live | matches |
+| `flowCost.msPerCall` | **0.8 ms** | 0.51 ms | same order |
+| `dragFlowCost.cfCalls` / `cfMs` | **2 calls / 2.3 ms** | 44 / ~22 ms | **contradicts — see below** |
+| `patchCost.variantSwitchMs` / `controlMs` | **6.5 / 7.2 ms** — both one frame | 6.7 / 2.0 ms | **harness cannot resolve it — see below** |
+
+**`dragFlowCost` contradicts the spec.** The spec's finding F4 claimed ~1.1
+re-routes per drag frame. That was inferred from the MutationObserver batch
+count, never measured. Measured directly: a 40-frame drag fires **44 observer
+batches but only 2 `cfMeasure` calls**, costing 4 ms in total. `schedule()`
+cancels the pending `requestAnimationFrame` and pushes the 240 ms timer on
+every mutation, so a continuous drag coalesces to one measure when it pauses
+and one after the drop. The existing debounce already does what Task 6 was
+going to add.
+
+**`patchCost` measures the wrong thing.** It times from click to the next
+`requestAnimationFrame`, which quantises to the frame period: control and
+variant both read 6.8 ms, and 20 back-to-back clicks of each gave an identical
+6.81 ms per click with zero long tasks. Measured without a frame wait, forcing
+layout inside the timing window, a variant switch costs **1.0 ms** against a
+control of **0.01 ms**. So F3's 4.7 ms was frame-quantisation noise; the real
+cost of one `patchSection` is about 1 ms at 10 slots. Any Task 5 acceptance
+criterion must use `framesRenderedPerPatch`, not `variantSwitchMs`.
 
 - [ ] **Step 6: Commit**
 
