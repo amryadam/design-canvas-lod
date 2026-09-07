@@ -857,7 +857,11 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
             size={sizes[k]} actions={actions}
-            position={placed && placed[k]} origin={freeBox && freeBox.origin} moved={!!(sec.positions && sec.positions[k])}
+            // freeBox.origin is a fresh object every recompute (any position
+            // patch remakes it), so an object prop here would fail the shallow
+            // compare for every slot and defeat the memo. Two numbers hold
+            // still instead.
+            position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
             arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
@@ -941,7 +945,7 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, moved, size, actions, arrowsMoved }) {
+function DCArtboardFrame({ sectionId, artboard, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
   DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
   const id = rawId ?? rawLabel;
@@ -1027,7 +1031,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, 
 
   return (
     <div ref={ref} data-dc-slot={id} style={position
-      ? { position: 'absolute', left: position.x - (origin ? origin.x : 0), top: position.y - (origin ? origin.y : 0) }
+      ? { position: 'absolute', left: position.x - originX, top: position.y - originY }
       : { position: 'relative', flexShrink: 0 }}>
       <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="dc-labelrow">
