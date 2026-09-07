@@ -13,6 +13,7 @@
 //     otherwise mount at once
 
 const DC = {
+  renders: 0,           // artboard frames rendered; read by perf/bench.js
   bg: '#f0eee9', dot: 'rgba(70,58,46,.16)',   // dot colour and pitch, as in
   dotSize: 26,          // fatoora's flow map: screen px, the same at every zoom
   fitPad: 80,           // margin left around the content by Back to content
@@ -373,15 +374,20 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     };
   });
 
+  // patchSection and setFocus keep one identity for the life of the canvas, so
+  // the per-slot callbacks built on them survive a state change. Only `state`
+  // and `section` move, and only the components that read them re-render.
+  const patchSection = React.useCallback((id, p) => setState((s) => ({
+    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+  })), []);
+  const setFocus = React.useCallback((slotId) => setState((s) => ({ ...s, focus: slotId })), []);
   const api = React.useMemo(() => ({
     state,
     section: (id) => state.sections[id] || {},
-    patchSection: (id, p) => setState((s) => ({
-      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
-      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
-    })),
-    setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
-  }), [state]);
+    patchSection,
+    setFocus,
+  }), [state, patchSection, setFocus]);
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') api.setFocus(null); };
@@ -793,6 +799,44 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
   }, [placed, notePositions, order.join('|'), rest.length, sec.variant]);
 
+  // One stable object of actions, keyed by slot id, instead of eight fresh
+  // closures per slot per render. Without this React.memo on the frame can
+  // never hit: every prop would be a new function on every state change.
+  const patchSection = ctx && ctx.patchSection, setFocus = ctx && ctx.setFocus;
+  const actions = React.useMemo(() => ({
+    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
+    move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
+    rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
+    reorder: (next) => patchSection && patchSection(sid, { order: next }),
+    focus: (k) => setFocus && setFocus(`${sid}/${k}`),
+    resetPosition: (k) => patchSection && patchSection(sid, (x) => {
+      const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
+    }),
+    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
+      // Only the end that meets this page: the far page keeps its side.
+      const n = {};
+      Object.entries(x.arrows || {}).forEach(([key, o]) => {
+        const { from, to } = dcFlowKeyParts(key), r = { ...o };
+        if (from === k) delete r.fs;
+        if (to === k) delete r.ts;
+        if (Object.keys(r).length) n[key] = r;
+      });
+      return { arrows: n };
+    }),
+    remove: (k) => patchSection && patchSection(sid, (x) => ({
+      hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
+    })),
+  }), [patchSection, setFocus, sid, srcKey]);
+
+  // One size object per slot, kept across renders that did not change a
+  // variant. The artboard elements behind byId are made once by the page and
+  // only rebuilt on a reload, which rebuilds `order` too, so they need no dep.
+  const sizes = React.useMemo(() => {
+    const out = {};
+    order.forEach((k) => { out[k] = dcSize(byId[k].props, (sec.variant || {})[k]); });
+    return out;
+  }, [order.join('|'), sec.variant]);
+
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
       <div style={{ padding: '0 60px' }}>
@@ -812,27 +856,10 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
         ))}
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
-            size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file))}
+            size={sizes[k]} actions={actions}
             position={placed && placed[k]} origin={freeBox && freeBox.origin} moved={!!(sec.positions && sec.positions[k])}
-            onMove={(p) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p))}
-            onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
             arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
-            onResetArrows={() => ctx && ctx.patchSection(sid, (x) => {
-              // Only the end that meets this page: the far page keeps its side.
-              const n = {};
-              Object.entries(x.arrows || {}).forEach(([key, o]) => {
-                const { from, to } = dcFlowKeyParts(key), r = { ...o };
-                if (from === k) delete r.fs;
-                if (to === k) delete r.ts;
-                if (Object.keys(r).length) n[key] = r;
-              });
-              return { arrows: n };
-            })}
-            label={(sec.labels || {})[k] ?? byId[k].props.label}
-            onRename={(v) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v))}
-            onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
-            onDelete={() => ctx && ctx.patchSection(sid, (x) => ({ hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey }))}
-            onFocus={() => ctx && ctx.setFocus(`${sid}/${k}`)} />
+            label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>
     </div>
@@ -914,9 +941,21 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
+function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, moved, size, actions, arrowsMoved }) {
+  DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
   const id = rawId ?? rawLabel;
+  // The eight callbacks the body already uses, rebuilt per render from one
+  // stable actions object. They are cheap; the props that reach React.memo are
+  // what has to hold still, and those are actions, size, order and primitives.
+  const onSize = (file) => actions.size(id, file);
+  const onMove = (p) => actions.move(id, p);
+  const onResetPosition = () => actions.resetPosition(id);
+  const onResetArrows = () => actions.resetArrows(id);
+  const onRename = (v) => actions.rename(id, v);
+  const onReorder = (next) => actions.reorder(next);
+  const onFocus = () => actions.focus(id);
+  const onDelete = () => actions.remove(id);
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
   size = size || dcSize(artboard.props);
@@ -1032,6 +1071,9 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, 
     </div>
   );
 }
+// Every prop the frame takes now holds still through a state change that did
+// not touch this slot, so the default shallow compare is enough.
+DCArtboardFrame = React.memo(DCArtboardFrame);
 
 function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
   const T = tag;
