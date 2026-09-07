@@ -12,8 +12,9 @@
 // off-screen skipped subtrees) and converted to world coordinates.
 
 const CF = {
-  stroke: '#b9a991', hover: '#c96442', width: 3, dash: '6 7',
-  arrowLen: 14, arrowHalf: 8,
+  // Line, dash and arrowhead match fatoora's flow map (flow-map.jsx FmConnectors).
+  stroke: '#b9a991', hover: '#c96442', width: 2, dash: '5 6',
+  arrowLen: 11, arrowHalf: 6.5,
   // Pills and arrowheads hold screen size down to 25% zoom, then shrink with
   // the world, so they never balloon over the artboards when zoomed far out.
   inv: 'min(var(--dc-inv-zoom, 1), 4)',
