@@ -35,7 +35,8 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 [data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}
 [data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}
 [data-dc-slot].dc-dragging .dc-card{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}
-.dc-card{isolation:isolate;contain:layout paint;transition:box-shadow .15s,transform .15s}
+.dc-card{isolation:isolate;contain:layout paint;transition:box-shadow .18s ease,transform .18s ease}
+[data-dc-slot]:hover:not(.dc-dragging) .dc-card{transform:translateY(-3px);box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)!important}
 .dc-card *{scrollbar-width:none}
 .dc-card *::-webkit-scrollbar{display:none}
 .dc-card iframe{display:block;border:0;background:#fff}
