@@ -855,7 +855,11 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x - freeBox.origin.x, top: noteAt(n).y - freeBox.origin.y }}>{n}</div>
         ))}
         {order.map((k) => (
-          <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
+          // byId[k] itself is a new element every render: React.Children.toArray
+          // re-keys by cloning, so the element identity churns even though its
+          // props do not. Passing the element would defeat the memo for every
+          // slot; the props object holds still instead.
+          <DCArtboardFrame key={k} sectionId={sid} artboardProps={byId[k].props} order={order}
             size={sizes[k]} actions={actions}
             // freeBox.origin is a fresh object every recompute (any position
             // patch remakes it), so an object prop here would fail the shallow
@@ -945,9 +949,9 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
+function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
   DC.renders++;
-  const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
+  const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
   // The eight callbacks the body already uses, rebuilt per render from one
   // stable actions object. They are cheap; the props that reach React.memo are
@@ -962,7 +966,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, originX 
   const onDelete = () => actions.remove(id);
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
-  size = size || dcSize(artboard.props);
+  size = size || dcSize(artboardProps);
   const { width, height, href } = size;
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
