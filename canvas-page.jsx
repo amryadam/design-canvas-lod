@@ -12,8 +12,11 @@
 // off-screen skipped subtrees) and converted to world coordinates.
 
 const CF = {
-  stroke: '#b9a991', hover: '#c96442', width: 2, dash: '5 6',
-  arrowLen: 11, arrowHalf: 6.5,
+  stroke: '#b9a991', hover: '#c96442', width: 3, dash: '6 7',
+  arrowLen: 14, arrowHalf: 8,
+  // Pills and arrowheads hold screen size down to 25% zoom, then shrink with
+  // the world, so they never balloon over the artboards when zoomed far out.
+  inv: 'min(var(--dc-inv-zoom, 1), 4)',
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -144,7 +147,7 @@ function CanvasFlows({ flows }) {
               opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
               <path d={p.d} strokeDasharray={p.dashed ? CF.dash : undefined} vectorEffect="non-scaling-stroke" />
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
-                style={{ transform: 'scale(var(--dc-inv-zoom, 1))', transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
+                style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
               <path d={p.d} stroke="transparent" strokeWidth={12} vectorEffect="non-scaling-stroke"
                 style={{ pointerEvents: 'stroke' }} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
             </g>
@@ -153,7 +156,7 @@ function CanvasFlows({ flows }) {
       </svg>
       {paths.map((p, i) => p.label && (
         <div key={p.key} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} style={{
-          position: 'absolute', left: p.mid.x, top: p.mid.y, transform: 'translate(-50%, -50%) scale(var(--dc-inv-zoom, 1))',
+          position: 'absolute', left: p.mid.x, top: p.mid.y, transform: `translate(-50%, -50%) scale(${CF.inv})`,
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
           borderRadius: 999, padding: '5px 11px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
