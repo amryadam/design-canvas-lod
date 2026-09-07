@@ -27,16 +27,13 @@ function cfAnchor(box, side) {
 }
 
 // Cubic bezier between two anchors; control points pushed along each outward
-// normal. When both anchors are vertical, k is clamped so a return curve stays
-// inside the gap between rows instead of arcing into the row above.
+// normal, fatoora-style: k = max(70, dist * 0.42), so opposite-facing pairs
+// (r→l, b→t) draw a full S-curve. Only same-side pairs (b→b, t→t) get a
+// bounded bulge, or the loop would swing into the neighbouring row.
 function cfCurve(a, fs, b, ts) {
   const dist = Math.hypot(b.x - a.x, b.y - a.y);
   let k = Math.max(70, dist * 0.42);
-  const vertical = (s) => s === 't' || s === 'b';
-  // Loops between same-side anchors still get a bounded bulge, but one that
-  // scales with the span — a fixed 70px reads as a straight line at canvas
-  // distances (fatoora-style curvature).
-  if (vertical(fs) && vertical(ts)) k = Math.min(k, Math.max(90, dist * 0.3));
+  if (fs === ts && (fs === 't' || fs === 'b')) k = Math.min(k, Math.max(90, dist * 0.3));
   const [nx1, ny1] = CF_NORMAL[fs] || CF_NORMAL.r;
   const [nx2, ny2] = CF_NORMAL[ts] || CF_NORMAL.l;
   const c1 = { x: a.x + nx1 * k, y: a.y + ny1 * k };
