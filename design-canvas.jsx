@@ -66,7 +66,6 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}
 .dc-header{width:calc((100% + 4px) / var(--dc-inv-zoom,1));transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom left}
 .dc-sectionhead{zoom:var(--dc-inv-zoom,1)}
-.dc-notes{zoom:var(--dc-inv-zoom,1)}
 .dc-placeholder{width:100%;height:100%;background:repeating-linear-gradient(135deg,#f6f4f0 0 12px,#eeece7 12px 24px);display:flex;align-items:center;justify-content:center;color:#9a958c;font:500 14px ui-monospace,Menlo,monospace}
 `;
   document.head.appendChild(s);
