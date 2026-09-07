@@ -1,0 +1,5 @@
+<script>
+const p = new URLSearchParams(location.hash.slice(1));
+localStorage.setItem('dc-viewport-v3:/sample/', JSON.stringify({ x: +p.get('x'), y: +p.get('y'), scale: +p.get('scale') }));
+location.replace('/sample/');
+</script>
