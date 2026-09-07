@@ -1189,6 +1189,116 @@
       "text": "Sign up · 2 · the verification email\nSubject: Your Seaturtle verification code (SignupService.sendOtpEmail). 6 digits, valid 15 minutes, one use (ProvisioningProperties.otp.ttl).\nPreview text carries the code so the inbox notification is enough on a phone.\nBuild note: mail clients do not load Inter. Ship the HTML with the fallback stack (-apple-system, Segoe UI, Helvetica; code in Menlo / Consolas) and a plain-text part: \"Your verification code is 482913. It expires in 15 minutes.\"\nArabic mail follows the account language chosen at sign-up; the code and the address stay LTR."
     }
   ],
+  "flows": [
+    {
+      "page": "page-9",
+      "from": "ZatcaProfile.dc.html",
+      "to": "ZatcaCode.dc.html",
+      "label": "Next",
+      "fs": "r",
+      "ts": "l",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaCode.dc.html",
+      "to": "ZatcaProgress.dc.html",
+      "label": "Send",
+      "fs": "r",
+      "ts": "l",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaProgress.dc.html",
+      "to": "ZatcaDone.dc.html",
+      "label": "Pass",
+      "fs": "b",
+      "ts": "t",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaProgress.dc.html",
+      "to": "ZatcaFailed.dc.html",
+      "label": "OTP refused",
+      "fs": "b",
+      "ts": "t",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaFailed.dc.html",
+      "to": "ZatcaCode.dc.html",
+      "label": "Try another code",
+      "fs": "t",
+      "ts": "b",
+      "dashed": true
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaDone.dc.html",
+      "to": "Invoices.dc.html",
+      "label": "Go to invoices",
+      "fs": "b",
+      "ts": "t",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "ZatcaFailed.dc.html",
+      "to": "Invoices.dc.html",
+      "label": "Skip",
+      "fs": "b",
+      "ts": "t",
+      "dashed": true
+    },
+    {
+      "page": "page-9",
+      "from": "Invoices.dc.html",
+      "to": "InvoiceNewType.dc.html",
+      "label": "New invoice",
+      "fs": "r",
+      "ts": "l",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "InvoiceNewType.dc.html",
+      "to": "InvoiceNewUpload.dc.html",
+      "label": "Upload",
+      "fs": "b",
+      "ts": "t",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "InvoiceNewType.dc.html",
+      "to": "InvoiceNewManual.dc.html",
+      "label": "Enter by hand",
+      "fs": "b",
+      "ts": "t",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "InvoiceNewUpload.dc.html",
+      "to": "InvoiceView.dc.html",
+      "label": "Check and issue",
+      "fs": "b",
+      "ts": "b",
+      "dashed": false
+    },
+    {
+      "page": "page-9",
+      "from": "InvoiceNewManual.dc.html",
+      "to": "InvoiceView.dc.html",
+      "label": "Issue",
+      "fs": "r",
+      "ts": "l",
+      "dashed": false
+    }
+  ],
   "launch": {
     "view": "canvas",
     "page": "page-1"

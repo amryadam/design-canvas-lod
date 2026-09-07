@@ -5,6 +5,9 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
 
 - `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view, snapshots).
 - `canvas-page.jsx` — reads `canvas.json` and lays one page out on the canvas.
+  Its `flows` array draws arrows between artboards on the canvas itself
+  (`CanvasFlows`): `{ page, from, to, label, fs, ts, dashed }`, where `fs`/`ts`
+  are the source/target anchor sides (`l`, `r`, `t`, `b`).
 - `screens/` — Seaturtle Screens: 112 `.dc.html` artboards, `canvas.json`, flag SVGs.
 
 ## How snapshots work
