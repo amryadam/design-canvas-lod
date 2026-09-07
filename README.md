@@ -8,7 +8,8 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
   Its `flows` array draws arrows between artboards on the canvas itself
   (`CanvasFlows`): `{ page, from, to, label, fs, ts, dashed }`, where `fs`/`ts`
   are the source/target anchor sides (`l`, `r`, `t`, `b`).
-- `screens/` — Seaturtle Screens: 112 `.dc.html` artboards, `canvas.json`, flag SVGs.
+- `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with
+  `flows`, and an `index.html` that runs the canvas on them.
 
 ## How snapshots work
 
@@ -23,6 +24,14 @@ Nothing to run and no files to add. The canvas makes them itself, in the browser
 
 Below 50 % zoom, or far from the viewport, a slot shows its snapshot.
 Live iframes mount only near 1:1 or in the focus view, one at a time.
+
+## Run the sample
+
+```
+python3 -m http.server 8000
+```
+
+Then open `http://localhost:8000/sample/`.
 
 ## Use in claude.ai/design
 
