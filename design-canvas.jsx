@@ -170,14 +170,12 @@ const dcFontCache = new Map();
 function dcFontCss(href) {
   if (!dcFontCache.has(href)) dcFontCache.set(href, (async () => {
     const css = await (await fetch(href)).text();
-    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
-      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
-    const out = [];
-    for (const b of blocks) {
-      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
-      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
-    }
-    return out.join('\n');
+    // A subset comment belongs to the following rule, including the last face.
+    // Some responses have no subset comments; keep those faces as well.
+    const blocks = [...css.matchAll(/(?:\/\*\s*([^*]*?)\s*\*\/\s*)?@font-face\s*\{[^}]*\}/g)]
+      .filter((m) => !m[1] || /^(latin|arabic)$/.test(m[1].trim()))
+      .map((m) => m[0]);
+    return dcInlineCss(blocks.join('\n'), href);
   })().catch(() => ''));
   return dcFontCache.get(href);
 }
