@@ -208,7 +208,9 @@ function dcFontCss(href) {
   return dcSnap.fontCss.get(href);
 }
 
-async function dcRasterize(html, baseHref, w, h) {
+// Fetch-free inliner shared by snapshots and exports: parse → strip scripts →
+// inline same-origin CSS/images + Google Fonts → serialized XHTML.
+async function dcInlineDoc(html, baseHref) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const base = doc.createElement('base'); base.href = baseHref; doc.head.prepend(base);
   doc.querySelectorAll('script, iframe, video, audio, noscript').forEach((e) => e.remove());
@@ -227,7 +229,11 @@ async function dcRasterize(html, baseHref, w, h) {
   }
   base.remove();
   doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-  const xhtml = new XMLSerializer().serializeToString(doc.documentElement);
+  return new XMLSerializer().serializeToString(doc.documentElement);
+}
+
+async function dcRasterize(html, baseHref, w, h) {
+  const xhtml = await dcInlineDoc(html, baseHref);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
   const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   const img = new Image(); img.src = svgUrl; await img.decode();
@@ -236,6 +242,33 @@ async function dcRasterize(html, baseHref, w, h) {
   const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(img, 0, 0, c.width, c.height);
   try { return c.toDataURL('image/webp', 0.8); } catch { return svgUrl; }
+}
+
+// Per-artboard export from the kebab menu (kind: 'png' | 'html'). Reuses the
+// snapshot inliner on the artboard's source file, so it works whether the
+// slot currently shows a live iframe or a snapshot. PNG renders at 2× the
+// artboard's natural size via viewBox mapping (an <img>-loaded SVG rasterizes
+// at its intrinsic size, so the SVG itself must be the output resolution).
+async function dcExportArtboard(src, w, h, name, kind) {
+  try { await document.fonts.ready; } catch {}
+  const save = (blob, ext) => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name + '.' + ext; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const html = await (await fetch(src)).text();
+  const xhtml = await dcInlineDoc(html, new URL(src, location.href).href);
+  if (kind === 'html') return save(new Blob(['<!doctype html>\n' + xhtml], { type: 'text/html' }), 'html');
+  const px = 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * px}" height="${h * px}" viewBox="0 0 ${w} ${h}"><foreignObject width="${w}" height="${h}">${xhtml}</foreignObject></svg>`;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  const c = document.createElement('canvas'); c.width = w * px; c.height = h * px;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  c.toBlob((blob) => save(blob, 'png'), 'image/png');
 }
 // ---------------------------------------------------------------------------
 
@@ -666,6 +699,8 @@ function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorde
             {menuOpen && (
               <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                 {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
+                {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'png').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download PNG</button>}
+                {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'html').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download HTML</button>}
                 {href && <hr />}
                 <button className="dc-danger" onClick={() => { if (confirming) { setMenuOpen(false); onDelete(); } else setConfirming(true); }}>
                   {confirming ? 'Click again to delete' : 'Delete'}
