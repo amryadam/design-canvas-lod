@@ -198,7 +198,9 @@ function cfPlaceLabels(paths, s) {
 
 // A flow's identity for saved overrides: endpoints and label, not its index
 // (dcFlowKey, design-canvas.jsx, so the engine can read the key back).
-const cfFlowKey = dcFlowKey;
+// design-canvas.jsx may still be evaluating when this file runs (the two are
+// imported in parallel), so look the helper up lazily.
+const cfFlowKey = (...a) => window.dcFlowKey(...a);
 // Side of `box` nearest to world point p, measured to the side as a segment
 // (not the whole edge line), so a pointer above a narrow page reads as top.
 function cfNearestSide(box, p) {
