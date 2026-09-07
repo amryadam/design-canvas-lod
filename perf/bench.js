@@ -7,6 +7,14 @@
 // a change on the same machine.
 //
 //   python3 -m http.server 8000   →   http://localhost:8000/sample/
+//
+// WARNING: `all()` runs dragFlowCost and patchCost, and both edit saved state,
+// not just the DOM. dragFlowCost does a real grip drag of about (533, 266)
+// world px, past the 4 px move threshold, so a card is actually moved and its
+// new position is persisted. patchCost clicks real .dc-size variant chips, and
+// each click is a persisted sec.variant patch. After `all()`, the sample page
+// is left with a card moved and its variant chips switched. To undo, delete
+// the page's `dc-state:` entry from localStorage and reload.
 (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const frame = () => new Promise((r) => requestAnimationFrame(r));

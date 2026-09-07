@@ -1,16 +1,15 @@
 // design-canvas.jsx — pan/zoom canvas: sections, artboards (reorder / rename /
 // delete / focus), post-its. Ported from the fatoora project with performance
 // work for heavy artboards (full-page iframes):
-//   • DCLazyFrame mounts an iframe only when its slot is near the viewport
+//   • DCLazyFrame mounts an iframe only when its slot is near the viewport AND
+//     one of the DC.liveBudget slots nearest the viewport centre; nearness is
+//     necessary but the budget decides — the rest show a placeholder, so
+//     everything on screen at 5 % zoom does not mount at once
 //   • pan/zoom writes are rAF-coalesced; iframes lose pointer events while moving
 //   • zoom-anchor lookup (elementFromPoint) is throttled to one per frame
 //   • cards use CSS containment; persistence writes are debounced
 //   • first load fits the widest section to the viewport instead of 1:1
 //   • slots use content-visibility:auto, so off-screen cards skip layout/paint
-//   • LOD: a slot is a live iframe while it is one of the DC.liveBudget slots
-//     nearest the viewport centre; the rest show a placeholder. The budget, not
-//     the zoom, is what bounds the cost — everything on screen at 5 % zoom would
-//     otherwise mount at once
 
 const DC = {
   renders: 0,           // artboard frames rendered; read by perf/bench.js
@@ -21,7 +20,9 @@ const DC = {
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer, so the last place does not flip
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
-  settleMs: 150,        // wait after the last zoom/pan change before switching modes
+  settleMs: 150,        // wait after the last zoom/pan change before the LOD pass runs,
+                        // the --dc-inv-zoom CSS var is written, and the lost-pill check
+                        // runs — raising it also delays when iframes mount
   mountGapMs: 60,       // gap between two iframe mounts, so they don't jank one frame
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
@@ -108,6 +109,10 @@ function dcMarkMoving(vp) {
 // subscribe and only re-render when their live decision changes.
 // One settle timer, one poll and one IntersectionObserver serve every slot,
 // instead of N timers firing per frame.
+// scale itself now drives nothing in the app — the live/placeholder decision
+// is distance-and-budget only (dcLodRun), not zoom level. It is kept and
+// written on every flush because perf/bench.js reads it; do not infer from
+// dcSetZoom(scale) in flushNow that LOD still depends on zoom.
 const dcZoom = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
@@ -166,7 +171,6 @@ function dcLodSubscribe(entry) {
   };
 }
 
-// ---------------------------------------------------------------------------
 const dcBlobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 
 // Google Fonts CSS with the latin/arabic faces inlined as data: URLs, cached per href.
@@ -636,7 +640,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       stopTween();
       vp.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
-      vp.style.cursor = 'grabbing'; vp.classList.add('dc-moving');
+      // Arm the removal timer with the class, so a click with no move still
+      // clears dc-moving; dcLodRun freezes the whole LOD registry while it is set.
+      vp.style.cursor = 'grabbing'; dcMarkMoving(vp);
     };
     const onPointerMove = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
