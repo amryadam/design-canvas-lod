@@ -17,6 +17,8 @@
 const DC = {
   bg: '#f0eee9', grid: 'rgba(0,0,0,0.06)',
   gridSize: 120,        // grid pitch in world px; the viewport draws it at gridSize * zoom
+  fitPad: 80,           // margin left around the content by Back to content
+  backToMs: 300,        // Back to content tween
   liveScale: 0.5,       // live iframe at or above this zoom
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   settleMs: 150,        // wait after the last zoom/pan change before switching modes
@@ -82,6 +84,10 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 [data-dc-slot]{--dc-hz:min(var(--dc-inv-zoom,1),4)}
 .dc-header{width:calc((100% + 4px) / var(--dc-hz,1));transform:scale(var(--dc-hz,1));transform-origin:bottom left}
 .dc-sectionhead{zoom:var(--dc-inv-zoom,1)}
+/* Shown only when no section is on screen; the focus overlay (z 100) covers it. */
+.dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
+.dc-backto:hover{background:#faf8f5}
+@keyframes dc-backto-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 .dc-placeholder{width:100%;height:100%;background:repeating-linear-gradient(135deg,#f6f4f0 0 12px,#eeece7 12px 24px);display:flex;align-items:center;justify-content:center;color:#9a958c;font:500 14px ui-monospace,Menlo,monospace}
 `;
   document.head.appendChild(s);
@@ -399,6 +405,31 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const saveT = React.useRef(0);
   const raf = React.useRef(0);
   const lastPostedScale = React.useRef();
+  // Back to content: shown once the view settles with no section on screen.
+  const [lost, setLost] = React.useState(false);
+  const lostRef = React.useRef(false);
+  const lostT = React.useRef(0);
+  const tween = React.useRef(0);
+
+  // What counts as content: the section (its header too), every slot and every
+  // note. A slot can sit outside its row's box, so sections alone under-measure.
+  // Never the .dc-card inside a slot — that has content-visibility:auto, and
+  // reading its rect would lay out a skipped subtree.
+  const boxes = (vp) => vp.querySelectorAll('[data-dc-section], [data-dc-slot], [data-dc-note]');
+
+  // A few rects, read on settle — and, while the pill is up, on every flushed
+  // frame, so panning back onto the pages hides it at once instead of 150 ms on.
+  const checkLost = React.useCallback(() => {
+    const vp = vpRef.current; if (!vp) return;
+    const els = boxes(vp);
+    let next = els.length > 0;
+    const r = vp.getBoundingClientRect();
+    for (const el of els) {
+      const b = el.getBoundingClientRect();
+      if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { next = false; break; }
+    }
+    if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
+  }, []);
 
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
   const flushNow = React.useCallback(() => {
@@ -421,13 +452,58 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
     }
     dcMarkMoving(vpRef.current);
+    if (lostRef.current) checkLost();
+    clearTimeout(lostT.current);
+    lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey]);
+  }, [tfKey, checkLost]);
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
   }, [flushNow]);
+  // Any hand-driven pan or zoom wins over a running tween.
+  const stopTween = React.useCallback(() => {
+    if (tween.current) { cancelAnimationFrame(tween.current); tween.current = 0; }
+  }, []);
+
+  // Fit every section to the viewport, eased over DC.backToMs. dcLodSchedule
+  // coalesces, so the iframes settle once at the end instead of on every frame.
+  const backToContent = React.useCallback(() => {
+    const vp = vpRef.current, w = worldRef.current;
+    if (!vp || !w) return;
+    const wr = w.getBoundingClientRect(), s0 = tf.current.scale;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    boxes(vp).forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      x0 = Math.min(x0, (b.left - wr.left) / s0); y0 = Math.min(y0, (b.top - wr.top) / s0);
+      x1 = Math.max(x1, (b.right - wr.left) / s0); y1 = Math.max(y1, (b.bottom - wr.top) / s0);
+    });
+    if (!(x1 > x0 && y1 > y0)) return;
+    const r = vp.getBoundingClientRect(), pad = DC.fitPad * 2;
+    const scale = Math.min(1, maxScale, Math.max(minScale,
+      Math.min((r.width - pad) / (x1 - x0), (r.height - pad) / (y1 - y0))));
+    const to = {
+      scale,
+      x: (r.width - (x1 - x0) * scale) / 2 - x0 * scale,
+      y: (r.height - (y1 - y0) * scale) / 2 - y0 * scale,
+    };
+    const from = { ...tf.current }, t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / DC.backToMs);
+      const e = 1 - Math.pow(1 - k, 3);
+      tf.current = {
+        x: from.x + (to.x - from.x) * e,
+        y: from.y + (to.y - from.y) * e,
+        scale: from.scale + (to.scale - from.scale) * e,
+      };
+      apply(true);
+      tween.current = k < 1 ? requestAnimationFrame(step) : 0;
+    };
+    stopTween();
+    tween.current = requestAnimationFrame(step);
+  }, [apply, stopTween, minScale, maxScale]);
 
   React.useLayoutEffect(() => {
     const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
@@ -458,7 +534,11 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       t.x += 60 - r.left; t.y += 100 - r.top; apply(true);
     }, 500);
     window.addEventListener('pagehide', flush);
-    return () => { clearTimeout(fit); clearTimeout(rescue); window.removeEventListener('pagehide', flush); flush(); };
+    return () => {
+      clearTimeout(fit); clearTimeout(rescue); clearTimeout(lostT.current);
+      if (tween.current) cancelAnimationFrame(tween.current);
+      window.removeEventListener('pagehide', flush); flush();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -492,20 +572,22 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     let isGesturing = false, gsBase = 1;
     const onWheel = (e) => {
       e.preventDefault();
+      stopTween();
       if (isGesturing) return;
       if ((e.ctrlKey || e.metaKey) && !isMouseWheel(e)) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
       else if (isMouseWheel(e)) zoomAt(e.clientX, e.clientY, Math.exp(-Math.sign(e.deltaY) * 0.18));
       else { tf.current.x -= e.deltaX; tf.current.y -= e.deltaY; apply(); }
     };
-    const onGestureStart = (e) => { e.preventDefault(); isGesturing = true; gsBase = tf.current.scale; };
+    const onGestureStart = (e) => { e.preventDefault(); stopTween(); isGesturing = true; gsBase = tf.current.scale; };
     const onGestureChange = (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, (gsBase * e.scale) / tf.current.scale); };
     const onGestureEnd = (e) => { e.preventDefault(); isGesturing = false; };
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav, .dc-flows');
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav, .dc-flows, .dc-backto');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
+      stopTween();
       vp.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
       vp.style.cursor = 'grabbing'; vp.classList.add('dc-moving');
@@ -552,7 +634,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       vp.removeEventListener('pointerup', onPointerUp);
       vp.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [apply, minScale, maxScale]);
+  }, [apply, stopTween, minScale, maxScale]);
 
   const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
   return (
@@ -562,6 +644,14 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       <div ref={worldRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: 'calc(72px * var(--dc-inv-zoom,1)) 0 80px' }}>
         {children}
       </div>
+      {lost && (
+        <button className="dc-backto" onClick={backToContent}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 4 12l7 7" /><path d="M4 12h15" />
+          </svg>
+          Back to content
+        </button>
+      )}
     </div>
   );
 }
