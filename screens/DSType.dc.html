@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #f6f5f4; color: #1a1a1a; font-family: 'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    a { color: #1a1a1a; } a:hover { color: #000000; }
+    .sheet { width: 1440px; min-height: 1180px; box-sizing: border-box; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 32px; }
+    .head { display: flex; flex-direction: column; gap: 8px; }
+    .kicker { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #787671; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+    .lede { margin: 0; max-width: 760px; color: #5d5b54; font-size: 15px; }
+    h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .sec { display: flex; flex-direction: column; gap: 14px; }
+    .rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+    .rules li { display: flex; gap: 12px; color: #1a1a1a; }
+    .rules li::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 9999px; background: #1a1a1a; margin-top: 8px; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .faint { color: #787671; } .muted { color: #5d5b54; }
+    .card { background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: 0 1px 2px rgb(15 15 15 / 0.04); }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: start; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #787671; padding: 10px 16px; border-bottom: 1px solid #e5e3df; }
+    td { padding: 11px 16px; border-bottom: 1px solid #e5e3df; vertical-align: top; font-size: 13.5px; }
+    tr:last-child td { border-bottom: 0; }
+    .swatch { display: flex; flex-direction: column; gap: 10px; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    
+  </style>
+</helmet>
+<div class="sheet">
+<div class="head">
+  <div class="kicker">Design system · 02</div>
+  <h1>Typography</h1>
+  <p class="lede">Three faces, one job each. Sizes are drawn from the screens, not from a modular scale: the ramp below is every size the product uses.</p>
+</div>
+<div class="sec">
+  <h2>Faces</h2>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px">
+  <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+    <div class="kicker">Latin · UI</div>
+    <div style="font-size: 40px; line-height: 1.1; font-weight: 600; letter-spacing: -0.01em">Inter</div>
+    <div class="muted" style="font-size: 13px">Variable, 400 to 700. Self-hosted, subset to Latin and Latin Extended. Body 14px, never below 11px.</div>
+  </div>
+  <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+    <div class="kicker">Arabic · UI</div>
+    <div dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', 'Inter', sans-serif; font-size: 40px; line-height: 1.2; font-weight: 600">آي بي إم بلكس</div>
+    <div class="muted" style="font-size: 13px">IBM Plex Sans Arabic 400, 500, 600, 700. Applied to the whole document under <span class="mono">[dir='rtl']</span>; Latin inside an Arabic page falls through to Inter by unicode-range.</div>
+  </div>
+  <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+    <div class="kicker">Mono · data</div>
+    <div class="mono" style="font-size: 40px; line-height: 1.1; font-weight: 500">JetBrains Mono</div>
+    <div class="muted" style="font-size: 13px">Variable, 400 to 600. Codes, money, usernames, emails, addresses and counts. Always <span class="mono">dir="ltr"</span>, tabular numerals.</div>
+  </div>
+</div>
+</div>
+<div class="sec">
+  <h2>Ramp</h2>
+  <div class="card" style="overflow: hidden"><table>
+    <thead><tr><th>Size / line · weight</th><th>Sample</th><th>Where</th></tr></thead>
+    <tbody><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">28 / 34 · 700</td>
+  <td style="font-size: 28px; font-weight: 700; line-height: 1.2; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Page title on sign-up and sign-in</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">24 / 30 · 700</td>
+  <td style="font-size: 24px; font-weight: 700; line-height: 1.25; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Dashboard KPI value</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">20 / 28 · 600</td>
+  <td style="font-size: 20px; font-weight: 600; line-height: 1.4; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Page header title</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">18 / 26 · 600</td>
+  <td style="font-size: 18px; font-weight: 600; line-height: 1.45; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Section heading, dialog title</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">15 / 22 · 600</td>
+  <td style="font-size: 15px; font-weight: 600; line-height: 1.45; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Card title</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">14 / 21 · 400</td>
+  <td style="font-size: 14px; font-weight: 400; line-height: 1.5; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Body, table cells, form values</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">13.5 / 20 · 500</td>
+  <td style="font-size: 13.5px; font-weight: 500; line-height: 1.5; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Menu rows, breadcrumbs, account chip</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">13 / 18 · 400</td>
+  <td style="font-size: 13px; font-weight: 400; line-height: 1.4; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Descriptions under a field, table meta</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">12 / 16 · 600</td>
+  <td style="font-size: 12px; font-weight: 600; line-height: 1.35; ">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Chips, counts, step labels</td>
+</tr><tr>
+  <td class="mono faint" style="width: 180px; white-space: nowrap">11 / 14 · 600 · caps</td>
+  <td style="font-size: 11px; font-weight: 600; line-height: 1.3; letter-spacing: 0.06em; text-transform: uppercase; color: #787671;">Clearance job CL-2026-0412 is held by customs</td>
+  <td class="muted" style="width: 320px">Section labels in the side menu and tables</td>
+</tr></tbody>
+  </table></div>
+</div>
+<div class="sec">
+  <h2>Rules</h2>
+  <ul class="rules"><li><span>One weight step marks emphasis: 600 against 400. Bold 700 is for the page title and the KPI value only.</span></li><li><span>Numbers people compare sit in the mono face with tabular numerals, right-aligned in a table: money, duties, counts.</span></li><li><span>Codes and addresses never wrap and never translate: <span class="mono">CL-2026-0412</span>, <span class="mono">marasy.seaturtle.app</span>, <span class="mono">tariq@marasy.sa</span>.</span></li><li><span>Labels in capitals are 11px, 600, letter-spaced 0.06em and faint. They name a group, never a value.</span></li><li><span>Arabic text is never letter-spaced, never faux-bold and never set in Inter.</span></li><li><span>Line length stays under 76 characters; a description under a field is one sentence.</span></li></ul>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

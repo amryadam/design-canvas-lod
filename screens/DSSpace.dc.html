@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #f6f5f4; color: #1a1a1a; font-family: 'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    a { color: #1a1a1a; } a:hover { color: #000000; }
+    .sheet { width: 1440px; min-height: 1180px; box-sizing: border-box; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 32px; }
+    .head { display: flex; flex-direction: column; gap: 8px; }
+    .kicker { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #787671; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+    .lede { margin: 0; max-width: 760px; color: #5d5b54; font-size: 15px; }
+    h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .sec { display: flex; flex-direction: column; gap: 14px; }
+    .rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+    .rules li { display: flex; gap: 12px; color: #1a1a1a; }
+    .rules li::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 9999px; background: #1a1a1a; margin-top: 8px; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .faint { color: #787671; } .muted { color: #5d5b54; }
+    .card { background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: 0 1px 2px rgb(15 15 15 / 0.04); }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: start; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #787671; padding: 10px 16px; border-bottom: 1px solid #e5e3df; }
+    td { padding: 11px 16px; border-bottom: 1px solid #e5e3df; vertical-align: top; font-size: 13.5px; }
+    tr:last-child td { border-bottom: 0; }
+    .swatch { display: flex; flex-direction: column; gap: 10px; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    
+  </style>
+</helmet>
+<div class="sheet">
+<div class="head">
+  <div class="kicker">Design system · 03</div>
+  <h1>Space, shape and depth</h1>
+  <p class="lede">A 4px grid, three radii and one pill, three control heights, two shadows. Density comes from the grid, not from smaller type.</p>
+</div>
+<div class="sec">
+  <h2>Spacing scale</h2>
+  <div style="display: flex; gap: 28px; align-items: flex-end"><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 8px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">4</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 16px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">8</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 24px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">12</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 32px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">16</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 40px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">20</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 48px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">24</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 64px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">32</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 80px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">40</span>
+</div><div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start">
+  <div style="width: 96px; height: 28px; background: #ebe9e4; border: 1px solid #c8c4be; border-radius: 4px"></div>
+  <span class="mono" style="font-size: 12px">48</span>
+</div></div>
+  <div class="muted" style="font-size: 13px; max-width: 760px">Inside a control 12 to 14, between fields 16, between sections 24 to 32, page padding 16 on a phone, 24 on a tablet, 32 on a laptop and up. A card pads 20 to 24. Nothing is ever 6, 10 or 14 tall or wide, but a control's inner padding may be.</div>
+</div>
+<div class="sec">
+  <h2>Radii</h2>
+  <div style="display: flex; gap: 40px"><div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+  <div style="width: 120px; height: 72px; background: #ffffff; border: 1px solid #c8c4be; border-radius: 6px"></div>
+  <span style="font-size: 13px; font-weight: 600">sm <span class="mono faint" style="font-weight: 400">6px</span></span>
+  <span class="muted" style="font-size: 12px; max-width: 200px">What sits inside a rounded container: a dropdown item, a checkbox, a chip, the raised language segment.</span>
+</div><div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+  <div style="width: 120px; height: 72px; background: #ffffff; border: 1px solid #c8c4be; border-radius: 8px"></div>
+  <span style="font-size: 13px; font-weight: 600">md <span class="mono faint" style="font-weight: 400">8px</span></span>
+  <span class="muted" style="font-size: 12px; max-width: 200px">Buttons, inputs, selects, the workspace card.</span>
+</div><div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+  <div style="width: 120px; height: 72px; background: #ffffff; border: 1px solid #c8c4be; border-radius: 12px"></div>
+  <span style="font-size: 13px; font-weight: 600">lg <span class="mono faint" style="font-weight: 400">12px</span></span>
+  <span class="muted" style="font-size: 12px; max-width: 200px">Cards, dialogs, drawers, the notice.</span>
+</div><div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+  <div style="width: 120px; height: 72px; background: #ffffff; border: 1px solid #c8c4be; border-radius: 9999px"></div>
+  <span style="font-size: 13px; font-weight: 600">pill <span class="mono faint" style="font-weight: 400">9999px</span></span>
+  <span class="muted" style="font-size: 12px; max-width: 200px">Counts, avatars, filter chips.</span>
+</div></div>
+</div>
+<div class="sec">
+  <h2>Controls and hit targets</h2>
+  <div style="display: flex; gap: 32px; align-items: flex-end">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="display: inline-flex; align-items: center; height: 44px; padding: 0 18px; border-radius: 8px; background: #1a1a1a; color: #f6f5f4; font-weight: 600; font-size: 14px">Continue</div>
+    <span class="mono faint" style="font-size: 12px">44 · forms, phone</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 8px; background: #ffffff; border: 1px solid #c8c4be; font-weight: 600; font-size: 14px">Secondary</div>
+    <span class="mono faint" style="font-size: 12px">40 · dense screens</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; background: #ffffff; border: 1px solid #c8c4be; font-weight: 500; font-size: 13px">Row action</div>
+    <span class="mono faint" style="font-size: 12px">32 · inside a row</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; width: 260px; height: 44px; padding: 0 14px; border-radius: 8px; background: #ffffff; border: 1px solid #1a1a1a; box-shadow: 0 0 0 3px rgba(26, 26, 26, 0.14); font-size: 14px">Marasy Logistics Co.</div>
+    <span class="mono faint" style="font-size: 12px">focus · 1px ink + 3px ring at 14 %</span>
+  </div>
+</div>
+  <div class="muted" style="font-size: 13px; max-width: 760px">Anything a finger presses is 44px tall, including the 32px row action's hit box. A menu row is 40; a rail square is 44; an icon button is 36 to 44 by its place.</div>
+</div>
+<div class="sec">
+  <h2>Depth</h2>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px">
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="height: 96px; border-radius: 12px; background: #ffffff; border: 1px solid #e5e3df; box-shadow: 0 1px 2px rgb(15 15 15 / 0.04)"></div>
+    <span style="font-size: 13px; font-weight: 600">Surface <span class="mono faint" style="font-weight: 400">0 1px 2px 4 %</span></span>
+    <span class="muted" style="font-size: 12px">Resting cards sit almost flat. The hairline does the work; the shadow only lifts it off the page.</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="height: 96px; border-radius: 12px; background: #ffffff; border: 1px solid #e5e3df; box-shadow: 0 24px 48px -8px rgb(15 15 15 / 0.2)"></div>
+    <span style="font-size: 13px; font-weight: 600">Overlay <span class="mono faint" style="font-weight: 400">0 24px 48px −8px 20 %</span></span>
+    <span class="muted" style="font-size: 12px">Dialogs, drawers, dropdowns, the notice. The only thing that floats.</span>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <div style="height: 96px; border-radius: 12px; background: #ffffff; border: 1px solid #e5e3df; display: flex">
+      <div style="width: 50%; border-inline-end: 1px solid #e5e3df"></div>
+      <div style="width: 50%; display: flex; align-items: center; justify-content: center"><div style="width: 120px; height: 36px; border: 1px solid #c8c4be; border-radius: 8px"></div></div>
+    </div>
+    <span style="font-size: 13px; font-weight: 600">Lines <span class="mono faint" style="font-weight: 400">line · line-strong</span></span>
+    <span class="muted" style="font-size: 12px">Dividers and card edges take the hairline. Anything you can type into or press takes the strong line.</span>
+  </div>
+</div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

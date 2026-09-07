@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; font-family: 'Inter', -apple-system, system-ui, sans-serif; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+    a { color: #1a1a1a; text-decoration: underline; text-underline-offset: 3px; } a:hover { color: #000000; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; direction: ltr; unicode-bidi: isolate; }
+    .mcard { transition: border-color 120ms ease, box-shadow 120ms ease; }
+    .mcard:hover { border-color: #c8c4be !important; box-shadow: rgba(15,15,15,0.06) 0 2px 6px 0 !important; }
+    .mtile { transition: background 120ms ease, border-color 120ms ease; }
+    .mcard:hover .mtile { background: #ebe9e4 !important; border-color: #c8c4be !important; }
+    .gbtn:hover { background: #f6f5f4; }
+    .prow:hover { background: #f6f5f4; }
+  </style>
+</helmet>
+<div dir="ltr" lang="en" style="width: 1440px; height: 900px; display: flex; flex-direction: row; gap: 4px; padding: 8px; background: #f6f5f4; overflow: hidden; box-sizing: border-box;">
+
+  <nav style="{{navStyle}}">
+<div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box;">
+    <div style="display: flex; flex-direction: column; gap: 14px; padding: 12px; flex-shrink: 0;">
+      <div style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 4px 8px;">
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 10px; min-width: 0;"><div title="Company logo" style="width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; background: #1a1a1a; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;">M</div><span style="min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Marasy Logistics Co.</span></div>
+        <span style="color: #787671;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h16M21 9l-3 3 3 3"></path></svg></span>
+      </div>
+    <div title="Favorites" style="display: flex; flex-direction: row; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #c8c4be; color: #787671; font-size: 13px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"></path></svg><span style="flex-grow: 1;">Favorites</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+    </div>
+
+    <div style="flex-grow: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 8px 12px 12px; scrollbar-width: thin; scrollbar-color: #c8c4be transparent;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #787671;">Pages</span>
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <sc-for list="{{pages}}" as="p" hint-placeholder-count="3">
+            <div class="prow" style="{{p.rowStyle}}" onClick="{{p.pick}}"><span style="flex-grow: 1;">{{p.label}}</span><span class="mono" style="{{p.chipStyle}}">{{p.count}}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    </div>
+  <div style="display: flex; flex-direction: row; align-items: stretch; height: 52px; flex-shrink: 0; overflow: hidden; background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box;"><div title="Profile" style="display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 0 12px; flex-grow: 1; min-width: 0;"><span style="width: 30px; height: 30px; flex-shrink: 0; border-radius: 999px; background: linear-gradient(135deg, #1a1a1a, #5d5b54); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600;">TA</span><div style="display: flex; flex-direction: column; gap: 1px; min-width: 0;"><span style="font-size: 13px; font-weight: 500;">Tariq Al-Mansour</span><span style="font-size: 11.5px; color: #787671;">Owner</span></div></div><span style="width: 1px; flex-shrink: 0; background: #e5e3df;"></span><div title="Account menu" style="width: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #787671;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></div></div>
+  </nav>
+
+  <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+
+    <div style="height: 60px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 24px; background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box;">
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 14px;">
+      </div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 10px;">
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 10px; width: 300px; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #c8c4be; color: #bbb8b1; font-size: 13.5px; box-sizing: border-box;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#787671" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span style="flex-grow: 1;">Search</span><span class="mono" style="font-size: 11px; padding: 1px 6px; border: 1px solid #e5e3df; border-radius: 4px; color: #787671;">/</span></div>
+        <div style="display: inline-flex; padding: 2px; border-radius: 8px; border: 1px solid #e5e3df; background: #f6f5f4; font-size: 13px; font-weight: 500;"><span style="padding: 5px 12px; color: #787671; font-family: 'IBM Plex Sans Arabic', sans-serif;">العربية</span><span style="padding: 5px 12px; border-radius: 6px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0;">English</span></div>
+        <div style="width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #c8c4be;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#37352f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg></div>
+        <div style="position: relative; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #c8c4be;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#37352f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"></path></svg><span style="position: absolute; top: 7px; inset-inline-end: 8px; width: 8px; height: 8px; border-radius: 50%; background: #d52020; border: 2px solid #ffffff;"></span></div>
+      </div>
+    </div>
+
+    <nav style="height: 48px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 0 24px; background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box;"><div style="display: flex; flex-direction: row; align-items: center; gap: 8px;"><span class="gbtn" style="{{crumbModuleStyle}}" onClick="{{openLauncher}}">{{crumbModuleText}}</span><span style="{{crumbSepStyle}}">/</span><span style="{{crumbPageStyle}}">{{crumbPageText}}</span></div></nav>
+
+    <div style="{{launcherStyle}}">
+      <div style="width: 1000px; display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <span style="font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">All modules</span>
+          <span style="font-size: 13.5px; color: #787671;">Modules you have access to in Marasy Logistics Co.</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;">
+
+          <div class="mcard" onClick="{{open.overview}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Overview</span><span style="font-size: 12px; color: #787671;">1 page</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.operations}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17h13a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H3zM16 9h3l2 3v5h-5z"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Operations</span><span style="font-size: 12px; color: #787671;">3 pages</span></div>
+            <span class="mono" style="position: absolute; top: 18px; inset-inline-end: 18px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: #f6f5f4; border: 1px solid #e5e3df; color: #37352f;">128</span>
+          </div>
+
+          <div class="mcard" onClick="{{open.customs}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 11 14 15 10"></path><circle cx="12" cy="12" r="8"></circle></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Customs clearance</span><span style="font-size: 12px; color: #787671;">3 pages</span></div>
+            <span class="mono" style="position: absolute; top: 18px; inset-inline-end: 18px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: #f6f5f4; border: 1px solid #e5e3df; color: #37352f;">7</span>
+          </div>
+
+          <div class="mcard" onClick="{{open.accounting}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16M4 15l4-4 4 3 8-8"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Accounting</span><span style="font-size: 12px; color: #787671;">3 pages</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.hr}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"></circle><path d="M2 20a7 7 0 0 1 14 0M16 4.5a3.5 3.5 0 0 1 0 7M22 20a7 7 0 0 0-5-6.7"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Human resources</span><span style="font-size: 12px; color: #787671;">[pages to be defined]</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.fleet}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="14" rx="2"></rect><path d="M4 9.5h16M7.5 21 9 19M16.5 21 15 19"></path><circle cx="8" cy="13.5" r="1"></circle><circle cx="16" cy="13.5" r="1"></circle></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Fleet</span><span style="font-size: 12px; color: #787671;">[pages to be defined]</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.inventory}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-8h14l2 8v6H3z"></path><path d="M3 13h5l2 3h4l2-3h5"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Inventory</span><span style="font-size: 12px; color: #787671;">[pages to be defined]</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.maintenance}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5a5 5 0 0 0-5.9 6.7l-7 7a2.1 2.1 0 0 0 3 3l7-7a5 5 0 0 0 6.7-5.9l-3 3-2.8-2.8z"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Maintenance</span><span style="font-size: 12px; color: #787671;">[pages to be defined]</span></div>
+          </div>
+
+          <div class="mcard" onClick="{{open.storage}}" style="position: relative; display: flex; flex-direction: column; gap: 12px; height: 148px; padding: 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1"></rect><rect x="3" y="13" width="18" height="7" rx="1"></rect><path d="M8 6.5v2M12 6.5v2M16 6.5v2M8 15.5v2M12 15.5v2M16 15.5v2"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Container storage</span><span style="font-size: 12px; color: #787671;">[pages to be defined]</span></div>
+          </div>
+
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; padding-top: 24px; border-top: 1px solid #e5e3df;">
+          <span style="font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #787671;">Workspace</span>
+          <div class="mcard" onClick="{{open.settings}}" style="display: flex; flex-direction: row; align-items: center; gap: 16px; height: 72px; padding: 0 20px; border: 1px solid #e5e3df; border-radius: 12px; background: #ffffff; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; cursor: pointer;">
+            <div class="mtile" style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; background: #f6f5f4; border: 1px solid #e5e3df; display: flex; align-items: center; justify-content: center; color: #1a1a1a;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg></div>
+            <div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1;"><span style="font-size: 16px; font-weight: 600; letter-spacing: -0.2px;">Settings</span><span style="font-size: 12px; color: #787671;">General · Team and access · Translations</span></div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#787671" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="{{contentStyle}}"><div style="flex-grow: 1; min-height: 0; border: 1px dashed #c8c4be; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #787671; font-size: 13px;">Page content</div><footer style="height: 30px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; border-top: 1px solid #efede8; font-size: 11px; color: #a3a09a;"><span style="min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">© 2026 Marasy Logistics Co.</span><div style="display: flex; flex-direction: row; align-items: center; gap: 16px; flex-shrink: 0;"><a href="#" style="color: #a3a09a; text-decoration: none;">Terms</a><a href="#" style="color: #a3a09a; text-decoration: none;">Privacy</a></div></footer></div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":900},"start":{"editor":"enum","options":["launcher","module"],"default":"launcher","section":"Prototype"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const MODULES = {
+      overview: { name: 'Overview', pages: [{ id: 'overview', label: 'Overview' }] },
+      operations: { name: 'Operations', pages: [
+        { id: 'shipments', label: 'Shipments', count: '128' },
+        { id: 'jobfiles', label: 'Job files' },
+        { id: 'transport', label: 'Transport orders' }
+      ] },
+      customs: { name: 'Customs clearance', pages: [
+        { id: 'declarations', label: 'Declarations' },
+        { id: 'held', label: 'Held by customs', count: '2' },
+        { id: 'ports', label: 'Ports and agents' }
+      ] },
+      accounting: { name: 'Accounting', pages: [
+        { id: 'invoices', label: 'Invoices' },
+        { id: 'customers', label: 'Customers' },
+        { id: 'journal', label: 'Journal entries' }
+      ] },
+      hr: { name: 'Human resources', empty: '[pages to be defined]', pages: [] },
+      fleet: { name: 'Fleet', empty: '[pages to be defined]', pages: [] },
+      inventory: { name: 'Inventory', empty: '[pages to be defined]', pages: [] },
+      maintenance: { name: 'Maintenance', empty: '[pages to be defined]', pages: [] },
+      storage: { name: 'Container storage', empty: '[pages to be defined]', pages: [] },
+      settings: { name: 'Settings', pages: [
+        { id: 'general', label: 'General' },
+        { id: 'team', label: 'Team and access' },
+        { id: 'translations', label: 'Translations' }
+      ] }
+    };
+
+    const s = this.state || {};
+    const view = s.view || (this.props.start === 'module' ? 'module' : 'launcher');
+    const isLauncher = view === 'launcher';
+    const moduleId = MODULES[s.module] ? s.module : 'customs';
+    const mod = MODULES[moduleId];
+    const first = mod.pages[0];
+    const pageId = s.page || (first ? first.id : '');
+    const current = mod.pages.filter((p) => p.id === pageId)[0] || first;
+
+    const ROW = 'display: flex; flex-direction: row; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; font-size: 14px; ';
+    const CHIP = 'font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; border: 1px solid #e5e3df; color: #37352f; ';
+    const PANEL = 'flex-grow: 1; min-height: 0; background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: rgba(15,15,15,0.04) 0 1px 2px 0; box-sizing: border-box; ';
+
+    const rows = mod.pages.length
+      ? mod.pages
+      : [{ id: '_none', label: mod.empty, muted: true }];
+
+    const pages = rows.map((p) => {
+      const active = !p.muted && current && p.id === current.id;
+      let tone = 'color: #37352f; cursor: pointer;';
+      if (p.muted) tone = 'color: #787671; cursor: default; height: auto; min-height: 40px; padding: 10px 12px; line-height: 1.4;';
+      else if (active) tone = 'background: #ebe9e4; color: #1a1a1a; font-weight: 600; cursor: pointer;';
+      return {
+        label: p.label,
+        count: p.count || '',
+        rowStyle: ROW + tone,
+        chipStyle: p.count ? CHIP + (active ? 'background: #ffffff;' : 'background: #f6f5f4;') : 'display: none;',
+        pick: p.muted ? () => {} : () => this.setState({ view: 'module', module: moduleId, page: p.id })
+      };
+    });
+
+    const open = {};
+    Object.keys(MODULES).forEach((key) => {
+      const target = MODULES[key];
+      open[key] = () => this.setState({
+        view: 'module',
+        module: key,
+        page: target.pages[0] ? target.pages[0].id : '_none'
+      });
+    });
+
+    const showPage = !isLauncher && !!current && current.label !== mod.name;
+
+    return {
+      pages: pages,
+      open: open,
+      openLauncher: () => this.setState({ view: 'launcher' }),
+      navStyle: 'width: 248px; height: 884px; flex-direction: column; gap: 4px; flex-shrink: 0; ' + (isLauncher ? 'display: none;' : 'display: flex;'),
+      launcherStyle: PANEL + 'padding: 32px 48px; flex-direction: row; justify-content: center; ' + (isLauncher ? 'display: flex;' : 'display: none;'),
+      contentStyle: PANEL + 'padding: 24px 32px 4px; flex-direction: column; ' + (isLauncher ? 'display: none;' : 'display: flex;'),
+      gridBtnStyle: 'width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #c8c4be; cursor: pointer; ' + (isLauncher ? 'background: #ebe9e4; color: #1a1a1a;' : 'color: #37352f;'),
+      crumbModuleText: isLauncher ? 'All modules' : mod.name,
+      crumbModuleStyle: 'font-size: 13.5px; cursor: pointer; padding: 2px 6px; margin: 0 -6px; border-radius: 6px; ' + (showPage ? 'color: #787671;' : 'color: #1a1a1a; font-weight: 500;'),
+      crumbSepStyle: showPage ? 'color: #c8c4be;' : 'display: none;',
+      crumbPageStyle: showPage ? 'font-size: 13.5px; color: #1a1a1a; font-weight: 500;' : 'display: none;',
+      crumbPageText: current ? current.label : ''
+    };
+  }
+}
+</script>
+</body>
+</html>

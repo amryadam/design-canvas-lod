@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #f6f5f4; color: #1a1a1a; font-family: 'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    a { color: #1a1a1a; } a:hover { color: #000000; }
+    .sheet { width: 1440px; min-height: 900px; box-sizing: border-box; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 32px; }
+    .head { display: flex; flex-direction: column; gap: 8px; }
+    .kicker { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #787671; }
+    h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+    .lede { margin: 0; max-width: 760px; color: #5d5b54; font-size: 15px; }
+    h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .sec { display: flex; flex-direction: column; gap: 14px; }
+    .rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+    .rules li { display: flex; gap: 12px; color: #1a1a1a; }
+    .rules li::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 9999px; background: #1a1a1a; margin-top: 8px; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .faint { color: #787671; } .muted { color: #5d5b54; }
+    .card { background: #ffffff; border: 1px solid #e5e3df; border-radius: 12px; box-shadow: 0 1px 2px rgb(15 15 15 / 0.04); }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: start; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #787671; padding: 10px 16px; border-bottom: 1px solid #e5e3df; }
+    td { padding: 11px 16px; border-bottom: 1px solid #e5e3df; vertical-align: top; font-size: 13.5px; }
+    tr:last-child td { border-bottom: 0; }
+    .swatch { display: flex; flex-direction: column; gap: 10px; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    
+  </style>
+</helmet>
+<div class="sheet">
+<div class="head">
+  <div class="kicker">Design system · 06</div>
+  <h1>Language and direction</h1>
+  <p class="lede">Arabic first. Every screen is drawn in both directions, and the layout is written in logical properties so the mirror is the same code.</p>
+</div>
+<div class="sec">
+  <h2>The same screen twice</h2>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+  <div class="card" style="padding: 20px; display: flex; flex-direction: column; gap: 14px">
+    <div class="kicker">English · LTR</div>
+    <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px"><span class="faint">Operations</span><span style="color: #c8c4be">/</span><span style="font-weight: 500">Shipments</span></div>
+    <div style="display: flex; align-items: center; height: 40px; border-radius: 8px; background: #ebe9e4; padding: 0 12px; gap: 12px; font-size: 13.5px; font-weight: 600"><svg width="18" height="18" style="color:currentColor;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13c-1.5 1.5-2 4-2 6 2 0 4.5-.5 6-2M15 9a2 2 0 1 0 0-.01M12 15l-3-3c1-4 4-8 12-9-1 8-5 11-9 12zM6 12l-1-3 3-1M12 18l3 1 1-3"/></g></svg> <span style="flex: 1">Shipments</span> <span class="mono" style="font-size: 11px; padding: 3px 7px; border-radius: 6px; border: 1px solid #e5e3df; background: #ffffff; color: #5d5b54; font-weight: 600">12</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 500">Tariq Al-Harbi</span><span class="mono faint" style="font-size: 11.5px">tariq@marasy.sa</span></div>
+    <div style="display: flex; gap: 8px; align-items: center; font-size: 13.5px"><svg width="18" height="18" style="color:currentColor;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></g></svg> Sign in <span style="flex: 1"></span> <svg width="18" height="18" style="color:#787671;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></g></svg></div>
+  </div>
+  <div class="card" dir="rtl" lang="ar" style="padding: 20px; display: flex; flex-direction: column; gap: 14px; font-family: 'IBM Plex Sans Arabic', 'Inter', sans-serif">
+    <div class="kicker" style="font-family: 'JetBrains Mono', monospace">Arabic · RTL</div>
+    <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px"><span class="faint">العمليات</span><span style="color: #c8c4be">/</span><span style="font-weight: 500">الشحنات</span></div>
+    <div style="display: flex; align-items: center; height: 40px; border-radius: 8px; background: #ebe9e4; padding: 0 12px; gap: 12px; font-size: 13.5px; font-weight: 600"><svg width="18" height="18" style="color:currentColor;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13c-1.5 1.5-2 4-2 6 2 0 4.5-.5 6-2M15 9a2 2 0 1 0 0-.01M12 15l-3-3c1-4 4-8 12-9-1 8-5 11-9 12zM6 12l-1-3 3-1M12 18l3 1 1-3"/></g></svg> <span style="flex: 1">الشحنات</span> <span class="mono" dir="ltr" style="font-size: 11px; padding: 3px 7px; border-radius: 6px; border: 1px solid #e5e3df; background: #ffffff; color: #5d5b54; font-weight: 600; font-family: 'JetBrains Mono', monospace">12</span></div>
+    <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 500">طارق الحربي</span><span class="mono faint" dir="ltr" style="font-size: 11.5px; text-align: start; font-family: 'JetBrains Mono', monospace">tariq@marasy.sa</span></div>
+    <div style="display: flex; gap: 8px; align-items: center; font-size: 13.5px"><span style="display: inline-flex; transform: scaleX(-1)"><svg width="18" height="18" style="color:currentColor;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></g></svg></span> تسجيل الدخول <span style="flex: 1"></span> <span style="display: inline-flex; transform: scaleX(-1)"><svg width="18" height="18" style="color:#787671;display:block" viewBox="0 0 24 24" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></g></svg></span></div>
+  </div>
+</div>
+</div>
+<div class="sec">
+  <h2>Rules</h2>
+  <ul class="rules"><li><span>Layout is logical: <span class="mono">ms- me- ps- pe- start end</span>, never left or right. The side menu sits at the start, the account chip at the end, in both languages.</span></li><li><span>The document flips with <span class="mono">dir</span>; the Arabic face applies to everything under it, so ng-zorro components switch with the page.</span></li><li><span>Codes, emails, addresses, money and counts are LTR islands: <span class="mono">dir="ltr"</span> and the mono face, aligned to the start of their column.</span></li><li><span>Digits are Latin in both languages. Money is written <span class="mono">SAR 412,800</span>; dates show the Gregorian day and the Hijri day beside it where a deadline matters.</span></li><li><span>Icons that carry direction mirror: chevrons, the login and logout arrows, the send arrow, the fold and unfold, the question mark. Checks, clocks, stars and pictograms do not.</span></li><li><span>Copy is written for both languages at once: one sentence, no idiom, no exclamation mark. Errors say what happened and what to do next.</span></li><li><span>Text fields hold either script; the field itself does not switch direction on its own, the page does.</span></li></ul>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LOD test</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel" src="./design-canvas.jsx"></script>
+<script type="text/babel" src="./canvas-page.jsx"></script>
+<script type="text/babel">
+const page = new URLSearchParams(location.search).get('page') || 'page-3';
+ReactDOM.createRoot(document.getElementById('root')).render(<CanvasPage page={page} />);
+</script></body></html>

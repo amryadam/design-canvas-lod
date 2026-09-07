@@ -1,0 +1,1230 @@
+{
+  "artboards": [
+    {
+      "file": "Dashboard.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "Owner overview · 1440×900",
+      "page": "page-2"
+    },
+    {
+      "file": "DashboardArabic.dc.html",
+      "x": 1540,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "نظرة عامة · RTL · 1440×900",
+      "page": "page-2"
+    },
+    {
+      "file": "Users.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "01 Users · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UsersEmpty.dc.html",
+      "x": 1540,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "01 Users · no results · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UsersArabic.dc.html",
+      "x": 3080,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "01 المستخدمون · RTL · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserDetail.dc.html",
+      "x": 0,
+      "y": 1100,
+      "w": 1440,
+      "h": 1240,
+      "title": "02 User · roles, overrides, effective set · 1440×1240",
+      "page": "page-3"
+    },
+    {
+      "file": "UserDetailOwner.dc.html",
+      "x": 1540,
+      "y": 1100,
+      "w": 1440,
+      "h": 900,
+      "title": "02 User · Owner, last-Owner refusal · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreate.dc.html",
+      "x": 0,
+      "y": 2460,
+      "w": 1440,
+      "h": 900,
+      "title": "03 New user modal · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateMinimized.dc.html",
+      "x": 1540,
+      "y": 2460,
+      "w": 1440,
+      "h": 900,
+      "title": "03a New user · bubble at rest · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserDisableConfirm.dc.html",
+      "x": 4620,
+      "y": 2460,
+      "w": 1440,
+      "h": 900,
+      "title": "04 Disable confirmation · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "Roles.dc.html",
+      "x": 0,
+      "y": 3560,
+      "w": 1440,
+      "h": 900,
+      "title": "05 Roles · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "RoleEditor.dc.html",
+      "x": 1540,
+      "y": 3560,
+      "w": 1440,
+      "h": 1240,
+      "title": "06 Role editor · self-lockout guard · 1440×1240",
+      "page": "page-3"
+    },
+    {
+      "file": "Notices.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1180,
+      "title": "Notices · redesign · 1440×1180",
+      "page": "page-5"
+    },
+    {
+      "file": "NoticesArabic.dc.html",
+      "x": 1540,
+      "y": 0,
+      "w": 1440,
+      "h": 1180,
+      "title": "التنبيهات · RTL · 1440×1180",
+      "page": "page-5"
+    },
+    {
+      "file": "DSColour.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1220,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSType.dc.html",
+      "x": 1540,
+      "y": 0,
+      "w": 1440,
+      "h": 1180,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSSpace.dc.html",
+      "x": 0,
+      "y": 1360,
+      "w": 1440,
+      "h": 1180,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSIcons.dc.html",
+      "x": 1540,
+      "y": 1360,
+      "w": 1440,
+      "h": 1100,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSMotion.dc.html",
+      "x": 0,
+      "y": 2680,
+      "w": 1440,
+      "h": 1080,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSLanguage.dc.html",
+      "x": 1540,
+      "y": 2680,
+      "w": 1440,
+      "h": 900,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSLayout.dc.html",
+      "x": 0,
+      "y": 3900,
+      "w": 1440,
+      "h": 1520,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "DSComponents.dc.html",
+      "x": 1540,
+      "y": 3900,
+      "w": 1440,
+      "h": 1220,
+      "print": "flow",
+      "page": "page-7"
+    },
+    {
+      "file": "Sidebar.dc.html",
+      "x": 0,
+      "y": 2760,
+      "w": 1440,
+      "h": 900,
+      "title": "Side menu + menu bar · laptop · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarSettings.dc.html",
+      "x": 1540,
+      "y": 2760,
+      "w": 1440,
+      "h": 900,
+      "title": "Long list scrolls inside · account menu · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarRail.dc.html",
+      "x": 0,
+      "y": 3860,
+      "w": 1440,
+      "h": 900,
+      "title": "Collapsed rail · notifications · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarArabic.dc.html",
+      "x": 1540,
+      "y": 3860,
+      "w": 1440,
+      "h": 900,
+      "title": "القائمة الجانبية · RTL · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarMobile.dc.html",
+      "x": 3080,
+      "y": 2760,
+      "w": 390,
+      "h": 844,
+      "title": "Mobile drawer · 390×844",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarMobileArabic.dc.html",
+      "x": 3560,
+      "y": 2760,
+      "w": 390,
+      "h": 844,
+      "title": "درج الجوال · RTL · 390×844",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarTree.dc.html",
+      "x": 0,
+      "y": 4960,
+      "w": 1440,
+      "h": 900,
+      "title": "Nested pages · expanded tree · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarTreeArabic.dc.html",
+      "x": 1540,
+      "y": 4960,
+      "w": 1440,
+      "h": 900,
+      "title": "الصفحات المتداخلة · RTL · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "SidebarRailFlyout.dc.html",
+      "x": 3080,
+      "y": 4960,
+      "w": 1440,
+      "h": 900,
+      "title": "Nested pages · rail flyout · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "01 Your details · 1920×1080",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "MainErrors.dc.html",
+      "title": "01 · reserved word, missing time zone, weak password · 1920×1080",
+      "x": 2020,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "MainArabic.dc.html",
+      "title": "01 بياناتك · RTL · 1920×1080",
+      "x": 4040,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "MainSpacedSteps.dc.html",
+      "title": "Option · spaced step indicator · 1920×1080",
+      "x": 6060,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "Main2K.dc.html",
+      "title": "01 Your details · 2560×1440 (2K)",
+      "x": 0,
+      "y": 1280,
+      "w": 2560,
+      "h": 1440,
+      "page": "page-1"
+    },
+    {
+      "file": "MainLaptop.dc.html",
+      "title": "01 Your details · 1440×900 laptop (form column scrolls)",
+      "x": 2660,
+      "y": 1280,
+      "w": 1440,
+      "h": 900,
+      "page": "page-1"
+    },
+    {
+      "file": "Verify.dc.html",
+      "title": "02 Verify · typing · 1920×1080",
+      "x": 0,
+      "y": 2920,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "VerifyWrongCode.dc.html",
+      "title": "02 Verify · wrong code · 1920×1080",
+      "x": 2020,
+      "y": 2920,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "VerifyExpired.dc.html",
+      "title": "02 Verify · expired · 1920×1080",
+      "x": 4040,
+      "y": 2920,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "Provisioning.dc.html",
+      "title": "03 Workspace · preparing · 1920×1080",
+      "x": 0,
+      "y": 4120,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "ProvisioningSlow.dc.html",
+      "title": "03 Workspace · slow / timeout · 1920×1080",
+      "x": 2020,
+      "y": 4120,
+      "w": 1920,
+      "h": 1080,
+      "page": "page-1"
+    },
+    {
+      "file": "SignIn.dc.html",
+      "title": "04 Sign in · 1280×880",
+      "x": 0,
+      "y": 5320,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "SignInEmpty.dc.html",
+      "title": "04 Sign in · empty field · 1280×880",
+      "x": 1380,
+      "y": 5320,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "SignInWrong.dc.html",
+      "title": "04 Sign in · wrong credentials · 1280×880",
+      "x": 2760,
+      "y": 5320,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "SignInLocked.dc.html",
+      "title": "04 Sign in · locked · 1280×880",
+      "x": 4140,
+      "y": 5320,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "SignInArabic.dc.html",
+      "title": "04 تسجيل الدخول · RTL · 1280×880",
+      "x": 5520,
+      "y": 5320,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "TenantPreparing.dc.html",
+      "title": "05 Workspace in preparation · 1280×880",
+      "x": 0,
+      "y": 6400,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "TenantSuspended.dc.html",
+      "title": "05 Subscription suspended · 1280×880",
+      "x": 1380,
+      "y": 6400,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "ForgotPassword.dc.html",
+      "title": "06 Forgot password · 1280×880",
+      "x": 2760,
+      "y": 6400,
+      "w": 1280,
+      "h": 880,
+      "page": "page-1"
+    },
+    {
+      "file": "TabletDetails.dc.html",
+      "title": "Tablet 834 · 1 Your details · 834×1120",
+      "x": 0,
+      "y": 7480,
+      "w": 834,
+      "h": 1120,
+      "page": "page-1"
+    },
+    {
+      "file": "TabletVerify.dc.html",
+      "title": "Tablet 834 · 2 Verify · 834×1194",
+      "x": 934,
+      "y": 7480,
+      "w": 834,
+      "h": 1194,
+      "page": "page-1"
+    },
+    {
+      "file": "TabletProvisioning.dc.html",
+      "title": "Tablet 834 · 3 Workspace · 834×1194",
+      "x": 1868,
+      "y": 7480,
+      "w": 834,
+      "h": 1194,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneDetails.dc.html",
+      "title": "Phone 390 · 1 Your details · 390×1500",
+      "x": 0,
+      "y": 8980,
+      "w": 390,
+      "h": 1500,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneDetailsErrors.dc.html",
+      "title": "Phone 390 · 1 · errors · 390×1700",
+      "x": 490,
+      "y": 8980,
+      "w": 390,
+      "h": 1700,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneDetailsArabic.dc.html",
+      "title": "الجوال 390 · بياناتك · RTL · 390×1500",
+      "x": 980,
+      "y": 8980,
+      "w": 390,
+      "h": 1500,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneVerify.dc.html",
+      "title": "Phone 390 · 2 Verify · wrong code · 390×844",
+      "x": 1470,
+      "y": 8980,
+      "w": 390,
+      "h": 844,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneProvisioning.dc.html",
+      "title": "Phone 390 · 3 Workspace · 390×844",
+      "x": 1960,
+      "y": 8980,
+      "w": 390,
+      "h": 844,
+      "page": "page-1"
+    },
+    {
+      "file": "PhoneInput.dc.html",
+      "page": "page-8",
+      "x": 0,
+      "y": 0,
+      "w": 1080,
+      "h": 1000,
+      "title": "Phone input · states · 1080×1000"
+    },
+    {
+      "file": "PhoneInputPicker.dc.html",
+      "page": "page-8",
+      "x": 1180,
+      "y": 0,
+      "w": 520,
+      "h": 720,
+      "title": "Phone input · picker open · 520×720"
+    },
+    {
+      "file": "PhoneInputDark.dc.html",
+      "page": "page-8",
+      "x": 1800,
+      "y": 0,
+      "w": 520,
+      "h": 820,
+      "title": "Phone input · dark · 520×820"
+    },
+    {
+      "file": "PhoneInputMobile.dc.html",
+      "page": "page-8",
+      "x": 0,
+      "y": 1140,
+      "w": 390,
+      "h": 844,
+      "title": "Phone input · phone sheet · 390×844"
+    },
+    {
+      "file": "PhoneInputAlternates.dc.html",
+      "page": "page-8",
+      "x": 500,
+      "y": 1140,
+      "w": 640,
+      "h": 380,
+      "title": "Phone input · alternates (low-fi) · 640×380"
+    },
+    {
+      "file": "TimezoneSelect.dc.html",
+      "page": "page-8",
+      "x": 2440,
+      "y": 0,
+      "w": 1080,
+      "h": 1000,
+      "title": "Time zone · states · 1080×1000"
+    },
+    {
+      "file": "TimezoneMenu.dc.html",
+      "page": "page-8",
+      "x": 3620,
+      "y": 0,
+      "w": 520,
+      "h": 900,
+      "title": "Time zone · menu open · 520×900"
+    },
+    {
+      "file": "TimezoneSearch.dc.html",
+      "page": "page-8",
+      "x": 1240,
+      "y": 1140,
+      "w": 520,
+      "h": 560,
+      "title": "Time zone · searching · 520×560"
+    },
+    {
+      "file": "TimezoneDark.dc.html",
+      "page": "page-8",
+      "x": 1860,
+      "y": 1140,
+      "w": 520,
+      "h": 820,
+      "title": "Time zone · dark · 520×820"
+    },
+    {
+      "file": "Launcher.dc.html",
+      "x": 0,
+      "y": 6060,
+      "w": 1440,
+      "h": 900,
+      "title": "Module launcher · all modules · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "LauncherScoped.dc.html",
+      "x": 1540,
+      "y": 6060,
+      "w": 1440,
+      "h": 900,
+      "title": "Inside a module · pages only · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "LauncherArabic.dc.html",
+      "x": 3080,
+      "y": 6060,
+      "w": 1440,
+      "h": 900,
+      "title": "مبدّل الوحدات · RTL · 1440×900",
+      "page": "page-6"
+    },
+    {
+      "file": "LauncherFlow.dc.html",
+      "x": 4620,
+      "y": 6060,
+      "w": 1440,
+      "h": 900,
+      "title": "Clickable · grid → module → pages · 1440×900",
+      "page": "page-6",
+      "is_interactive": true
+    },
+    {
+      "file": "ShellDesktop.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1920,
+      "h": 1080,
+      "title": "Shell · 1920×1080",
+      "page": "page-6"
+    },
+    {
+      "file": "ShellTablet.dc.html",
+      "x": 2020,
+      "y": 0,
+      "w": 834,
+      "h": 1120,
+      "title": "Tablet 834 · rail · 834×1120",
+      "page": "page-6"
+    },
+    {
+      "file": "ShellPhone.dc.html",
+      "x": 2954,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "Phone 390 · page · 390×844",
+      "page": "page-6"
+    },
+    {
+      "file": "Shell2K.dc.html",
+      "x": 0,
+      "y": 1200,
+      "w": 2560,
+      "h": 1440,
+      "title": "Shell · 2560×1440 (2K)",
+      "page": "page-6"
+    },
+    {
+      "file": "OverridesTable.dc.html",
+      "x": 3080,
+      "y": 1100,
+      "w": 1440,
+      "h": 1000,
+      "title": "02b Per-user overrides editor · 1440×1000",
+      "page": "page-3"
+    },
+    {
+      "file": "UsersFlow.dc.html",
+      "x": 0,
+      "y": 4960,
+      "w": 1440,
+      "h": 800,
+      "title": "00 Page flow · Users and roles · 1440×800",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreated.dc.html",
+      "x": 3080,
+      "y": 2460,
+      "w": 1440,
+      "h": 900,
+      "title": "03b User created · handover · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserDisabled.dc.html",
+      "x": 0,
+      "y": 5960,
+      "w": 1440,
+      "h": 1000,
+      "title": "02c Disabled user · enable · 1440×1000",
+      "page": "page-3"
+    },
+    {
+      "file": "UserTempPassword.dc.html",
+      "x": 1540,
+      "y": 5960,
+      "w": 1440,
+      "h": 1000,
+      "title": "02d Temporary password · reset dialog · 1440×1000",
+      "page": "page-3"
+    },
+    {
+      "file": "UserAssignRole.dc.html",
+      "x": 3080,
+      "y": 5960,
+      "w": 1440,
+      "h": 1100,
+      "title": "02e Assign role · Owner handover · 1440×1100",
+      "page": "page-3"
+    },
+    {
+      "file": "UserPortal.dc.html",
+      "x": 4620,
+      "y": 5960,
+      "w": 1440,
+      "h": 1000,
+      "title": "02f PORTAL user · type ceiling · 1440×1000",
+      "page": "page-3"
+    },
+    {
+      "file": "InvoicesFlow.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 800,
+      "title": "00 Page flow · Invoices · 1440×800",
+      "page": "page-9"
+    },
+    {
+      "file": "ZatcaProfile.dc.html",
+      "x": 0,
+      "y": 1000,
+      "w": 1440,
+      "h": 1000,
+      "title": "01 Set up ZATCA · company profile · 1440×1000",
+      "page": "page-9"
+    },
+    {
+      "file": "ZatcaCode.dc.html",
+      "x": 1540,
+      "y": 1000,
+      "w": 1440,
+      "h": 900,
+      "title": "02 Set up ZATCA · code · 1440×900",
+      "page": "page-9"
+    },
+    {
+      "file": "ZatcaProgress.dc.html",
+      "x": 3080,
+      "y": 1000,
+      "w": 1440,
+      "h": 900,
+      "title": "03 Set up ZATCA · connecting · 1440×900",
+      "page": "page-9"
+    },
+    {
+      "file": "ZatcaFailed.dc.html",
+      "x": 0,
+      "y": 2200,
+      "w": 1440,
+      "h": 900,
+      "title": "03e Set up ZATCA · stopped · 1440×900",
+      "page": "page-9"
+    },
+    {
+      "file": "ZatcaDone.dc.html",
+      "x": 1540,
+      "y": 2200,
+      "w": 1440,
+      "h": 900,
+      "title": "03d Set up ZATCA · connected · 1440×900",
+      "page": "page-9"
+    },
+    {
+      "file": "Invoices.dc.html",
+      "x": 0,
+      "y": 3300,
+      "w": 1440,
+      "h": 1100,
+      "title": "04 Invoices · 1440×1100",
+      "page": "page-9"
+    },
+    {
+      "file": "InvoiceNewType.dc.html",
+      "x": 1540,
+      "y": 3300,
+      "w": 1440,
+      "h": 900,
+      "title": "05 New invoice · type first · 1440×900",
+      "page": "page-9"
+    },
+    {
+      "file": "InvoiceNewUpload.dc.html",
+      "x": 0,
+      "y": 4600,
+      "w": 1440,
+      "h": 1100,
+      "title": "06 New invoice · from a document · 1440×1100",
+      "page": "page-9"
+    },
+    {
+      "file": "InvoiceNewManual.dc.html",
+      "x": 1540,
+      "y": 4600,
+      "w": 1440,
+      "h": 1000,
+      "title": "07 New invoice · by hand · 1440×1000",
+      "page": "page-9"
+    },
+    {
+      "file": "InvoiceView.dc.html",
+      "x": 3080,
+      "y": 4600,
+      "w": 1440,
+      "h": 1100,
+      "title": "08 Issued invoice · 1440×1100",
+      "page": "page-9"
+    },
+    {
+      "file": "EmailOtp.dc.html",
+      "title": "02 Verify · OTP email · 720×820",
+      "x": 6060,
+      "y": 2920,
+      "w": 720,
+      "h": 820,
+      "page": "page-1"
+    },
+    {
+      "file": "EmailOtpArabic.dc.html",
+      "title": "02 Verify · OTP email · RTL · 720×820",
+      "x": 6860,
+      "y": 2920,
+      "w": 720,
+      "h": 820,
+      "page": "page-1"
+    },
+    {
+      "file": "EmailOtpPhone.dc.html",
+      "title": "02 Verify · OTP email · phone · 390×640",
+      "x": 7660,
+      "y": 2920,
+      "w": 390,
+      "h": 640,
+      "page": "page-1"
+    },
+    {
+      "file": "EmailOtpBilingual.dc.html",
+      "title": "02 Verify · OTP email · bilingual · 720×1000",
+      "x": 8130,
+      "y": 2920,
+      "w": 720,
+      "h": 1000,
+      "page": "page-1"
+    },
+    {
+      "file": "EmailOtpBilingualPhone.dc.html",
+      "title": "02 Verify · OTP email · bilingual · phone · 390×940",
+      "x": 8930,
+      "y": 2920,
+      "w": 390,
+      "h": 940,
+      "page": "page-1"
+    },
+    {
+      "file": "UserCreateBubbleHover.dc.html",
+      "x": 6160,
+      "y": 2460,
+      "w": 1440,
+      "h": 900,
+      "title": "03a New user · bubble on hover · 1440×900",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateDesktop.dc.html",
+      "x": 0,
+      "y": 7260,
+      "w": 1920,
+      "h": 1080,
+      "title": "03 New user modal · desktop · 1920×1080",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreate2K.dc.html",
+      "x": 2020,
+      "y": 7260,
+      "w": 2560,
+      "h": 1440,
+      "title": "03 New user modal · 2K · 2560×1440",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateTablet.dc.html",
+      "x": 4680,
+      "y": 7260,
+      "w": 834,
+      "h": 1120,
+      "title": "03 New user modal · tablet · 834×1120",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreatePhone.dc.html",
+      "x": 5614,
+      "y": 7260,
+      "w": 390,
+      "h": 844,
+      "title": "03 New user modal · phone · 390×844",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateMinimizedDesktop.dc.html",
+      "x": 0,
+      "y": 8860,
+      "w": 1920,
+      "h": 1080,
+      "title": "03a New user · bubble at rest · desktop · 1920×1080",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateMinimized2K.dc.html",
+      "x": 2020,
+      "y": 8860,
+      "w": 2560,
+      "h": 1440,
+      "title": "03a New user · bubble at rest · 2K · 2560×1440",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateMinimizedTablet.dc.html",
+      "x": 4680,
+      "y": 8860,
+      "w": 834,
+      "h": 1120,
+      "title": "03a New user · bubble at rest · tablet · 834×1120",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreateMinimizedPhone.dc.html",
+      "x": 5614,
+      "y": 8860,
+      "w": 390,
+      "h": 844,
+      "title": "03a New user · bubble at rest · phone · 390×844",
+      "page": "page-3"
+    },
+    {
+      "file": "DSChipStyles.dc.html",
+      "x": 3080,
+      "y": 0,
+      "w": 1440,
+      "h": 1560,
+      "print": "flow",
+      "page": "page-7",
+      "title": "Chip styles · options · 1440×1560"
+    },
+    {
+      "file": "UserCreatedDesktop.dc.html",
+      "x": 0,
+      "y": 10460,
+      "w": 1920,
+      "h": 1080,
+      "title": "03b User created · desktop · 1920×1080",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreated2K.dc.html",
+      "x": 2020,
+      "y": 10460,
+      "w": 2560,
+      "h": 1440,
+      "title": "03b User created · 2K · 2560×1440",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreatedTablet.dc.html",
+      "x": 4680,
+      "y": 10460,
+      "w": 834,
+      "h": 1120,
+      "title": "03b User created · tablet · 834×1120",
+      "page": "page-3"
+    },
+    {
+      "file": "UserCreatedPhone.dc.html",
+      "x": 5614,
+      "y": 10460,
+      "w": 390,
+      "h": 844,
+      "title": "03b User created · phone · 390×844",
+      "page": "page-3"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "dash-note",
+      "x": 0,
+      "y": -200,
+      "w": 720,
+      "text": "Owner overview on the app shell: light 248px sidebar, 60px top bar, KPI tiles, one single-hue bar chart, receivables aging, and a tabbed table with status badges. Money and codes in JetBrains Mono. Sample numbers are placeholders.",
+      "page": "page-2"
+    },
+    {
+      "id": "acc-note",
+      "x": 0,
+      "y": -300,
+      "w": 900,
+      "text": "Users and roles, redrawn on the register's model (D9, SP4b):\n• Users carry a type (STAFF / PORTAL / SYSTEM) that is a hard ceiling, a 5-letter username, an optional email, and a status: Active, Temporary password (must change at first sign-in), Disabled.\n• No invitation email exists. New user = username + temporary password pre-filled from the workspace default.\n• Effective set = roles ∪ grants − denies, shown per permission with its source. An Owner holder cannot carry overrides, and the last active Owner cannot be disabled (409 shown on the Owner detail).\n• Role editor is the module tree from the permission catalog with workflow verbs; the self-lockout guard and the role-in-use delete refusal are drawn.\n• No 'changed by / when' columns: the register says permission changes carry no audit history yet.\n• Dashboard, Settings and access are the live catalog; Operations, Customs and Accounting permissions are the planned shape.\n• Per-user overrides open in their own editor (02b): modules on the left, one module's permissions in the table with a Not set / Grant / Deny select per row, the selected row explained on the right.",
+      "page": "page-3"
+    },
+    {
+      "id": "notice-note",
+      "x": 0,
+      "y": -200,
+      "w": 760,
+      "text": "Before: ant's notification with the title 'Something went wrong', the body 'An unexpected error occurred. Please try again.', and a muted 'Reference: id' line that copies on a hidden click. Same card for every severity.\nAfter: a notice card that names the failure, says what it means and what to do, carries the state on a 3px edge and a tinted icon tile, shows the reference as a mono chip with an explicit Copy, allows one action, and runs a timer bar on the ones that clear themselves.",
+      "page": "page-5"
+    },
+    {
+      "id": "ds-note",
+      "x": 3080,
+      "y": 0,
+      "w": 320,
+      "text": "Design system, formalised from the screens.\nEvery value here is the one in the frontend's design folder (gallery-theme.css, theme/_variables.less, icons/stroke-icons.ts). Change a value in both places.\n\nSheets: 01 Colour · 02 Typography · 03 Space, shape and depth · 04 Iconography · 05 Motion and states · 06 Language and direction · 07 Layout and shell · 08 Components and voice.\nRule (07 Layout): every screen is designed at the standard size set — 1920×1080, 2K, 1440×900, tablet 834, phone 390 — and every artboard title ends with its size, W×H.",
+      "page": "page-7"
+    },
+    {
+      "id": "nav-note",
+      "x": 11,
+      "y": -374,
+      "w": 820,
+      "text": "App shell: the side menu, the menu bar and the main area are three panels on the paper background with a 12px gutter around and between them; each panel is white with a hairline border, 12px radius and the card shadow. On a content page the main area is one white panel; on list and overview pages the cards keep sitting on the paper, so only the menu and the bar float.\nSide menu: 248px. Top to bottom: the tenant's company logo (a placeholder mark and the company name; no Seaturtle wordmark) + fold toggle, the Favorites picker (a select that lists the starred views, as the app has it today), Modules (from the permission-filtered menu; counts from module statistics), Settings with its children inline. The account is a card of its own under the menu, split in two: the name half opens the profile, the ⋯ half opens the account menu, which drops up from it. Active row = neutral tint + ink text. The wordmark, workspace switcher and go-to field are pinned at the top; only the Favorites and Modules list scrolls, inside the menu, never with the page. A hairline appears at each edge of the list while it can scroll that way. Collapsed rail: 64px, 44px targets, counts as ink badges, tooltips carry the labels.\nMenu bar: 60px, search (/), language, theme and notifications with an unread dot. No account chip: the account lives in the side menu. Breadcrumbs: a 48px card of their own under the bar, as the app has it today, shown only when there is a trail. The notification panel drops from the bell as a 12px card. Footer: inside the main panel, under a hairline at its foot, so it reads as part of the working area — copyright at the start, Terms and Privacy at the end. Mobile: 56px bar with the menu button, the page title and the bell; the side menu becomes a 300px drawer over a scrim.",
+      "page": "page-6"
+    },
+    {
+      "id": "tree-note",
+      "x": 0,
+      "y": 4790,
+      "w": 820,
+      "text": "Nested pages. A module with children gets a chevron and expands in place; its pages sit on a 1px guide line, 32px tall, one step lighter than the module row. Only the page is highlighted, never the module too, and the breadcrumb repeats module › page in the breadcrumb card under the menu bar. Two levels deep at most: if a page needs children of its own, it gets tabs inside the page instead. Counts stay on the page that owns them. Collapsed rail: the module keeps its badge, and a hover or click opens the same list as a flyout.",
+      "page": "page-6"
+    },
+    {
+      "id": "changes",
+      "x": 2020,
+      "y": -440,
+      "w": 760,
+      "text": "Sign-up, main direction\n1. Three steps: 1 Your details, 2 Verify email, 3 Workspace, with the indicator at the top of the form column.\n2. Real monitor widths. Brand panel 640px at 1920, 720px at 2K (2560×1440), 540px at 1440; the form column takes the rest and centres the form at 672px. At 900px tall the form column scrolls. Below 1024 the brand panel is dropped (tablet 834, phone 390).\n3. The first page follows the frontend signup-details form: organization rows full width, administrator fields in pairs (full name in English and Arabic, email and mobile with a dial code, password and confirm), terms, a divider, and a block Send verification code button. Section headings carry the bank and user icons.\n4. Every required state is drawn: reserved word, missing time zone, weak password and mismatch, wrong and expired code, slow provisioning, sign-in states, tenant states, forgot password.\n5. Arabic screens use IBM Plex Sans Arabic; codes, emails and the address stay LTR.",
+      "page": "page-1"
+    },
+    {
+      "id": "row-1",
+      "x": 0,
+      "y": -110,
+      "w": 420,
+      "text": "Sign up · 1 Your details · 1920×1080",
+      "page": "page-1"
+    },
+    {
+      "id": "row-1b",
+      "x": 0,
+      "y": 1170,
+      "w": 520,
+      "text": "Sign up · 1 Your details · 2K and laptop",
+      "page": "page-1"
+    },
+    {
+      "id": "row-2",
+      "x": 0,
+      "y": 2810,
+      "w": 420,
+      "text": "Sign up · 2 Verify email",
+      "page": "page-1"
+    },
+    {
+      "id": "row-3",
+      "x": 0,
+      "y": 4010,
+      "w": 420,
+      "text": "Sign up · 3 Workspace",
+      "page": "page-1"
+    },
+    {
+      "id": "row-4",
+      "x": 0,
+      "y": 5210,
+      "w": 420,
+      "text": "Sign in (tenant host)",
+      "page": "page-1"
+    },
+    {
+      "id": "row-5",
+      "x": 0,
+      "y": 6290,
+      "w": 420,
+      "text": "Tenant states and password reset",
+      "page": "page-1"
+    },
+    {
+      "id": "row-6",
+      "x": 0,
+      "y": 7370,
+      "w": 420,
+      "text": "Sign up · tablet (834 wide)",
+      "page": "page-1"
+    },
+    {
+      "id": "row-7",
+      "x": 0,
+      "y": 8870,
+      "w": 420,
+      "text": "Sign up · phone (390 wide)",
+      "page": "page-1"
+    },
+    {
+      "id": "spaced-note",
+      "x": 6060,
+      "y": -110,
+      "w": 560,
+      "text": "Option · spaced step indicator: three equal columns, title plus a one-line description. The compact row is the default.",
+      "page": "page-1"
+    },
+    {
+      "id": "launcher-note",
+      "x": 0,
+      "y": 5880,
+      "w": 900,
+      "page": "page-6",
+      "text": "Module launcher. No button in the menu bar any more (removed on request). The launcher opens from the first breadcrumb: the module name, or \"All modules\" while the launcher is open.\n• Clicking the crumb opens the launcher as a full page: the side menu is gone, the bar stays, and one white panel holds nine module cards in a 3×3 grid (1000px, centred) echoing the icon. Settings sits below a rule under Workspace, as it does at the foot of the side menu today. On the two static launchers the Operations card is drawn in its hover state.\n• Clicking a module returns to the ordinary shell with the side menu carrying only that module's pages, under a PAGES heading where MODULES used to be — no module name and no back control, per your call. Where you are is carried by the breadcrumb card under the bar (module › page) and the module crumb is the way back out. Favorites stays above it: it is a global block like the account row, so a starred view from another module is still reachable.\n• Cards show the module name and its page count; the five modules whose pages the canvas has not defined yet are marked [pages to be defined]. Counts (128 on Operations, 7 on Customs clearance) come from module statistics and are the module totals; a page keeps its own count (Held by customs, 2).\n• Three icons had to change because the launcher shows them side by side and they collided in the side menu: Fleet is now a bus (Operations keeps the truck), Container storage is stacked containers (Overview keeps the four rectangles), Maintenance is a wrench (Settings keeps the gear).\n• Journal entries is a new page name, introduced here to make the Accounting count honest."
+    },
+    {
+      "id": "sizes-note",
+      "x": 3440,
+      "y": 0,
+      "w": 320,
+      "page": "page-6",
+      "text": "MAIN DESIGNS — the screen-size set. Rule: every screen is designed at the standard sizes, the same set as sign-up: 1920×1080 desktop, 2560×1440 (2K), 1440×900 laptop, 834 tablet, 390 phone. The states below (menus open, rail, nested pages, RTL, launcher) are drawn once, at 1440×900, and follow these.\n1920×1080 and 2K keep the shell at 1× — the 248px menu, 60px bar and 48px breadcrumb card do not grow, the content panel takes the room. Tablet 834: the menu folds to the 64px rail (the app keeps the desktop shell from 768 up, folded). Phone 390: a 56px bar with the menu button, the page title and the bell; the menu is the drawer shown further down; the breadcrumb trail shrinks to a 40px card; the footer stacks its two lines and centres.\nEvery artboard title on the canvas now ends with its size, W×H."
+    },
+    {
+      "id": "flow-note",
+      "x": 0,
+      "y": 4810,
+      "w": 820,
+      "page": "page-3",
+      "text": "Page flow for Settings › Team and access: the seven screens above (01–06 and the 02b overrides editor) and the control that moves between them. Solid arrows are navigation, dashed ones return after save or cancel, chips are states of the same screen."
+    },
+    {
+      "id": "stories-note",
+      "x": 0,
+      "y": 5760,
+      "w": 1100,
+      "page": "page-3",
+      "text": "User stories, each drawn as a screen. All numbers come from one catalog (the 19 permissions of the Role editor), so 02, 02b and these variants agree.\n• Onboard Khalid: 03 New user → 03b Created. Username and temporary password shown once, copy or print the handover note.\n• Faisal lost the handover note before his first sign-in: 02d. Amber banner on the user page, Reset password dialog issues a new temporary password.\n• Yousef is back after leave: 02c. Disabled banner, one primary action Enable user; his role and overrides were kept.\n• Tariq goes on leave and must not stay the only Owner: 02e. Assign role popover on Sara, Owner selected, the consequence spelled out before Assign.\n• Gulf Foods (a customer) asks to see its customs declarations: 02f. PORTAL is a hard ceiling of 3, the grant sits inside it, the editor refuses grants outside it.\n• Huda must not post journals: 02 → 02b, deny wins over her Accountant role.\nNot drawn: the SYSTEM integration user, delete-role confirmation for an unused custom role, change history (the register has none yet)."
+    },
+    {
+      "id": "inv-note",
+      "x": 0,
+      "y": -300,
+      "w": 980,
+      "page": "page-9",
+      "text": "Invoices module, drawn from the product map you sent (RABE / Fatoora): التأهيل · الملف → 01, رمز الزكاة → 02, جارٍ → 03, فشل → 03e (إعادة returns to 02, دخول التطبيق skips to 04), تم → 03d, قاعدة الفواتير → 04, فاتورة جديدة → 05 النوع أولاً, رفع/مسح → 06, يدوي → 07, إصدار → 08 عرض الفاتورة.\nBuilt as Seaturtle's own Invoices module (the dashboard already reports to ZATCA): same shell, tokens and components, Marasy as the company, English first. The onboarding runs inside the app as a three-step wizard, once per company and then per issuing device.\nZATCA facts used: standard invoices are cleared before they are valid, simplified ones reported within 24 hours; the OTP comes from the Fatoora portal and lasts 1 hour; numbers are sequential and never reused; each invoice carries a QR code, UUID, counter and hash chain, and ships as PDF/A-3 with the signed XML.\nNot drawn yet: Arabic RTL variants, the credit-note form, the rejected-invoice fix-and-reissue flow, tablet and phone."
+    },
+    {
+      "id": "otp-email",
+      "x": 6060,
+      "y": 2560,
+      "w": 640,
+      "page": "page-1",
+      "text": "Sign up · 2 · the verification email\nSubject: Your Seaturtle verification code (SignupService.sendOtpEmail). 6 digits, valid 15 minutes, one use (ProvisioningProperties.otp.ttl).\nPreview text carries the code so the inbox notification is enough on a phone.\nBuild note: mail clients do not load Inter. Ship the HTML with the fallback stack (-apple-system, Segoe UI, Helvetica; code in Menlo / Consolas) and a plain-text part: \"Your verification code is 482913. It expires in 15 minutes.\"\nArabic mail follows the account language chosen at sign-up; the code and the address stay LTR."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  },
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Sign-up and sign-in"
+    },
+    {
+      "id": "page-2",
+      "name": "Dashboard"
+    },
+    {
+      "id": "page-3",
+      "name": "Users and roles"
+    },
+    {
+      "id": "page-5",
+      "name": "Notices"
+    },
+    {
+      "id": "page-6",
+      "name": "Navigation"
+    },
+    {
+      "id": "page-7",
+      "name": "Design system"
+    },
+    {
+      "id": "page-8",
+      "name": "Form controls"
+    },
+    {
+      "id": "page-9",
+      "name": "Invoices · ZATCA"
+    }
+  ]
+}
