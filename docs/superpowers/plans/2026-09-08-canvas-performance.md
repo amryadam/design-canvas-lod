@@ -12,9 +12,10 @@
 
 ## Global Constraints
 
-- **No build step exists.** No `package.json`, no bundler, no test runner. Do not add one. Both `.jsx` files are loaded as `<script type="text/babel">` and must stay valid standalone scripts whose top-level `function` declarations land on `window`.
+- **No build step exists.** No `package.json`, no bundler, no CLI test runner. Do not add one. Both `.jsx` files are loaded as `<script type="text/babel">` and must stay valid standalone scripts whose top-level `function` declarations land on `window`.
+- **There IS a regression suite, and it must stay green.** `tests/regressions.html` runs 11 checks in the browser against real React lifecycles, connector DOM updates, persistence races and snapshot pixels. With the server running, open `http://localhost:8000/tests/regressions.html`; the page title reads `PASS: canvas regressions` or `FAIL: canvas regressions` and `window.canvasTestResults` holds the per-check detail. **Every task must leave it at 11/11 PASS** — run it before you commit, not only at the end.
 - **Another session is committing to this repo concurrently.** Three commits landed during profiling (`c7e903c`, `31cfbe0`, `5860a8d`). Before editing either `.jsx` file, run `git log --oneline -3` and re-read the region you are about to change — line numbers in this plan are from `5860a8d` and may have moved. Never `git add -A`; stage only the files you touched.
-- **The working tree already has staged deletions** of `.perf-traces/*` (65 MB of trace JSON that `c7e903c` swept in). Leave them staged; do not restore those files and do not rewrite history.
+- **Branch base.** This plan runs on `feature/canvas-performance`, cut from `main` after the `dev` merge (`7276996`). That merge brought revision-based persistence, a restoration-gated first fit, a connector signature change and the regression suite. The earlier `.perf-traces` trace files are gone — the parallel session rebuilt history and dropped them; there is nothing left to clean up.
 - **Every measurement runs against the sample** with `python3 -m http.server 8000` from the repo root and `http://localhost:8000/sample/` open. Numbers in acceptance criteria came from a 1066 × 666 viewport, DPR 3, ~144 Hz display, no CPU throttling. On different hardware, compare against the Task 2 baseline captured on *that* machine, not against the absolute numbers here.
 - **`dcInlineDoc`, `dcFontCss`, `dcBlobToDataUrl` and `dcExportArtboard` must keep working.** Download PNG and Download HTML in the kebab menu are staying.
 - **Keep the house comment style.** Comments explain why, in ASD-STE100 Simplified Technical English, above the block they describe. Match the density of the surrounding code.
@@ -41,7 +42,15 @@
 
 ---
 
-### Task 1: Fix the CanvasFlows world lookup
+### Task 1: Fix the CanvasFlows world lookup — DONE (landed in `7276996`)
+
+> Completed while merging `dev` into `main`. `dev`'s regression suite failed
+> three checks on the merged tree for exactly this reason — the grid layer had
+> taken first place under `.design-canvas`, so both `canvas-page.jsx` and the
+> test at `tests/regressions.js:81` were reading the grid instead of the world.
+> The world now carries `data-dc-world` and both lookups use it. Verified:
+> 11/11 PASS, and the sample shows 24 paths and 12 labels, the value this task
+> predicted. No further work.
 
 **Goal:** Arrows render again by finding the transformed world through a stable hook instead of by sibling position.
 
@@ -412,11 +421,17 @@ Create `perf/bench.js`:
 Run: `node --check perf/bench.js`
 Expected: no output.
 
-- [ ] **Step 3: Take the baseline**
+- [ ] **Step 3: Confirm the suite is green before measuring**
+
+Open `http://localhost:8000/tests/regressions.html` and wait for the title to
+settle. Expected: `PASS: canvas regressions`, 11 of 11. A red suite makes every
+later number ambiguous — fix that first.
+
+- [ ] **Step 4: Take the baseline**
 
 With the sample open and settled, paste `perf/bench.js` into the console, then run `await dcBench.all()`. It takes about a minute.
 
-- [ ] **Step 4: Record the baseline in this plan**
+- [ ] **Step 5: Record the baseline in this plan**
 
 Fill the table below in with the numbers you got. Later tasks compare against **these** numbers, not the reference column.
 
@@ -433,7 +448,7 @@ Fill the table below in with the numbers you got. Later tasks compare against **
 | `dragFlowCost.cfCalls` / `cfMs` | | 44 / ~22 ms |
 | `patchCost.variantSwitchMs` / `controlMs` | | 6.7 ms / 2.0 ms |
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add perf/bench.js docs/superpowers/plans/2026-09-08-canvas-performance.md
@@ -566,6 +581,7 @@ git commit -m "Write the zoom variable once the view settles"
 - [ ] `dcSnap`, `dcHash`, `dcRasterize`, `DC.liveScale` and `DC.snapWidth` no longer appear anywhere in `design-canvas.jsx`
 - [ ] No `[dc-snap]` warnings in the console
 - [ ] `README.md` no longer describes snapshots
+- [ ] `tests/regressions.html` reports 11 of 11 PASS, with the rasterize check rewritten against the export path rather than deleted
 
 **Verify:** `await dcBench.liveByZoom()` → every row has `live <= 8`; `await dcBench.zoomFrames()` → `over16: 0` and `max < 20`; `grep -c "dcSnap\|dcRasterize\|liveScale\|snapWidth\|dc-thumb" design-canvas.jsx` → `0`.
 
@@ -819,11 +835,48 @@ await dcBench.zoomFrames()
 
 Expected: `over16: 0` and `max` under 20 ms.
 
-- [ ] **Step 13: Confirm the exports still work**
+- [ ] **Step 13: Move the rasterize test onto the export path**
+
+The regression check "CSS backgrounds and imported stylesheet assets rasterize"
+(`tests/regressions.js`) calls `dcRasterize`, which this task deletes. What it
+guards still matters — that a stylesheet `@import` chain and a relative
+`url()` inside it resolve against the artboard's own base and get inlined —
+and that behaviour now lives only in the PNG export. Keep the assertions and
+change the subject: build the SVG the way `dcExportArtboard` does, from
+`dcInlineDoc`'s output, instead of calling `dcRasterize`.
+
+Replace these two lines:
+
+```js
+    const image = new Image(); image.src = await dcRasterize(html, location.href, 100, 100); await image.decode();
+    ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
+```
+
+with:
+
+```js
+    // Same path as Download PNG: inline the document, wrap it in a
+    // foreignObject, and rasterize that.
+    const xhtml = await dcInlineDoc(html, location.href);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><foreignObject width="100" height="100">${xhtml}</foreignObject></svg>`;
+    const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); await image.decode();
+    ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
+```
+
+The `dcInlineDoc` assertion at the end of that test stays exactly as it is.
+
+- [ ] **Step 14: Run the regression suite**
+
+Reload `http://localhost:8000/tests/regressions.html` with cache disabled.
+
+Expected: title `PASS: canvas regressions`, 11 of 11. If the snapshot-related
+check fails, fix it here — do not delete the check.
+
+- [ ] **Step 15: Confirm the exports still work**
 
 Open a page's ⋯ menu, click Download PNG, then Download HTML. Both files must download and open correctly. Check the console for `[design-canvas] export failed`.
 
-- [ ] **Step 14: Confirm the code is clean**
+- [ ] **Step 16: Confirm the code is clean**
 
 ```bash
 grep -c "dcSnap\|dcRasterize\|liveScale\|snapWidth\|dc-thumb" design-canvas.jsx
@@ -831,10 +884,10 @@ grep -c "dcSnap\|dcRasterize\|liveScale\|snapWidth\|dc-thumb" design-canvas.jsx
 
 Expected: `0`.
 
-- [ ] **Step 15: Commit**
+- [ ] **Step 17: Commit**
 
 ```bash
-git add design-canvas.jsx README.md
+git add design-canvas.jsx README.md tests/regressions.js
 git commit -m "Bound live iframes instead of snapshotting"
 ```
 
@@ -1135,7 +1188,7 @@ Replace the label placement and signature lines at the end of `cfMeasure`:
 ```js
   cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
-  out.sig = out.map((o) => o.d + '@' + Math.round(o.mid.x) + ',' + Math.round(o.mid.y)).join('|');
+  out.sig = JSON.stringify(out.map((o) => [o.key, o.flowKey, o.label, o.dashed, o.d, Math.round(o.mid.x), Math.round(o.mid.y), o.fb, o.tb]));
   return out;
 ```
 
@@ -1147,7 +1200,7 @@ with:
   // full pass after the drop settles them.
   if (!carried) cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
-  out.sig = out.map((o) => o.d + '@' + Math.round(o.mid.x) + ',' + Math.round(o.mid.y)).join('|');
+  out.sig = JSON.stringify(out.map((o) => [o.key, o.flowKey, o.label, o.dashed, o.d, Math.round(o.mid.x), Math.round(o.mid.y), o.fb, o.tb]));
   out.geom = { allBoxes, paths: out.slice() };
   return out;
 ```
@@ -1221,7 +1274,17 @@ git commit -m "Re-route only the arrows a drag moves"
 
 ---
 
-### Task 7: Make the first-load fit survive a slow state read
+### Task 7: Make the first-load fit survive a slow state read — WITHDRAWN
+
+> `dev`'s `acbba3e` fixed this before the plan was written, and the fix came in
+> with the merge. `DCViewport` now holds `restoredView` / `fittedView` refs and
+> a `hasContent` flag; the fit runs in its own layout effect gated on
+> `hasContent`, as a `requestAnimationFrame` rather than a 60 ms timer racing
+> the state read, and it bails once the view is restored or already fitted.
+> The regression suite covers it: "fit wide content after delayed restoration"
+> renders a 10000 px row behind a 350 ms state request and asserts the world
+> settles below scale 0.5. Do not re-implement this. The steps below are kept
+> only as the record of what the bug was.
 
 **Goal:** The canvas opens fitted to the page every time, not only when the section state resolves inside 60 ms.
 

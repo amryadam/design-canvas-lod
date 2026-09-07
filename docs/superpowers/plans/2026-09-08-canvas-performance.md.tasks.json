@@ -4,8 +4,8 @@
     {
       "id": 0,
       "subject": "Task 1: Fix the CanvasFlows world lookup",
-      "status": "pending",
-      "description": "**Goal:** Arrows render again by finding the transformed world through a stable hook instead of by sibling position.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 the `worldRef` div in `DCViewport` (add `data-dc-world`)\n- Modify: `canvas-page.jsx:299` \u2014 the world lookup in `CanvasFlows`\n\n**Acceptance Criteria:**\n- [ ] `document.querySelectorAll('.dc-flows svg path').length` is greater than 0 on the sample\n- [ ] `document.querySelector('[data-dc-world]')` returns the element carrying the scale transform, not the grid layer\n- [ ] Arrow labels are visible and follow their pages when a page is dragged\n- [ ] Hovering an arrow still shows the two round drag handles\n\n**Verify:** With the sample open, run `({paths: document.querySelectorAll('.dc-flows svg path').length, world: !!document.querySelector('[data-dc-world]'), slotsInWorld: document.querySelector('[data-dc-world]').querySelectorAll('[data-dc-slot]').length})` \u2192 expected `{paths: 24, world: true, slotsInWorld: 10}`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"canvas-page.jsx\"], \"verifyCommand\": \"open http://localhost:8000/sample/ and evaluate the Verify snippet in the page console\", \"acceptanceCriteria\": [\"dc-flows svg path count > 0\", \"[data-dc-world] is the transformed layer\", \"labels follow a dragged page\", \"arrow handles still appear on hover\"], \"modelTier\": \"mechanical\"}\n```"
+      "status": "completed",
+      "description": "**Goal:** Arrows render again by finding the transformed world through a stable hook.\n\nComplete \u2014 landed in merge 7276996; see ledger."
     },
     {
       "id": 1,
@@ -54,13 +54,13 @@
     },
     {
       "id": 6,
-      "subject": "Task 7: Make the first-load fit survive a slow read",
-      "status": "pending",
+      "subject": "Task 7: First-load fit race (withdrawn)",
+      "status": "completed",
       "blockedBy": [
         5
       ],
-      "description": "**Goal:** The canvas opens fitted to the page every time, not only when the section state resolves inside 60 ms.\n\n**Files:**\n- Modify: `design-canvas.jsx` \u2014 the `useLayoutEffect` in `DCViewport` holding the fit timer, and the pointer/wheel handlers in the effect below it\n\n**Acceptance Criteria:**\n- [ ] With the viewport key cleared, five reloads in a row all open with `dcZoom.scale < 1` and at least one slot on screen\n- [ ] With `[data-dc-row]` absent at the 60 ms mark, the fit still lands once the row appears\n- [ ] The fit gives up after about 1.5 s rather than retrying forever\n- [ ] A pan or zoom made before the fit lands cancels it \u2014 the view does not jump\n- [ ] A restored viewport (a reload with the key present) is not re-fitted\n\n**Verify:** Run the five-reload loop in Step 5 \u2192 `scale < 1` and `onScreen >= 1` on all five reloads\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\"], \"verifyCommand\": \"clear localStorage dc-viewport-v3 keys, reload five times, check dcZoom.scale < 1 and onScreen >= 1 each time\", \"acceptanceCriteria\": [\"five clean reloads all fit\", \"fit lands after a late row\", \"fit stops after ~1.5 s\", \"user pan or zoom cancels the fit\", \"a restored viewport is not re-fitted\"], \"modelTier\": \"standard\"}\n```"
+      "description": "**Goal:** The canvas opens fitted every time.\n\nWithdrawn \u2014 already fixed by dev's acbba3e (restoredView/fittedView/hasContent), covered by the regression suite. See ledger."
     }
   ],
-  "lastUpdated": "2026-09-08T00:42:50"
+  "lastUpdated": "2026-09-08T01:06:34"
 }
