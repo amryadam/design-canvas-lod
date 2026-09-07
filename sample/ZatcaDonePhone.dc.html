@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+  <style>
+    body { margin: 0; font-family: 'Inter', -apple-system, system-ui, 'Segoe UI', Helvetica, sans-serif; font-feature-settings: 'cv11', 'ss01'; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .step { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #ede9e4; }
+    .step:last-child { border-bottom: 0; }
+    .tick { width: 22px; height: 22px; border-radius: 999px; background: #d9f3e1; color: #127b28; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .step .t { font-size: 14px; font-weight: 500; }
+    .step .s { font-size: 12.5px; color: #787671; line-height: 1.4; }
+  </style>
+</helmet>
+<div dir="ltr" lang="en" style="width: 390px; height: 844px; position: relative; display: flex; flex-direction: column; background: #f6f5f4; overflow: hidden; box-sizing: border-box;">
+  <header style="display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px; background: #ffffff; border-bottom: 1px solid #e5e3df;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <span style="font-size: 15px; font-weight: 600;">Set up ZATCA</span>
+    <span style="margin-left: auto; width: 28px; height: 28px; border-radius: 999px; background: #1a1a1a; color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center;">TA</span>
+  </header>
+  <div style="display: flex; align-items: center; gap: 6px; padding: 12px 16px 0;">
+    <span style="flex: 1; height: 4px; border-radius: 2px; background: #1a1a1a;"></span>
+    <span style="flex: 1; height: 4px; border-radius: 2px; background: #1a1a1a;"></span>
+    <span style="flex: 1; height: 4px; border-radius: 2px; background: #1a1a1a;"></span>
+  </div>
+  <span style="padding: 6px 16px 0; font-size: 12.5px; color: #5d5b54;">Step 3 of 3 · Connect</span>
+  <main style="flex: 1; min-height: 0; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 20px; font-weight: 600; letter-spacing: -0.3px;">Connected</span>
+      <span style="font-size: 13.5px; line-height: 1.5; color: #5d5b54;">Every invoice from this device is now signed, cleared or reported, and stamped with a ZATCA QR code.</span>
+    </div>
+    <div style="display: flex; gap: 12px; padding: 14px; border-radius: 10px; background: #d9f3e1;">
+      <span style="width: 36px; height: 36px; border-radius: 999px; background: #fff; color: #127b28; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 13.5px; font-weight: 600; color: #127b28;">Head office · Riyadh is registered</span>
+        <span style="font-size: 12.5px; color: #37352f; line-height: 1.4;">Production · <span class="mono">3ZA-8F21-…-A07C</span> · expires 4 Sep 2029</span>
+      </div>
+    </div>
+    <div style="background: #fff; border: 1px solid #e5e3df; border-radius: 12px; padding: 4px 14px;">
+      <div class="step"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span><div><div class="t">Key pair created</div><div class="s">Kept on this device only.</div></div></div>
+      <div class="step"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span><div><div class="t">Compliance certificate issued</div><div class="s">ZATCA accepted the OTP.</div></div></div>
+      <div class="step"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span><div><div class="t">Compliance checks</div><div class="s">Standard, simplified, credit, debit.</div></div></div>
+      <div class="step"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span><div><div class="t">Production certificate</div><div class="s">Valid until 4 Sep 2029.</div></div></div>
+      <div class="step"><span class="tick"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg></span><div><div class="t">Invoice counter started</div><div class="s">ICV 1 · first hash seeded.</div></div></div>
+    </div>
+  </main>
+  <footer style="display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 24px; background: #fff; border-top: 1px solid #e5e3df;">
+    <button style="height: 46px; border: none; border-radius: 10px; background: #1a1a1a; color: #fff; font-weight: 600; font-family: inherit; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">Go to invoices<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    <button style="height: 46px; border: 1px solid #c8c4be; border-radius: 10px; background: #fff; color: #1a1a1a; font-weight: 500; font-family: inherit; font-size: 15px;">Add another device</button>
+  </footer>
+</div>
+</x-dc>
+</body>
+</html>

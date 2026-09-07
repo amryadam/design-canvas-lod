@@ -99,6 +99,16 @@
       "h": 1100,
       "title": "08 Issued invoice · 1440×1100",
       "page": "page-9"
+    },
+    {
+      "file": "ZatcaDonePhone.dc.html",
+      "variantOf": "ZatcaDone.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "03d Set up ZATCA · connected · phone · 390×844",
+      "page": "page-9"
     }
   ],
   "annotations": [

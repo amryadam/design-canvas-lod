@@ -16,8 +16,17 @@ const GROUP_GAP = 1.5; // × ROW gap between unconnected flow groups
 const ORPHAN_COLS = 4; // artboards that take part in no flow, gridded at the bottom
 
 function layoutPage(data, page) {
-  const boards = data.artboards.filter((a) => a.page === page);
-  const flows = (data.flows || []).filter((f) => f.page === page);
+  // Size variants (`variantOf`) share their primary's slot: they get no
+  // position of their own, and a flow drawn on one lands on the primary.
+  const onPage = data.artboards.filter((a) => a.page === page);
+  const files = new Set(onPage.map((a) => a.file));
+  const primaryOf = (file) => {
+    const seen = new Set();
+    for (let b = onPage.find((a) => a.file === file); b && b.variantOf && files.has(b.variantOf) && !seen.has(b.file); b = onPage.find((a) => a.file === b.variantOf)) { seen.add(b.file); file = b.variantOf; }
+    return file;
+  };
+  const boards = onPage.filter((a) => primaryOf(a.file) === a.file);
+  const flows = (data.flows || []).filter((f) => f.page === page).map((f) => ({ ...f, from: primaryOf(f.from), to: primaryOf(f.to), orig: f }));
   const byFile = new Map(boards.map((b) => [b.file, b]));
   const solid = flows.filter((f) => !f.dashed && byFile.has(f.from) && byFile.has(f.to) && f.from !== f.to);
   const linked = new Set(flows.flatMap((f) => [f.from, f.to]).filter((x) => byFile.has(x)));
@@ -102,9 +111,10 @@ function layoutPage(data, page) {
     const a = byFile.get(f.from), b = byFile.get(f.to);
     if (!a || !b || a === b) return;
     const ra = rank.get(a.file) || 0, rb = rank.get(b.file) || 0;
-    if (rb > ra) { f.fs = 'r'; f.ts = 'l'; }
-    else if (rb === ra) { if (cy(b) > cy(a)) { f.fs = 'b'; f.ts = 't'; } else { f.fs = 't'; f.ts = 'b'; } }
-    else { f.fs = cy(b) < cy(a) ? 't' : 'b'; f.ts = 'r'; }
+    const o = f.orig;
+    if (rb > ra) { o.fs = 'r'; o.ts = 'l'; }
+    else if (rb === ra) { if (cy(b) > cy(a)) { o.fs = 'b'; o.ts = 't'; } else { o.fs = 't'; o.ts = 'b'; } }
+    else { o.fs = cy(b) < cy(a) ? 't' : 'b'; o.ts = 'r'; }
     void cx;
   });
   return { boards: boards.length, groups: order.length, orphans: orphans.length };

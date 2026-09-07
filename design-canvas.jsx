@@ -54,6 +54,14 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-labeltext:hover{background:rgba(0,0,0,.05)}
 .dc-labeltext .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .dc-labeltext .dc-editable:focus{overflow:visible;text-overflow:clip}
+.dc-sizes{flex:0 0 auto;display:inline-flex;gap:2px;margin-left:6px;padding:2px;background:rgba(0,0,0,.05);border-radius:6px}
+.dc-size{border:0;padding:4px 7px;border-radius:4px;background:transparent;font:500 10.5px/1 inherit;font-family:inherit;color:rgba(60,50,40,.7);cursor:pointer;transition:background .12s,color .12s}
+.dc-size:hover{color:#2a251f}
+.dc-size.dc-on{background:#fff;color:#2a251f;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+@container (max-width: 240px){.dc-sizes{display:none}[data-dc-slot]:hover .dc-sizes{display:inline-flex}}
+.dc-focus .dc-size{color:rgba(255,255,255,.7)}
+.dc-focus .dc-size:hover{color:#fff}
+.dc-focus .dc-size.dc-on{background:#fff;color:#2a251f}
 .dc-btns{flex:0 0 auto;margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}
 [data-dc-slot]:hover .dc-btns,.dc-btns:has(.dc-menu){opacity:1}
 .dc-expand,.dc-kebab{width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center;font:inherit;transition:background .12s,color .12s}
@@ -545,6 +553,30 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 // `positions` (id -> {x, y}, section-local px) switches the section from a flex
 // row to free placement: slots sit exactly where the canvas file puts them, so a
 // flow can stagger down and across instead of snapping to one baseline.
+// Size variants. An artboard with `sizes` ([{ file, w, h, href, chip }]) shows
+// one of them at a time in the same slot; the chosen file is saved per slot in
+// the section state (sec.sizes[id]). Without `sizes` the props are the size.
+function dcSize(props, chosen) {
+  const { sizes, width = 260, height = 480, href } = props;
+  if (!sizes || !sizes.length) return { width, height, href, sizes: null, idx: -1, cur: null };
+  let idx = sizes.findIndex((s) => s.file === chosen);
+  if (idx < 0) idx = 0;
+  const cur = sizes[idx];
+  return { width: cur.w, height: cur.h, href: cur.href ?? href, sizes, idx, cur };
+}
+
+function DCSizeChips({ size, onSize, style }) {
+  if (!size.sizes) return null;
+  return (
+    <div className="dc-sizes" style={style} onPointerDown={(e) => e.stopPropagation()}>
+      {size.sizes.map((s, i) => (
+        <button key={s.file} className={'dc-size' + (i === size.idx ? ' dc-on' : '')} title={`${s.w}×${s.h}`}
+          onClick={(e) => { e.stopPropagation(); onSize && onSize(s.file); }}>{s.chip || s.w}</button>
+      ))}
+    </div>
+  );
+}
+
 function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
@@ -561,6 +593,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
   }, [sec.order, srcOrder.join('|')]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
+  const sizeOf = (k) => dcSize(byId[k].props, (sec.sizes || {})[k]);
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -571,8 +604,9 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     order.forEach((k) => {
       const p = placed[k], a = byId[k];
       if (!p || !a) return;
-      w = Math.max(w, p.x + (a.props.width || 0));
-      h = Math.max(h, p.y + (a.props.height || 0));
+      const s = sizeOf(k);
+      w = Math.max(w, p.x + (s.width || 0));
+      h = Math.max(h, p.y + (s.height || 0));
     });
     rest.forEach((n) => {
       const p = noteAt(n);
@@ -580,7 +614,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       h = Math.max(h, p.y + DC.noteReserveH);
     });
     return { w: w + 60, h };
-  }, [placed, notePositions, order.join('|'), rest.length]);
+  }, [placed, notePositions, order.join('|'), rest.length, sec.sizes]);
 
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
@@ -601,6 +635,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
         ))}
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
+            size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => ({ sizes: { ...(x.sizes || {}), [k]: file } }))}
             position={placed && placed[k]} moved={!!(sec.positions && sec.positions[k])}
             onMove={(p) => ctx && ctx.patchSection(sid, (x) => ({ positions: { ...(x.positions || {}), [k]: p } }))}
             onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
@@ -684,9 +719,14 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
 }
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, onMove, onResetPosition, onRename, onReorder, onFocus, onDelete }) {
-  const { id: rawId, label: rawLabel, width = 260, height = 480, children, style = {}, href } = artboard.props;
+function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, size, onSize, onMove, onResetPosition, onRename, onReorder, onFocus, onDelete }) {
+  const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
   const id = rawId ?? rawLabel;
+  // With size variants the slot follows the chosen size; `children` may be a
+  // function of that size so the host can embed the right file.
+  size = size || dcSize(artboard.props);
+  const { width, height, href } = size;
+  const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
   const menuRef = React.useRef(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -762,6 +802,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, o
           <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
             <DCEditable value={label} onChange={onRename} onClick={(e) => e.stopPropagation()} style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
           </div>
+          <DCSizeChips size={size} onSize={onSize} />
         </div>
         <div className="dc-btns">
           <div ref={menuRef} style={{ position: 'relative' }}>
@@ -834,7 +875,10 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
     document.addEventListener('keydown', k);
     return () => document.removeEventListener('keydown', k);
   });
-  const { width = 260, height = 480, children, href } = artboard.props;
+  const size = dcSize(artboard.props, (sec.sizes || {})[aid]);
+  const { width, height, href } = size;
+  const children = typeof artboard.props.children === 'function' ? artboard.props.children(size.cur, size) : artboard.props.children;
+  const onSize = (file) => ctx.patchSection(sectionId, (x) => ({ sizes: { ...(x.sizes || {}), [aid]: file } }));
   const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
   React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
   const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
@@ -848,7 +892,7 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   // Focused content: prefer a fresh eager iframe of the screen (children may be lazy).
   const content = href ? <DCLazyFrame src={href} title={aid} width={width} height={height} eager /> : children;
   return ReactDOM.createPortal(
-    <div onClick={() => ctx.setFocus(null)} onWheel={(e) => e.preventDefault()}
+    <div className="dc-focus" onClick={() => ctx.setFocus(null)} onWheel={(e) => e.preventDefault()}
       style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(24,20,16,.6)', backdropFilter: 'blur(14px)', fontFamily: DC.font, color: '#fff' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'flex-start', padding: '16px 20px 0', gap: 16 }}>
         <div style={{ position: 'relative' }}>
@@ -878,9 +922,10 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
             {content}
           </div>
         </div>
-        <div onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 500, opacity: .85, textAlign: 'center' }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 500, opacity: .85, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {(sec.labels || {})[aid] ?? artboard.props.label}
           <span style={{ opacity: .5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
+          <DCSizeChips size={size} onSize={onSize} style={{ marginLeft: 12, background: 'rgba(255,255,255,.12)', color: '#fff' }} />
         </div>
       </div>
       <Arrow dir="left" onClick={() => go(-1)} />

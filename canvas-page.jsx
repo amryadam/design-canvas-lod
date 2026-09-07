@@ -326,18 +326,35 @@ function CanvasFlows({ flows }) {
 
 // ---- Page ------------------------------------------------------------------
 
+// Chip text for a size: the width, or a short name for the common wide ones.
+const CP_CHIPS = { 2560: '2K', 3840: '4K' };
+const cpChip = (w) => CP_CHIPS[w] || String(w);
+// Titles carry the size as a trailing "· 1440×900 …" fragment; the chip shows
+// it instead, so a primary with size variants drops it from its label.
+const cpStripSize = (t) => t.replace(/\s*·\s*\d{3,4}\s*[×x]\s*\d{3,4}[^·]*$/u, '').trim() || t;
+
 function CanvasPage({ page, stateFile }) {
   const [data, setData] = React.useState(null);
   React.useEffect(() => {
     fetch('./canvas.json').then((r) => r.json()).then(setData).catch((e) => console.error('[canvas-page]', e));
   }, []);
-  const flows = React.useMemo(() => ((data && data.flows) || []).filter((f) => f.page === page), [data, page]);
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
-  // Memoised so DCSection's layout memo sees stable objects.
+  // An artboard with `variantOf` is a size variant of another file on the
+  // same page: it takes no slot of its own, but joins the primary's size
+  // chips. Memoised so DCSection's layout memo sees stable objects.
   const layout = React.useMemo(() => {
     if (!data) return null;
-    const boards = data.artboards.filter((a) => a.page === page);
+    const onPage = data.artboards.filter((a) => a.page === page);
+    const files = new Set(onPage.map((a) => a.file));
+    const primaryOf = (file) => {
+      const seen = new Set();
+      for (let b = onPage.find((a) => a.file === file); b && b.variantOf && files.has(b.variantOf) && !seen.has(b.file); b = onPage.find((a) => a.file === b.variantOf)) { seen.add(b.file); file = b.variantOf; }
+      return file;
+    };
+    const boards = onPage.filter((a) => primaryOf(a.file) === a.file);
+    const sizesOf = Object.fromEntries(boards.map((b) => [b.file, [b]]));
+    onPage.forEach((a) => { const p = primaryOf(a.file); if (p !== a.file) sizesOf[p].push(a); });
     const notes = data.annotations.filter((a) => a.page === page);
     const bandOf = (b) => (b.band != null ? b.band : b.y);
     const items = boards.slice().sort((a, b) => bandOf(a) - bandOf(b) || a.x - b.x);
@@ -345,23 +362,41 @@ function CanvasPage({ page, stateFile }) {
     const minX = Math.min(...all.map((o) => o.x)), minY = Math.min(...all.map((o) => o.y));
     const positions = Object.fromEntries(items.map((b) => [b.file, { x: b.x - minX, y: b.y - minY }]));
     const notePositions = Object.fromEntries(notes.map((n) => [n.id, { x: n.x - minX, y: n.y - minY, w: Math.min(n.w || 480, 760) }]));
-    return { boards, notes, items, positions, notePositions };
+    const sizes = Object.fromEntries(boards.map((b) => {
+      const list = sizesOf[b.file];
+      if (list.length < 2) return [b.file, null];
+      list.sort((p, q) => (q.w - p.w) || (q.h - p.h));
+      return [b.file, list.map((s) => ({ file: s.file, w: s.w, h: s.h, href: './' + s.file, title: s.title || s.file, chip: cpChip(s.w) }))];
+    }));
+    return { boards, notes, items, positions, notePositions, sizes, primaryOf, variants: onPage.length - boards.length };
   }, [data, page]);
+  // Flows drawn between variants land on the primary's slot.
+  const flows = React.useMemo(() => {
+    if (!data || !layout) return [];
+    const seen = new Set();
+    return (data.flows || []).filter((f) => f.page === page).map((f) => ({ ...f, from: layout.primaryOf(f.from), to: layout.primaryOf(f.to) }))
+      .filter((f) => { const k = `${f.from}>${f.to}>${f.label || ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  }, [data, layout, page]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 
-  const { boards, notes, items, positions, notePositions } = layout;
+  const { notes, items, positions, notePositions, sizes, variants } = layout;
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
+  const subtitle = `${items.length} screens` + (variants ? ` · ${variants} more sizes` : '');
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
-      <DCSection id={page} title={pageName} subtitle={`${boards.length} screens`} positions={positions} notePositions={notePositions}>
+      <DCSection id={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
         {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={notePositions[n.id].w}>{n.text}</DCPostIt>)}
         {items.map((b) => {
           const stem = b.file.split('/').pop().replace('.dc.html', '');
+          const label = sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
           return (
-            <DCArtboard key={b.file} id={b.file} label={b.title || stem}
-              width={b.w} height={b.h} href={'./' + b.file}>
-              <DCLazyFrame src={'./' + b.file} href={b.file} title={b.title || b.file} width={b.w} height={b.h} />
+            <DCArtboard key={b.file} id={b.file} label={label}
+              width={b.w} height={b.h} href={'./' + b.file} sizes={sizes[b.file]}>
+              {(s) => {
+                const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
+                return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
+              }}
             </DCArtboard>
           );
         })}

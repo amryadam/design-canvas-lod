@@ -13,6 +13,12 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
   are the source/target anchor sides (`l`, `r`, `t`, `b`). Curves route through
   the gutters around every page and note they would otherwise cross (shortest
   clear path over the page corners, then smoothed).
+- Size variants: an artboard entry with `"variantOf": "<primary file>"` takes no
+  slot of its own. The primary's header shows one chip per size (`1440 · 2K ·
+  390`); a click swaps the file and resizes the frame in place. Arrows, the
+  saved position, and the focus view follow the chosen size, and the choice is
+  saved with the section state. Titles that end in `· 1440×900` lose that
+  suffix on a primary, since the chip shows it.
 - `flow-layout.js` — `node flow-layout.js canvas.json [page-id]` lays a page out
   the way fatoora's flow map does: stages left to right, branches stacked under
   each other, a gutter of one card width between stages and 0.8 of a card
