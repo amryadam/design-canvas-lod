@@ -7,23 +7,21 @@
 //   • cards use CSS containment; persistence writes are debounced
 //   • first load fits the widest section to the viewport instead of 1:1
 //   • slots use content-visibility:auto, so off-screen cards skip layout/paint
-//   • LOD: below DC.liveScale zoom, or far from the viewport, a slot shows a
-//     snapshot instead of a live iframe; iframes mount only near 1:1 or in focus
-//   • snapshots are made in the browser, one at a time in idle moments: the
-//     .dc.html is fetched, its images and Google Fonts are inlined, and it is
-//     rasterized through an SVG <foreignObject> onto a canvas, then cached in
-//     IndexedDB keyed by content hash — no build step, no files in the project
+//   • LOD: a slot is a live iframe while it is one of the DC.liveBudget slots
+//     nearest the viewport centre; the rest show a placeholder. The budget, not
+//     the zoom, is what bounds the cost — everything on screen at 5 % zoom would
+//     otherwise mount at once
 
 const DC = {
   bg: '#f0eee9', dot: 'rgba(70,58,46,.16)',   // dot colour and pitch, as in
   dotSize: 26,          // fatoora's flow map: screen px, the same at every zoom
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
-  liveScale: 0.5,       // live iframe at or above this zoom
+  liveBudget: 8,        // most live iframes at once; the nearest to the centre win
+  budgetHysteresis: 400, // px a live slot counts as nearer, so the last place does not flip
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   settleMs: 150,        // wait after the last zoom/pan change before switching modes
   mountGapMs: 60,       // gap between two iframe mounts, so they don't jank one frame
-  snapWidth: 720,       // snapshot bitmap width; they only show below liveScale
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -44,7 +42,6 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-card *{scrollbar-width:none}
 .dc-card *::-webkit-scrollbar{display:none}
 .dc-card iframe{display:block;border:0;background:#fff}
-.dc-card img.dc-thumb{display:block;width:100%;height:100%;object-fit:cover;object-position:top left;background:#fff}
 .dc-moving .dc-card iframe{pointer-events:none}
 .dc-shield{position:absolute;inset:0;cursor:pointer}
 .dc-header{position:absolute;bottom:100%;left:-4px;margin-bottom:calc(4px * var(--dc-hz,1));z-index:2;display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;container-type:inline-size}
@@ -93,6 +90,9 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   document.head.appendChild(s);
 }
 
+// The zoomed-out snapshots are gone; drop the cache they left in the browser.
+if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
+
 const DCCtx = React.createContext(null);
 // Shared "is the world moving" flag: toggled by DCViewport, read via CSS class.
 let dcMovingTimer = 0;
@@ -108,124 +108,78 @@ function dcMarkMoving(vp) {
 // One settle timer, one poll and one IntersectionObserver serve every slot,
 // instead of N timers firing per frame.
 const dcZoom = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
-// Mounting an iframe is the one expensive step (a whole document parses and
-// lays out), so at most one slot goes live per pass; the rest wait a beat.
+// Distance from the viewport centre to the nearest point of a slot's box; 0
+// when the centre is inside it. This is what ranks slots for the budget.
+function dcSlotDistance(r) {
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const dx = Math.max(r.left - cx, 0, cx - r.right);
+  const dy = Math.max(r.top - cy, 0, cy - r.bottom);
+  return Math.hypot(dx, dy);
+}
+
+// One pass over every slot. The nearest DC.liveBudget slots that are within
+// their margin go live; everything else drops to its placeholder. A live slot
+// counts as DC.budgetHysteresis px nearer than it is, so a slot on the last
+// place does not flip on every pass. Mounting an iframe is the one expensive
+// step (a whole document parses and lays out), so at most one slot mounts per
+// pass and the rest wait a beat; dropping is cheap and is not rationed.
 function dcLodRun() {
-  let mounted = false, pending = false;
-  dcZoom.subs.forEach((f) => {
-    try {
-      const r = f(!mounted);          // returns 'mount' when it wants to go live
-      if (r === 'mount') mounted = true;
-      else if (r === 'wait') pending = true;
-    } catch {}
+  const all = [];
+  dcZoom.subs.forEach((s) => {
+    const r = s.box.getBoundingClientRect();
+    const m = s.live ? DC.unmountMargin : s.margin;
+    const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
+    all.push({ s, near, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
   });
+  const ranked = all.filter((e) => e.near).sort((a, b) => a.d - b.d);
+  const winners = new Set(ranked.slice(0, DC.liveBudget).map((e) => e.s));
+  // Drop first, so a mount never takes the page over the budget for a frame.
+  all.forEach(({ s }) => { if (s.live && !winners.has(s)) { s.live = false; s.set(false); } });
+  let mounted = false, pending = false;
+  for (const { s } of ranked) {
+    if (s.live || !winners.has(s)) continue;
+    if (mounted) { pending = true; break; }
+    s.live = true; s.set(true); mounted = true;
+  }
   if (pending) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); }
 function dcSetZoom(scale) { dcZoom.scale = scale; dcLodSchedule(); }
-function dcLodSubscribe(el, decide) {
+// entry is { box, margin, live, set } — the slot element to measure, the px of
+// screen space that lets it mount, whether it is live now, and the setter that
+// mounts or drops it.
+function dcLodSubscribe(entry) {
   if (!dcZoom.subs.size) {
     dcZoom.poll = setInterval(dcLodRun, 500);
     document.addEventListener('visibilitychange', dcLodSchedule);
     if (!dcZoom.io) dcZoom.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
-  dcZoom.subs.add(decide); dcZoom.io.observe(el);
+  dcZoom.subs.add(entry); dcZoom.io.observe(entry.box);
   return () => {
-    dcZoom.subs.delete(decide); dcZoom.io.unobserve(el);
+    dcZoom.subs.delete(entry); dcZoom.io.unobserve(entry.box);
     if (!dcZoom.subs.size) { clearInterval(dcZoom.poll); clearTimeout(dcZoom.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
   };
 }
 
 // ---------------------------------------------------------------------------
-// In-browser snapshots. dcSnap.want(src, w, h, cb) registers a slot; cb gets a
-// data URL as soon as one exists (memory → IndexedDB → freshly rasterized).
-// Rasterizing = fetch html → DOMParser → strip scripts → inline same-origin
-// images + Google Fonts CSS (woff2 as data:) → XMLSerializer → SVG
-// foreignObject → <img> → <canvas> → webp data URL. Runs one artboard at a
-// time, only while the canvas is idle and the tab is visible.
-const dcSnap = {
-  mem: new Map(),          // src → { hash, data }
-  subs: new Map(),         // src → Set(cb)
-  queue: [],               // [{ src, w, h }]
-  queued: new Set(),
-  busy: false,
-  fontCss: new Map(),      // href → Promise<string>
-  db: null,
-  get(src) { const e = this.mem.get(src); return e ? e.data : null; },
-  want(src, w, h, cb) {
-    if (!this.subs.has(src)) this.subs.set(src, new Set());
-    this.subs.get(src).add(cb);
-    const e = this.mem.get(src); if (e) cb(e.data);
-    if (!this.queued.has(src)) { this.queued.add(src); this.queue.push({ src, w, h }); this.kick(); }
-    return () => { const s = this.subs.get(src); if (s) { s.delete(cb); if (!s.size) this.subs.delete(src); } };
-  },
-  kick() {
-    if (this.busy || !this.queue.length) return;
-    this.busy = true;
-    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 50));
-    idle(() => this.step());
-  },
-  async step() {
-    const moving = document.querySelector('.design-canvas.dc-moving');
-    if (moving || document.visibilityState !== 'visible') { setTimeout(() => this.step(), 250); return; }
-    const job = this.queue.shift();
-    if (job) {
-      try { await this.make(job); } catch (e) { console.warn('[dc-snap]', job.src, e && e.message); }
-      this.queued.delete(job.src);
-    }
-    this.busy = false;
-    this.kick();
-  },
-  emit(src, data) { const s = this.subs.get(src); if (s) s.forEach((cb) => { try { cb(data); } catch {} }); },
-  async make({ src, w, h }) {
-    const html = await (await fetch(src)).text();
-    // Invalidate snapshots made before CSS assets/font subsets were inlined.
-    const hash = 'v2:' + dcHash(html) + ':' + w + 'x' + h;
-    let cached = this.mem.get(src) || (await this.dbGet(src));
-    if (cached && cached.hash === hash) { this.mem.set(src, cached); this.emit(src, cached.data); return; }
-    const data = await dcRasterize(html, new URL(src, location.href).href, w, h);
-    const entry = { hash, data };
-    this.mem.set(src, entry); this.emit(src, data);
-    await this.dbPut(src, entry);
-  },
-  open() {
-    if (this.db) return this.db;
-    this.db = new Promise((res) => {
-      try {
-        const r = indexedDB.open('dc-snapshots', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('snap');
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => res(null);
-      } catch { res(null); }
-    });
-    return this.db;
-  },
-  async dbGet(k) {
-    const db = await this.open(); if (!db) return null;
-    return new Promise((res) => { try { const q = db.transaction('snap').objectStore('snap').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch { res(null); } });
-  },
-  async dbPut(k, v) {
-    const db = await this.open(); if (!db) return;
-    return new Promise((res) => { try { const tx = db.transaction('snap', 'readwrite'); tx.objectStore('snap').put(v, k); tx.oncomplete = res; tx.onerror = res; } catch { res(); } });
-  },
-};
-
-function dcHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) + ':' + s.length; }
-
 const dcBlobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 
 // Google Fonts CSS with the latin/arabic faces inlined as data: URLs, cached per href.
+// href → Promise<string>, so two artboards on the same font fetch it once.
+const dcFontCache = new Map();
 function dcFontCss(href) {
-  if (!dcSnap.fontCss.has(href)) dcSnap.fontCss.set(href, (async () => {
+  if (!dcFontCache.has(href)) dcFontCache.set(href, (async () => {
     const css = await (await fetch(href)).text();
-    // A subset comment belongs to the following rule, including the last face.
-    // Some responses have no subset comments; keep those faces as well.
-    const blocks = [...css.matchAll(/(?:\/\*\s*([^*]*?)\s*\*\/\s*)?@font-face\s*\{[^}]*\}/g)]
-      .filter((m) => !m[1] || /^(latin|arabic)$/.test(m[1].trim()))
-      .map((m) => m[0]);
-    return dcInlineCss(blocks.join('\n'), href);
+    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
+      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
+    const out = [];
+    for (const b of blocks) {
+      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
+      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
+    }
+    return out.join('\n');
   })().catch(() => ''));
-  return dcSnap.fontCss.get(href);
+  return dcFontCache.get(href);
 }
 
 async function dcReplaceAsync(text, pattern, replace) {
@@ -295,18 +249,6 @@ async function dcInlineDoc(html, baseHref) {
   base.remove();
   doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
   return new XMLSerializer().serializeToString(doc.documentElement);
-}
-
-async function dcRasterize(html, baseHref, w, h) {
-  const xhtml = await dcInlineDoc(html, baseHref);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
-  const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  const img = new Image(); img.src = svgUrl; await img.decode();
-  const k = Math.min(1, DC.snapWidth / w);
-  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
-  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  try { return c.toDataURL('image/webp', 0.8); } catch { return svgUrl; }
 }
 
 // Per-artboard export from the kebab menu (kind: 'png' | 'html'). Reuses the
@@ -897,39 +839,25 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
 
 function DCArtboard() { return null; }
 
-// Lazy frame with three levels of detail:
-//   live  — a real iframe. Mounted when the slot is within `margin` px of the
-//           viewport AND zoom >= DC.liveScale; dropped again once it drifts
-//           past DC.unmountMargin or zoom falls below the threshold.
-//   snap  — an in-browser snapshot (dcSnap). Shown whenever not live.
-//   placeholder — until a snapshot exists.
-// `eager` forces a live iframe regardless (focus overlay). Mode switches wait
-// DC.settleMs after the last zoom/pan tick so a pinch doesn't thrash iframes.
+// Lazy frame with two levels of detail:
+//   live  — a real iframe. Mounted while the slot is one of the DC.liveBudget
+//           slots nearest the viewport centre and within `margin` px of it;
+//           dropped once it falls out of the budget or past DC.unmountMargin.
+//   placeholder — the striped card, for every slot that is not live.
+// `eager` forces a live iframe regardless (focus overlay). The registry runs
+// one pass for every slot at once, DC.settleMs after the last zoom or pan tick,
+// so a pinch does not thrash iframes.
 function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href }) {
   const ref = React.useRef(null);
   const [live, setLive] = React.useState(eager);
-  const [snap, setSnap] = React.useState(() => dcSnap.get(src));
-  React.useEffect(() => { if (!eager) return dcSnap.want(src, width, height, setSnap); }, [src, width, height, eager]);
   React.useEffect(() => {
     if (eager || !ref.current) return;
-    let isLive = live;
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const within = (m) => {
-      const r = box.getBoundingClientRect();
-      return r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
-    };
-    const decide = (mayMount = true) => {
-      const zoomOk = dcZoom.scale >= DC.liveScale;
-      const want = isLive ? (zoomOk && within(DC.unmountMargin)) : (zoomOk && within(margin));
-      if (want === isLive) return null;
-      if (want && !mayMount) return 'wait';
-      isLive = want; setLive(want);
-      return want ? 'mount' : null;
-    };
-    decide();
-    return dcLodSubscribe(box, decide);
+    const off = dcLodSubscribe({ box, margin, live: false, set: setLive });
+    dcLodSchedule();
+    return off;
   }, [eager, margin]);
   const on = eager || live;
   // Shield: iframes swallow wheel/pinch, so a transparent layer sits over the
@@ -938,7 +866,6 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   return (
     <div ref={ref} style={{ width, height, position: 'relative' }}>
       {on ? <iframe src={src} title={title} loading="lazy" style={{ width, height }} />
-        : snap ? <img className="dc-thumb" src={snap} alt={title} decoding="async" draggable={false} />
         : <div className="dc-placeholder">{title}</div>}
       {!eager && <div className="dc-shield" title="Open to edit" onClick={() => { if (href) location.href = href; }} />}
     </div>

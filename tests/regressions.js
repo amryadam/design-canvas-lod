@@ -122,7 +122,11 @@ window.canvasTestsDone = (async () => {
       return new Response('', { status: 404 });
     };
     const html = '<html><head><link rel="stylesheet" href="/styles/main.css"></head><body></body></html>';
-    const image = new Image(); image.src = await dcRasterize(html, location.href, 100, 100); await image.decode();
+    // Same path as Download PNG: inline the document, wrap it in a
+    // foreignObject, and rasterize that.
+    const xhtml = await dcInlineDoc(html, location.href);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><foreignObject width="100" height="100">${xhtml}</foreignObject></svg>`;
+    const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); await image.decode();
     ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
     check(pixel[0] > 240 && pixel[1] < 20, 'background rasterized white instead of red');
     check(calls.includes('/styles/red.png'), 'CSS URL resolved against wrong base');
