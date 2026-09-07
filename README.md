@@ -52,6 +52,18 @@ Nothing to run and no files to add. The canvas makes them itself, in the browser
 Below 50 % zoom, or far from the viewport, a slot shows its snapshot.
 Live iframes mount only near 1:1 or in the focus view, one at a time.
 
+## Saved state
+
+Section saves contain `sections` and an `updatedAt` millisecond revision. On
+opening, the canvas compares the state file with its browser copy and restores
+the newer revision. The browser copy wins ties, including legacy saves without
+revisions, so edits survive on static servers with a read-only state file.
+Local edits are saved to the browser immediately; host file writes are debounced
+by 400 ms. Changing `stateFile` starts a fresh restoration and focus lifecycle.
+
+Editing and initial fitting wait for restoration. If the state request fails or
+takes more than five seconds, the canvas falls back to browser state.
+
 ## Run the sample
 
 ```
@@ -59,6 +71,14 @@ python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000/sample/`.
+
+## Run the regression checks
+
+With the same server running, open
+`http://localhost:8000/tests/regressions.html`. The page reports each result and
+sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
+sample. The checks exercise real React lifecycles, connector DOM updates, and
+snapshot pixels, with controlled fetch responses for loading and asset cases.
 
 ## Use in claude.ai/design
 
