@@ -43,8 +43,7 @@ function CanvasPage({ page, stateFile }) {
             return (
               <DCArtboard key={b.file} id={b.file} label={b.title || stem}
                 width={b.w} height={b.h} href={'./' + b.file}>
-                <DCLazyFrame src={'./' + b.file} href={b.file} title={b.title || b.file} width={b.w} height={b.h}
-                  thumb={'./_thumbs/' + stem + '.png'} />
+                <DCLazyFrame src={'./' + b.file} href={b.file} title={b.title || b.file} width={b.w} height={b.h} />
               </DCArtboard>
             );
           })}

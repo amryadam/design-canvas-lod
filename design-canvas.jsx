@@ -7,9 +7,12 @@
 //   • cards use CSS containment; persistence writes are debounced
 //   • first load fits the widest section to the viewport instead of 1:1
 //   • slots use content-visibility:auto, so off-screen cards skip layout/paint
-//   • LOD: below DC.liveScale zoom, or far from the viewport, a slot shows its
-//     PNG thumbnail (_thumbs/<Name>.png, made by make-thumbs.mjs) or a
-//     placeholder; live iframes mount only near 1:1 or in focus
+//   • LOD: below DC.liveScale zoom, or far from the viewport, a slot shows a
+//     snapshot instead of a live iframe; iframes mount only near 1:1 or in focus
+//   • snapshots are made in the browser, one at a time in idle moments: the
+//     .dc.html is fetched, its images and Google Fonts are inlined, and it is
+//     rasterized through an SVG <foreignObject> onto a canvas, then cached in
+//     IndexedDB keyed by content hash — no build step, no files in the project
 
 const DC = {
   bg: '#f0eee9', grid: 'rgba(0,0,0,0.06)',
@@ -17,6 +20,7 @@ const DC = {
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   settleMs: 150,        // wait after the last zoom/pan change before switching modes
   mountGapMs: 60,       // gap between two iframe mounts, so they don't jank one frame
+  snapWidth: 720,       // snapshot bitmap width; they only show below liveScale
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
@@ -109,6 +113,130 @@ function dcLodSubscribe(el, decide) {
     if (!dcZoom.subs.size) { clearInterval(dcZoom.poll); clearTimeout(dcZoom.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
   };
 }
+
+// ---------------------------------------------------------------------------
+// In-browser snapshots. dcSnap.want(src, w, h, cb) registers a slot; cb gets a
+// data URL as soon as one exists (memory → IndexedDB → freshly rasterized).
+// Rasterizing = fetch html → DOMParser → strip scripts → inline same-origin
+// images + Google Fonts CSS (woff2 as data:) → XMLSerializer → SVG
+// foreignObject → <img> → <canvas> → webp data URL. Runs one artboard at a
+// time, only while the canvas is idle and the tab is visible.
+const dcSnap = {
+  mem: new Map(),          // src → { hash, data }
+  subs: new Map(),         // src → Set(cb)
+  queue: [],               // [{ src, w, h }]
+  queued: new Set(),
+  busy: false,
+  fontCss: new Map(),      // href → Promise<string>
+  db: null,
+  get(src) { const e = this.mem.get(src); return e ? e.data : null; },
+  want(src, w, h, cb) {
+    if (!this.subs.has(src)) this.subs.set(src, new Set());
+    this.subs.get(src).add(cb);
+    const e = this.mem.get(src); if (e) cb(e.data);
+    if (!this.queued.has(src)) { this.queued.add(src); this.queue.push({ src, w, h }); this.kick(); }
+    return () => { const s = this.subs.get(src); if (s) { s.delete(cb); if (!s.size) this.subs.delete(src); } };
+  },
+  kick() {
+    if (this.busy || !this.queue.length) return;
+    this.busy = true;
+    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 50));
+    idle(() => this.step());
+  },
+  async step() {
+    const moving = document.querySelector('.design-canvas.dc-moving');
+    if (moving || document.visibilityState !== 'visible') { setTimeout(() => this.step(), 250); return; }
+    const job = this.queue.shift();
+    if (job) {
+      try { await this.make(job); } catch (e) { console.warn('[dc-snap]', job.src, e && e.message); }
+      this.queued.delete(job.src);
+    }
+    this.busy = false;
+    this.kick();
+  },
+  emit(src, data) { const s = this.subs.get(src); if (s) s.forEach((cb) => { try { cb(data); } catch {} }); },
+  async make({ src, w, h }) {
+    const html = await (await fetch(src)).text();
+    const hash = dcHash(html) + ':' + w + 'x' + h;
+    let cached = this.mem.get(src) || (await this.dbGet(src));
+    if (cached && cached.hash === hash) { this.mem.set(src, cached); this.emit(src, cached.data); return; }
+    const data = await dcRasterize(html, new URL(src, location.href).href, w, h);
+    const entry = { hash, data };
+    this.mem.set(src, entry); this.emit(src, data);
+    await this.dbPut(src, entry);
+  },
+  open() {
+    if (this.db) return this.db;
+    this.db = new Promise((res) => {
+      try {
+        const r = indexedDB.open('dc-snapshots', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('snap');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+      } catch { res(null); }
+    });
+    return this.db;
+  },
+  async dbGet(k) {
+    const db = await this.open(); if (!db) return null;
+    return new Promise((res) => { try { const q = db.transaction('snap').objectStore('snap').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch { res(null); } });
+  },
+  async dbPut(k, v) {
+    const db = await this.open(); if (!db) return;
+    return new Promise((res) => { try { const tx = db.transaction('snap', 'readwrite'); tx.objectStore('snap').put(v, k); tx.oncomplete = res; tx.onerror = res; } catch { res(); } });
+  },
+};
+
+function dcHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) + ':' + s.length; }
+
+const dcBlobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
+
+// Google Fonts CSS with the latin/arabic faces inlined as data: URLs, cached per href.
+function dcFontCss(href) {
+  if (!dcSnap.fontCss.has(href)) dcSnap.fontCss.set(href, (async () => {
+    const css = await (await fetch(href)).text();
+    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
+      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
+    const out = [];
+    for (const b of blocks) {
+      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
+      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
+    }
+    return out.join('\n');
+  })().catch(() => ''));
+  return dcSnap.fontCss.get(href);
+}
+
+async function dcRasterize(html, baseHref, w, h) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const base = doc.createElement('base'); base.href = baseHref; doc.head.prepend(base);
+  doc.querySelectorAll('script, iframe, video, audio, noscript').forEach((e) => e.remove());
+  for (const link of [...doc.querySelectorAll('link[rel~="stylesheet"]')]) {
+    const url = link.href; let css = '';
+    try {
+      if (/^https:\/\/fonts\.googleapis\.com\//.test(url)) css = await dcFontCss(url);
+      else if (new URL(url).origin === location.origin) css = await (await fetch(url)).text();
+    } catch {}
+    const st = doc.createElement('style'); st.textContent = css; link.replaceWith(st);
+  }
+  doc.querySelectorAll('link').forEach((e) => e.remove());
+  for (const img of [...doc.images]) {
+    const url = img.src; if (!url || url.startsWith('data:')) continue;
+    try { img.setAttribute('src', await dcBlobToDataUrl(await (await fetch(url)).blob())); } catch { img.remove(); }
+  }
+  base.remove();
+  doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  const xhtml = new XMLSerializer().serializeToString(doc.documentElement);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
+  const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const img = new Image(); img.src = svgUrl; await img.decode();
+  const k = Math.min(1, DC.snapWidth / w);
+  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  try { return c.toDataURL('image/webp', 0.8); } catch { return svgUrl; }
+}
+// ---------------------------------------------------------------------------
 
 function dcFlatten(children) {
   const out = [];
@@ -421,15 +549,15 @@ function DCArtboard() { return null; }
 //   live  — a real iframe. Mounted when the slot is within `margin` px of the
 //           viewport AND zoom >= DC.liveScale; dropped again once it drifts
 //           past DC.unmountMargin or zoom falls below the threshold.
-//   thumb — `thumb` PNG (made by make-thumbs.mjs). Shown whenever not live.
-//   placeholder — when there is no thumb or it failed to load.
+//   snap  — an in-browser snapshot (dcSnap). Shown whenever not live.
+//   placeholder — until a snapshot exists.
 // `eager` forces a live iframe regardless (focus overlay). Mode switches wait
 // DC.settleMs after the last zoom/pan tick so a pinch doesn't thrash iframes.
-function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href, thumb }) {
+function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href }) {
   const ref = React.useRef(null);
   const [live, setLive] = React.useState(eager);
-  const [thumbOk, setThumbOk] = React.useState(!!thumb);
-  React.useEffect(() => { setThumbOk(!!thumb); }, [thumb]);
+  const [snap, setSnap] = React.useState(() => dcSnap.get(src));
+  React.useEffect(() => { if (!eager) return dcSnap.want(src, width, height, setSnap); }, [src, width, height, eager]);
   React.useEffect(() => {
     if (eager || !ref.current) return;
     let isLive = live;
@@ -458,7 +586,7 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   return (
     <div ref={ref} style={{ width, height, position: 'relative' }}>
       {on ? <iframe src={src} title={title} loading="lazy" style={{ width, height }} />
-        : thumb && thumbOk ? <img className="dc-thumb" src={thumb} alt={title} loading="lazy" decoding="async" draggable={false} onError={() => setThumbOk(false)} />
+        : snap ? <img className="dc-thumb" src={snap} alt={title} decoding="async" draggable={false} />
         : <div className="dc-placeholder">{title}</div>}
       {!eager && <div className="dc-shield" title="Open to edit" onClick={() => { if (href) location.href = href; }} />}
     </div>
@@ -519,7 +647,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorde
   };
 
   return (
-    <div ref={ref} data-dc-slot={id} style={{ position: 'relative', flexShrink: 0, contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px` }}>
+    <div ref={ref} data-dc-slot={id} style={{ position: 'relative', flexShrink: 0 }}>
       <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="dc-labelrow">
           <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
@@ -549,7 +677,9 @@ function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorde
           </button>
         </div>
       </div>
-      <div className="dc-card" style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', ...style }}>
+      {/* content-visibility goes on the card, not the slot: its paint containment
+          would clip the label header that hangs above the slot box. */}
+      <div className="dc-card" style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px`, ...style }}>
         {children || <div className="dc-placeholder">{id}</div>}
       </div>
     </div>
