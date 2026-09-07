@@ -522,14 +522,33 @@ Then add `writeInv` to the `flushNow` dependency array, which becomes:
 
 - [ ] **Step 3: Clear the timer on unmount**
 
-In the `useLayoutEffect` cleanup that already clears `fit`, `rescue` and `lostT` (search for `clearTimeout(rescue)`), add `invT`:
+`DCViewport` has two layout effects. The first one restores the saved view and
+owns the mount-lifetime teardown; the second runs the first fit and re-runs
+whenever `hasContent`, `apply`, `minScale` or `maxScale` change. `invT` is a
+mount-lifetime timer, so it goes in the **first** one, beside `lostT` and
+`tween` — not in the fit effect, which would cancel a pending settle write
+every time those deps changed.
+
+Find this cleanup (it is the one that removes the `pagehide` listener):
 
 ```jsx
     return () => {
-      clearTimeout(fit); clearTimeout(rescue); clearTimeout(lostT.current); clearTimeout(invT.current);
+      clearTimeout(lostT.current);
       if (tween.current) cancelAnimationFrame(tween.current);
       window.removeEventListener('pagehide', flush); flush();
     };
+  }, []);
+```
+
+and add the one line:
+
+```jsx
+    return () => {
+      clearTimeout(lostT.current); clearTimeout(invT.current);
+      if (tween.current) cancelAnimationFrame(tween.current);
+      window.removeEventListener('pagehide', flush); flush();
+    };
+  }, []);
 ```
 
 - [ ] **Step 4: Measure the writes**
@@ -928,20 +947,24 @@ In `DesignCanvas`, replace the `api` memo:
     state,
     section: (id) => state.sections[id] || {},
     patchSection: (id, p) => setState((s) => ({
-      ...s, sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
     })),
     setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
   }), [state]);
 ```
 
-with:
+with this — **the `updatedAt` line is load-bearing**: it is the save revision
+that decides whether the browser copy or the state file wins on the next open,
+and three regression checks assert it advances. Carry it over unchanged:
 
 ```jsx
   // patchSection and setFocus keep one identity for the life of the canvas, so
   // the per-slot callbacks built on them survive a state change. Only `state`
   // and `section` move, and only the components that read them re-render.
   const patchSection = React.useCallback((id, p) => setState((s) => ({
-    ...s, sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
   })), []);
   const setFocus = React.useCallback((slotId) => setState((s) => ({ ...s, focus: slotId })), []);
   const api = React.useMemo(() => ({
@@ -1241,7 +1264,14 @@ with:
 
 - [ ] **Step 6: Clear the cache when the flows change**
 
-In the same effect's cleanup, add the reset:
+The effect early-returns when there are no flows, and that path runs no
+cleanup, so clear the cache there as well:
+
+```js
+    if (!world || !flows.length) { setPaths([]); setHover(null); lastPaths.current = null; return; }
+```
+
+Then, in the same effect's cleanup, add the reset:
 
 ```js
     return () => {
