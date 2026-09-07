@@ -15,9 +15,10 @@ const CF = {
   // Line, dash and arrowhead match fatoora's flow map (flow-map.jsx FmConnectors).
   stroke: '#b9a991', hover: '#c96442', width: 2, dash: '5 6',
   arrowLen: 11, arrowHalf: 6.5,
-  // Pills and arrowheads hold screen size down to 25% zoom, then shrink with
-  // the world, so they never balloon over the artboards when zoomed far out.
-  inv: 'min(var(--dc-inv-zoom, 1), 4)',
+  // Pills and arrowheads hold screen size down to 8% zoom (a whole flow map
+  // on one screen, as in fatoora), then shrink with the world so they never
+  // balloon over the artboards when zoomed far out.
+  inv: 'min(var(--dc-inv-zoom, 1), 12)',
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -73,8 +74,8 @@ function cfHits(curve, obstacles, n = CF_SAMPLES) {
 
 // Smooth multi-segment curve through `pts` (first = a, last = b). End tangents
 // follow the anchors' normals, interior tangents follow the direction of
-// travel; `m1`/`m2` scale the tangent lengths at a and b.
-function cfVia(pts, fs, ts, m1, m2) {
+// travel; `m1`/`m2` scale the tangent lengths at a and b, `mi` the interior ones.
+function cfVia(pts, fs, ts, m1, m2, mi = 0.5) {
   const [[nx1, ny1], [nx2, ny2]] = cfNormals(fs, ts);
   const n = pts.length - 1, segs = [];
   // Unit direction of travel through point i (previous point → next point).
@@ -83,44 +84,83 @@ function cfVia(pts, fs, ts, m1, m2) {
     const p = pts[i], q = pts[i + 1], len = Math.hypot(q.x - p.x, q.y - p.y);
     const k0 = Math.max(40, len * 0.4 * (i === 0 ? m1 : 1)), k1 = Math.max(40, len * 0.4 * (i === n - 1 ? m2 : 1));
     const t0 = i === 0 ? { x: nx1, y: ny1 } : dirAt(i), t1 = i === n - 1 ? { x: -nx2, y: -ny2 } : dirAt(i + 1);
-    const f0 = i === 0 ? 1 : 0.5, f1 = i === n - 1 ? 1 : 0.5;
+    const f0 = i === 0 ? 1 : mi, f1 = i === n - 1 ? 1 : mi;
     segs.push(cfSeg(p, { x: p.x + t0.x * k0 * f0, y: p.y + t0.y * k0 * f0 }, { x: q.x - t1.x * k1 * f1, y: q.y - t1.y * k1 * f1 }, q));
   }
   const at = (t) => { const i = Math.min(n - 1, Math.floor(t * n)); return segs[i].at(t * n - i); };
   return { d: segs.map((g, i) => (i ? g.d.replace(/^M [^C]+/, '') : g.d)).join(' '), mid: at(0.5), angle: segs[n - 1].angle, at };
 }
 
-// Tangent-length scales (source, target) tried for each bend. Short target
-// tangents let a curve slip into a narrow gap under a neighbouring page.
-const CF_TANGENT_SCALES = [[1, 1], [1, 0.5], [0.5, 0.2], [0.2, 0.1]];
+// Tangent-length scales (source, target) tried when smoothing a routed path.
+const CF_TANGENT_SCALES = [[1, 1], [0.6, 0.6], [0.35, 0.35], [1, 0.4], [0.4, 1], [1.5, 1.5]];
 
-// Route a→b around pages. Candidates, in order: the plain curve, the same
-// curve with shorter or longer tangents, a bend through one waypoint beside
-// the first page the plain curve enters, then a run along one edge of that
-// page through its two corners. The first clean candidate wins; otherwise the
-// one that crosses the least.
+// Does the straight segment p→q pass through rect r? (Liang–Barsky clip.)
+function cfSegHits(p, q, r) {
+  const dx = q.x - p.x, dy = q.y - p.y;
+  let t0 = 0, t1 = 1;
+  const clip = (den, num) => {
+    if (den === 0) return num >= 0;
+    const t = num / den;
+    if (den < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    return true;
+  };
+  return clip(-dx, p.x - r.x) && clip(dx, r.x + r.w - p.x) && clip(-dy, p.y - r.y) && clip(dy, r.y + r.h - p.y);
+}
+const cfClear = (p, q, obstacles) => !obstacles.some((r) => cfSegHits(p, q, r));
+
+// Shortest clear polyline from a to b: a visibility graph over the padded
+// corners of every page and note, searched with Dijkstra. Each anchor first
+// steps out along its side's normal so the curve leaves the page squarely.
+// Returns the interior waypoints (may be empty), or null when no clear path
+// exists at all.
+const CF_CORNER = 40, CF_EXIT = 48, CF_BEND_COST = 120;
+function cfPath(a, fs, b, ts, obstacles) {
+  const [[nx1, ny1], [nx2, ny2]] = cfNormals(fs, ts);
+  const free = (p) => !obstacles.some((r) => cfInside(p, r));
+  const step = (p, nx, ny) => { const q = { x: p.x + nx * CF_EXIT, y: p.y + ny * CF_EXIT }; return free(q) ? q : p; };
+  const a1 = step(a, nx1, ny1), b1 = step(b, nx2, ny2);
+  const nodes = [a1, b1];
+  for (const r of obstacles) {
+    const G = CF_CORNER;
+    for (const c of [{ x: r.x - G, y: r.y - G }, { x: r.x + r.w + G, y: r.y - G }, { x: r.x - G, y: r.y + r.h + G }, { x: r.x + r.w + G, y: r.y + r.h + G }]) if (free(c)) nodes.push(c);
+  }
+  const n = nodes.length, dist = new Array(n).fill(Infinity), prev = new Array(n).fill(-1), done = new Array(n).fill(false);
+  dist[0] = 0;
+  for (;;) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+    if (u < 0 || dist[u] === Infinity) return null;
+    if (u === 1) break;
+    done[u] = true;
+    for (let v = 0; v < n; v++) {
+      if (done[v] || v === u) continue;
+      const p = nodes[u], q = nodes[v];
+      const d = dist[u] + Math.hypot(q.x - p.x, q.y - p.y) + (v === 1 ? 0 : CF_BEND_COST);
+      if (d < dist[v] && cfClear(p, q, obstacles)) { dist[v] = d; prev[v] = u; }
+    }
+  }
+  const pts = [];
+  for (let v = prev[1]; v > 0; v = prev[v]) pts.unshift(nodes[v]);
+  if (a1 !== a) pts.unshift(a1);
+  if (b1 !== b) pts.push(b1);
+  return pts;
+}
+
+// Route a → b around every page and note that is not an endpoint. The plain
+// S-curve wins when it is already clear; otherwise the shortest clear polyline
+// from cfPath is smoothed with the tangent scale that keeps it clear. If no
+// candidate is fully clear, the one that crosses the least is drawn.
 function cfRoute(a, fs, b, ts, obstacles) {
   const plain = cfCurve(a, fs, b, ts);
   if (!obstacles.length) return plain;
   let best = plain, bestHits = cfHits(plain, obstacles);
   if (!bestHits) return plain;
-  const consider = (c) => { const h = cfHits(c, obstacles); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
+  const consider = (c) => { const h = cfHits(c, obstacles, CF_SAMPLES * 4); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
   for (const m of [0.6, 0.35, 0.2, 1.6, 2.4]) if (consider(cfCurve(a, fs, b, ts, m))) return best;
-  let hit = null;
-  for (let i = 1; i < CF_SAMPLES && !hit; i++) { const p = plain.at(i / CF_SAMPLES); hit = obstacles.find((r) => cfInside(p, r)) || null; }
-  if (!hit) return best;
-  const M = 60, L = hit.x - M, R = hit.x + hit.w + M, T = hit.y - M, B = hit.y + hit.h + M;
-  const cx = Math.min(Math.max((a.x + b.x) / 2, hit.x), hit.x + hit.w);
-  const cy = Math.min(Math.max((a.y + b.y) / 2, hit.y), hit.y + hit.h);
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const byDistanceToMid = (p, q) => Math.hypot(p.x - mid.x, p.y - mid.y) - Math.hypot(q.x - mid.x, q.y - mid.y);
-  const ways = [{ x: L, y: cy }, { x: R, y: cy }, { x: cx, y: T }, { x: cx, y: B }].sort(byDistanceToMid);
-  for (const w of ways) for (const [m1, m2] of CF_TANGENT_SCALES) if (consider(cfVia([a, w, b], fs, ts, m1, m2))) return best;
-  // Edge runs: the two corners of one side, nearest corner to a first.
-  const edges = [[{ x: L, y: T }, { x: R, y: T }], [{ x: L, y: B }, { x: R, y: B }], [{ x: L, y: T }, { x: L, y: B }], [{ x: R, y: T }, { x: R, y: B }]]
-    .map(([p, q]) => (Math.hypot(p.x - a.x, p.y - a.y) <= Math.hypot(q.x - a.x, q.y - a.y) ? [p, q] : [q, p]))
-    .sort((e, f) => byDistanceToMid({ x: (e[0].x + e[1].x) / 2, y: (e[0].y + e[1].y) / 2 }, { x: (f[0].x + f[1].x) / 2, y: (f[0].y + f[1].y) / 2 }));
-  for (const [c1, c2] of edges) for (const [m1, m2] of CF_TANGENT_SCALES) if (consider(cfVia([a, c1, c2, b], fs, ts, m1, m2))) return best;
+  const via = cfPath(a, fs, b, ts, obstacles);
+  if (via && via.length) {
+    for (const mi of [0.5, 0.25, 0.1]) for (const [m1, m2] of CF_TANGENT_SCALES) if (consider(cfVia([a, ...via, b], fs, ts, m1, m2, mi))) return best;
+  }
   return best;
 }
 
@@ -131,6 +171,23 @@ function cfArrow(p, angle) {
   const l = { x: bx - sin * H, y: by + cos * H };
   const r = { x: bx + sin * H, y: by - cos * H };
   return `${p.x},${p.y} ${l.x},${l.y} ${r.x},${r.y}`;
+}
+
+// Slide each label along its curve (from the middle outwards) until its pill
+// overlaps no pill placed before it. Pills hold screen size, so their world
+// footprint is the screen size over the current zoom.
+const CF_LABEL_T = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74];
+function cfPlaceLabels(paths, s) {
+  const placed = [];
+  const pill = (p, t) => { const c = p.at(t); const w = (p.label.length * 7.2 + 24) / s, h = 28 / s; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
+  const overlaps = (r) => placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
+  for (const p of paths) {
+    if (!p.label) continue;
+    let best = pill(p, 0.5);
+    for (const t of CF_LABEL_T) { const r = pill(p, t); if (!overlaps(r)) { best = r; break; } }
+    p.mid = best.c;
+    placed.push(best);
+  }
 }
 
 function cfMeasure(world, flows) {
@@ -151,8 +208,7 @@ function cfMeasure(world, flows) {
     boxes.set(file, b);
     return b;
   };
-  // Every page and note is an obstacle for every flow that does not start or
-  // end on it.
+  // Every page and note is an obstacle for every flow (see `obstacles` below).
   const PAD = 24;
   const pad = (r, file) => ({ file, x: r.x - PAD, y: r.y - PAD, w: r.w + 2 * PAD, h: r.h + 2 * PAD });
   const allBoxes = [];
@@ -166,10 +222,14 @@ function cfMeasure(world, flows) {
     const fb = box(f.from), tb = box(f.to);
     if (!fb || !tb) return; // slot not in the DOM (hidden, or not this page)
     const a = cfAnchor(fb, f.fs), b = cfAnchor(tb, f.ts);
-    const obstacles = allBoxes.filter((r) => r.file !== f.from && r.file !== f.to);
-    const { d, mid, angle } = cfRoute(a, f.fs, b, f.ts, obstacles);
-    out.push({ key: `${f.from}>${f.to}#${i}`, d, mid, angle, end: b, label: f.label, dashed: !!f.dashed });
+    // Other pages and notes with their padding, plus the two endpoint pages
+    // unpadded, so the curve can leave an anchor but never swing back across
+    // its own page.
+    const obstacles = allBoxes.filter((r) => r.file !== f.from && r.file !== f.to).concat([{ file: f.from, ...fb }, { file: f.to, ...tb }]);
+    const curve = cfRoute(a, f.fs, b, f.ts, obstacles);
+    out.push({ key: `${f.from}>${f.to}#${i}`, d: curve.d, mid: curve.mid, angle: curve.angle, end: b, label: f.label, dashed: !!f.dashed, at: curve.at });
   });
+  cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
   out.sig = out.map((o) => o.d).join('|');
   return out;
