@@ -497,13 +497,32 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
+  // Zoom-dependent chrome (header sizes, section gaps, world padding) reads
+  // --dc-inv-zoom. It is an inherited custom property, so writing it makes
+  // Chrome recalculate style for the whole world — 0.4 ms at 10 slots, 1.1 ms
+  // at 40, on every frame of a pinch. It is written once the gesture settles
+  // instead: during the gesture the world is one composited transform, and the
+  // chrome scales with it for a beat before it snaps back to screen size.
+  const invT = React.useRef(0);
+  const lastInv = React.useRef(null);
+  const writeInv = React.useCallback(() => {
+    invT.current = 0;
+    const el = worldRef.current; if (!el) return;
+    const inv = 1 / tf.current.scale;
+    if (lastInv.current === inv) return;
+    lastInv.current = inv;
+    el.style.setProperty('--dc-inv-zoom', String(inv));
+  }, []);
+
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
   const flushNow = React.useCallback(() => {
     raf.current = 0;
     const { x, y, scale } = tf.current;
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-    el.style.setProperty('--dc-inv-zoom', String(1 / scale));
+    // First paint writes at once, so the chrome is never wrong before a gesture.
+    if (lastInv.current === null) writeInv();
+    else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
     dcSetZoom(scale);
     if (lastPostedScale.current !== scale) {
       lastPostedScale.current = scale;
@@ -515,7 +534,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey, checkLost]);
+  }, [tfKey, checkLost, writeInv]);
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
@@ -577,7 +596,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // viewport, so they are stopped here and not in the fit effect, which
     // re-runs whenever the content or the scale bounds change.
     return () => {
-      clearTimeout(lostT.current);
+      clearTimeout(lostT.current); clearTimeout(invT.current);
       if (tween.current) cancelAnimationFrame(tween.current);
       window.removeEventListener('pagehide', flush); flush();
     };
