@@ -81,7 +81,7 @@ With the same server running, open
 `http://localhost:8000/tests/regressions.html`. The page reports each result and
 sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
 sample. The checks exercise real React lifecycles, connector DOM updates, and
-snapshot pixels, with controlled fetch responses for loading and asset cases.
+export pixels, with controlled fetch responses for loading and asset cases.
 
 ## Use in claude.ai/design
 

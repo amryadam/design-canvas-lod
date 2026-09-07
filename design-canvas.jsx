@@ -104,7 +104,7 @@ function dcMarkMoving(vp) {
 }
 
 // Shared zoom signal: DCViewport writes it once per flushed frame; lazy frames
-// subscribe and only re-render when their live/thumb decision changes.
+// subscribe and only re-render when their live decision changes.
 // One settle timer, one poll and one IntersectionObserver serve every slot,
 // instead of N timers firing per frame.
 const dcZoom = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
@@ -124,6 +124,10 @@ function dcSlotDistance(r) {
 // step (a whole document parses and lays out), so at most one slot mounts per
 // pass and the rest wait a beat; dropping is cheap and is not rationed.
 function dcLodRun() {
+  // A pan or pinch moves the ranking every frame, and a drop tears down a whole
+  // iframe. Wait for the world to stop rather than read every slot's rect and
+  // drop several of them inside the gesture; dcLodSchedule re-runs on settle.
+  if (document.querySelector('.design-canvas.dc-moving')) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); return; }
   const all = [];
   dcZoom.subs.forEach((s) => {
     const r = s.box.getBoundingClientRect();
@@ -218,7 +222,7 @@ async function dcInlineCss(css, baseHref, ancestors = new Set()) {
   });
 }
 
-// Self-contained document inliner shared by snapshots and exports: strip scripts →
+// Self-contained document inliner shared by exports: strip scripts →
 // inline same-origin CSS/images + Google Fonts → serialized XHTML.
 async function dcInlineDoc(html, baseHref) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -250,8 +254,8 @@ async function dcInlineDoc(html, baseHref) {
 }
 
 // Per-artboard export from the kebab menu (kind: 'png' | 'html'). Reuses the
-// snapshot inliner on the artboard's source file, so it works whether the
-// slot currently shows a live iframe or a snapshot. PNG renders at 2× the
+// inliner on the artboard's source file, so it works whether the slot is
+// live or showing its placeholder. PNG renders at 2× the
 // artboard's natural size via viewBox mapping (an <img>-loaded SVG rasterizes
 // at its intrinsic size, so the SVG itself must be the output resolution).
 async function dcExportArtboard(src, w, h, name, kind) {

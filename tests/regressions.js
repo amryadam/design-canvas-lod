@@ -130,8 +130,7 @@ window.canvasTestsDone = (async () => {
     ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
     check(pixel[0] > 240 && pixel[1] < 20, 'background rasterized white instead of red');
     check(calls.includes('/styles/red.png'), 'CSS URL resolved against wrong base');
-    const inline = await dcInlineDoc(html, location.href);
-    check(inline.includes('data:image/png'), 'HTML export still depends on external background');
+    check(xhtml.includes('data:image/png'), 'HTML export still depends on external background');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
