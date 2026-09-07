@@ -3,8 +3,8 @@
     {
       "file": "ZatcaProfile.dc.html",
       "x": 0,
-      "y": 1090,
-      "band": 1000,
+      "y": 990,
+      "band": 990,
       "w": 1440,
       "h": 1000,
       "title": "01 Set up ZATCA · company profile · 1440×1000",
@@ -12,9 +12,9 @@
     },
     {
       "file": "ZatcaCode.dc.html",
-      "x": 1860,
-      "y": 1340,
-      "band": 1000,
+      "x": 2880,
+      "y": 1040,
+      "band": 1040,
       "w": 1440,
       "h": 900,
       "title": "02 Set up ZATCA · code · 1440×900",
@@ -22,9 +22,9 @@
     },
     {
       "file": "ZatcaProgress.dc.html",
-      "x": 3640,
-      "y": 1150,
-      "band": 1000,
+      "x": 5760,
+      "y": 1040,
+      "band": 1040,
       "w": 1440,
       "h": 900,
       "title": "03 Set up ZATCA · connecting · 1440×900",
@@ -32,9 +32,9 @@
     },
     {
       "file": "ZatcaFailed.dc.html",
-      "x": 0,
-      "y": 2236,
-      "band": 2200,
+      "x": 8640,
+      "y": 230,
+      "band": 230,
       "w": 1440,
       "h": 900,
       "title": "03e Set up ZATCA · stopped · 1440×900",
@@ -42,9 +42,9 @@
     },
     {
       "file": "ZatcaDone.dc.html",
-      "x": 1780,
-      "y": 2452,
-      "band": 2200,
+      "x": 8640,
+      "y": 1850,
+      "band": 1850,
       "w": 1440,
       "h": 900,
       "title": "03d Set up ZATCA · connected · 1440×900",
@@ -52,9 +52,9 @@
     },
     {
       "file": "Invoices.dc.html",
-      "x": 0,
-      "y": 3300,
-      "band": 3300,
+      "x": 11520,
+      "y": 940,
+      "band": 940,
       "w": 1440,
       "h": 1100,
       "title": "04 Invoices · 1440×1100",
@@ -62,9 +62,9 @@
     },
     {
       "file": "InvoiceNewType.dc.html",
-      "x": 1920,
-      "y": 3564,
-      "band": 3300,
+      "x": 14400,
+      "y": 1040,
+      "band": 1040,
       "w": 1440,
       "h": 900,
       "title": "05 New invoice · type first · 1440×900",
@@ -72,9 +72,9 @@
     },
     {
       "file": "InvoiceNewUpload.dc.html",
-      "x": 0,
-      "y": 4974,
-      "band": 4600,
+      "x": 17280,
+      "y": 0,
+      "band": 0,
       "w": 1440,
       "h": 1100,
       "title": "06 New invoice · from a document · 1440×1100",
@@ -82,9 +82,9 @@
     },
     {
       "file": "InvoiceNewManual.dc.html",
-      "x": 1800,
-      "y": 4765,
-      "band": 4600,
+      "x": 17280,
+      "y": 1980,
+      "band": 1980,
       "w": 1440,
       "h": 1000,
       "title": "07 New invoice · by hand · 1440×1000",
@@ -92,9 +92,9 @@
     },
     {
       "file": "InvoiceView.dc.html",
-      "x": 3540,
-      "y": 4644,
-      "band": 4600,
+      "x": 20160,
+      "y": 940,
+      "band": 940,
       "w": 1440,
       "h": 1100,
       "title": "08 Issued invoice · 1440×1100",
@@ -135,8 +135,8 @@
       "from": "ZatcaProgress.dc.html",
       "to": "ZatcaDone.dc.html",
       "label": "Connected",
-      "fs": "b",
-      "ts": "t",
+      "fs": "r",
+      "ts": "l",
       "dashed": false
     },
     {
@@ -144,8 +144,8 @@
       "from": "ZatcaProgress.dc.html",
       "to": "ZatcaFailed.dc.html",
       "label": "Failed",
-      "fs": "b",
-      "ts": "t",
+      "fs": "r",
+      "ts": "l",
       "dashed": false
     },
     {
@@ -153,8 +153,8 @@
       "from": "ZatcaFailed.dc.html",
       "to": "ZatcaCode.dc.html",
       "label": "Try again",
-      "fs": "t",
-      "ts": "b",
+      "fs": "b",
+      "ts": "r",
       "dashed": true
     },
     {
@@ -162,8 +162,8 @@
       "from": "ZatcaDone.dc.html",
       "to": "Invoices.dc.html",
       "label": "Enter the app · Invoices",
-      "fs": "b",
-      "ts": "t",
+      "fs": "r",
+      "ts": "l",
       "dashed": false
     },
     {
@@ -180,8 +180,8 @@
       "from": "InvoiceNewType.dc.html",
       "to": "InvoiceNewUpload.dc.html",
       "label": "From a document",
-      "fs": "b",
-      "ts": "t",
+      "fs": "r",
+      "ts": "l",
       "dashed": false
     },
     {
@@ -189,8 +189,8 @@
       "from": "InvoiceNewType.dc.html",
       "to": "InvoiceNewManual.dc.html",
       "label": "By hand",
-      "fs": "b",
-      "ts": "t",
+      "fs": "r",
+      "ts": "l",
       "dashed": false
     },
     {
@@ -216,7 +216,7 @@
       "from": "InvoiceView.dc.html",
       "to": "Invoices.dc.html",
       "label": "Open a row",
-      "fs": "t",
+      "fs": "b",
       "ts": "r",
       "dashed": true
     }
