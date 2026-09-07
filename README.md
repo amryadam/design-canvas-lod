@@ -4,10 +4,10 @@ Pan/zoom canvas page for a claude.ai/design project, with level of detail:
 live iframes near 1:1 or in focus, snapshots when zoomed out.
 
 - `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view,
-  snapshots). The viewport draws the background grid itself and moves it with
-  the world, so the grid stays under the pages at every pan and zoom. Pan
-  until no page is on screen and a "Back to content" pill appears; a click
-  fits every page and note back into the viewport.
+  snapshots). The viewport draws the background dots itself — fatoora's flow map
+  dot, 120 world px apart — and moves them with the world, so they stay under the
+  pages at every pan and zoom. Pan until no page is on screen and a "Back to
+  content" pill appears; a click fits every page and note back into the viewport.
 - `canvas-page.jsx` — reads `canvas.json` and lays one page out as a single free
   canvas: every artboard and note at its own x/y. Drag a card by its grip to
   move it; the spot is saved to the section state file and to the browser, so

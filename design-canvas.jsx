@@ -15,8 +15,8 @@
 //     IndexedDB keyed by content hash — no build step, no files in the project
 
 const DC = {
-  bg: '#f0eee9', grid: 'rgba(0,0,0,0.06)',
-  gridSize: 120,        // grid pitch in world px; the viewport draws it at gridSize * zoom
+  bg: '#f0eee9', grid: 'rgba(70,58,46,.16)',  // dot colour, as in fatoora's flow map
+  gridSize: 120,        // dot pitch in world px; the viewport draws it at gridSize * zoom
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
   liveScale: 0.5,       // live iframe at or above this zoom
@@ -636,11 +636,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     };
   }, [apply, stopTween, minScale, maxScale]);
 
-  const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
   return (
     <div ref={vpRef} className="design-canvas"
       style={{ height: '100vh', width: '100vw', background: DC.bg, overflow: 'hidden', overscrollBehavior: 'none', touchAction: 'none', position: 'relative', fontFamily: DC.font, boxSizing: 'border-box', ...style }}>
-      <div ref={gridRef} style={{ position: 'absolute', inset: 0, backgroundImage: gridSvg, backgroundSize: `${DC.gridSize}px ${DC.gridSize}px`, pointerEvents: 'none' }} />
+      <div ref={gridRef} style={{ position: 'absolute', inset: 0, backgroundImage: `radial-gradient(${DC.grid} 1px, transparent 1px)`, backgroundSize: `${DC.gridSize}px ${DC.gridSize}px`, pointerEvents: 'none' }} />
       <div ref={worldRef} style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: 'calc(72px * var(--dc-inv-zoom,1)) 0 80px' }}>
         {children}
       </div>
