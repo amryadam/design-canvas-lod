@@ -532,6 +532,17 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     };
   }, []);
 
+  // The pages can also leave the screen with the view held still: the window
+  // gets smaller, or the section box grows as a page is moved. Neither goes
+  // through flushNow, so watch for both.
+  React.useEffect(() => {
+    const schedule = () => { clearTimeout(lostT.current); lostT.current = setTimeout(checkLost, DC.settleMs); };
+    const ro = new ResizeObserver(schedule);
+    if (worldRef.current) ro.observe(worldRef.current);
+    window.addEventListener('resize', schedule);
+    return () => { ro.disconnect(); window.removeEventListener('resize', schedule); };
+  }, [checkLost]);
+
   React.useEffect(() => {
     const vp = vpRef.current; if (!vp) return;
     let lastAnchorFrame = -1, anchor = null, anchorY0 = 0;
