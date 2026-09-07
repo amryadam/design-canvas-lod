@@ -190,6 +190,10 @@ function cfPlaceLabels(paths, s) {
   }
 }
 
+// Whole-pixel world boxes: measurements at different zooms differ by float
+// noise, and a changed signature would re-render every connector for nothing.
+const cfRound = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
+
 function cfMeasure(world, flows) {
   const wr = world.getBoundingClientRect();
   const scale = wr.width / world.offsetWidth || 1;
@@ -203,7 +207,7 @@ function cfMeasure(world, flows) {
     let b = null;
     if (slot) {
       const r = slot.getBoundingClientRect();
-      b = { x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale };
+      b = cfRound({ x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale });
     }
     boxes.set(file, b);
     return b;
@@ -215,7 +219,7 @@ function cfMeasure(world, flows) {
   slots.forEach((_, file) => { const r = box(file); if (r) allBoxes.push(pad(r, file)); });
   world.querySelectorAll('[data-dc-note]').forEach((el) => {
     const r = el.getBoundingClientRect();
-    allBoxes.push(pad({ x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale }, null));
+    allBoxes.push(pad(cfRound({ x: (r.left - wr.left) / scale, y: (r.top - wr.top) / scale, w: r.width / scale, h: r.height / scale }), null));
   });
   const out = [];
   flows.forEach((f, i) => {
@@ -231,7 +235,7 @@ function cfMeasure(world, flows) {
   });
   cfPlaceLabels(out, Math.max(scale, 1 / 12));
   // Signature lets the caller skip a React update when nothing moved.
-  out.sig = out.map((o) => o.d).join('|');
+  out.sig = out.map((o) => o.d + '@' + Math.round(o.mid.x) + ',' + Math.round(o.mid.y)).join('|');
   return out;
 }
 
@@ -262,19 +266,27 @@ function CanvasFlows({ flows }) {
     schedule();
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
+    // Zoom changes where label pills land (they hold screen size), so measure
+    // once more shortly after the world's transform settles.
+    let zoomTimer = 0;
     const mo = new MutationObserver((recs) => {
-      // Skip the world's own pan/zoom style writes AND anything inside a card:
-      // iframe mounts / snapshot swaps never change card geometry, and reacting
-      // to them caused a re-measure storm while slots were going live.
-      if (recs.some((r) => {
+      let moved = false, zoomed = false;
+      for (const r of recs) {
         const t = r.target.nodeType === 1 ? r.target : r.target.parentElement;
-        return t && t !== world && !t.closest('.dc-card');
-      })) schedule();
+        if (!t) continue;
+        if (t === world) { zoomed = true; continue; }
+        // Anything inside a card (iframe mounts, snapshot swaps) never changes
+        // card geometry, and our own layer's re-render must not re-trigger us.
+        if (t.closest('.dc-card') || t.closest('.dc-flows')) continue;
+        moved = true;
+      }
+      if (moved) schedule();
+      else if (zoomed) { clearTimeout(zoomTimer); zoomTimer = setTimeout(measure, 200); }
     });
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
     return () => {
-      off = true; cancelAnimationFrame(raf); clearTimeout(timer);
+      off = true; cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(zoomTimer);
       ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule);
     };
   }, [world, flows]);
