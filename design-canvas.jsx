@@ -630,22 +630,28 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
   const noteAt = (n) => (notePositions && n && n.props && notePositions[n.props.id]) || { x: 0, y: 0 };
+  // A page moved left or up takes the box's origin negative. The box then keeps
+  // that corner and the row's margins shift by the same amount, so the box grows
+  // left and up around what is already placed: nothing on screen moves, the
+  // right and bottom edges still carry the flow, and there is no wall at 0.
   const freeBox = React.useMemo(() => {
     if (!placed) return null;
-    let w = 0, h = 0;
+    let x0 = 0, y0 = 0, w = 0, h = 0;
+    const span = (p, bw, bh) => {
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+      w = Math.max(w, p.x + bw); h = Math.max(h, p.y + bh);
+    };
     order.forEach((k) => {
       const p = placed[k], a = byId[k];
       if (!p || !a) return;
       const s = sizeOf(k);
-      w = Math.max(w, p.x + (s.width || 0));
-      h = Math.max(h, p.y + (s.height || 0));
+      span(p, s.width || 0, s.height || 0);
     });
     rest.forEach((n) => {
       const p = noteAt(n);
-      w = Math.max(w, p.x + (p.w || (n.props && n.props.width) || 320));
-      h = Math.max(h, p.y + DC.noteReserveH);
+      span(p, p.w || (n.props && n.props.width) || 320, DC.noteReserveH);
     });
-    return { w: w + 60, h };
+    return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
   }, [placed, notePositions, order.join('|'), rest.length, sec.variant]);
 
   return (
@@ -660,15 +666,15 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       </div>
       {!freeBox && rest.length > 0 && <div className="dc-notes" style={{ padding: '0 60px calc(40px * var(--dc-inv-zoom, 1))', display: 'flex', gap: 24, alignItems: 'flex-start', width: 'max-content' }}>{rest}</div>}
       <div data-dc-row="" style={freeBox
-        ? { position: 'relative', margin: '0 60px', width: freeBox.w, height: freeBox.h }
+        ? { position: 'relative', marginLeft: 60 + freeBox.origin.x, marginRight: 60, marginTop: freeBox.origin.y, width: freeBox.w, height: freeBox.h }
         : { display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
         {freeBox && rest.map((n, i) => (
-          <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x, top: noteAt(n).y }}>{n}</div>
+          <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x - freeBox.origin.x, top: noteAt(n).y - freeBox.origin.y }}>{n}</div>
         ))}
         {order.map((k) => (
           <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
             size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file))}
-            position={placed && placed[k]} moved={!!(sec.positions && sec.positions[k])}
+            position={placed && placed[k]} origin={freeBox && freeBox.origin} moved={!!(sec.positions && sec.positions[k])}
             onMove={(p) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p))}
             onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
             arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
@@ -784,7 +790,7 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
+function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
   const id = rawId ?? rawLabel;
   // With size variants the slot follows the chosen size; `children` may be a
@@ -804,9 +810,10 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, s
     return () => document.removeEventListener('pointerdown', off, true);
   }, [menuOpen]);
 
-  // Free placement: the grip moves the card anywhere in the section. The live
-  // drag is a transform (React never writes one on the slot), the drop commits
-  // a snapped, clamped position to the section state.
+  // Free placement: the grip moves the card anywhere in the section, including
+  // left of and above the origin. The live drag is a transform (React never
+  // writes one on the slot), the drop commits a snapped position to the section
+  // state and the section box grows to hold it.
   const onMoveDown = (e) => {
     const me = ref.current;
     let dx = 0, dy = 0;
@@ -816,7 +823,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, s
         me.style.transition = 'none'; me.style.transform = '';
         requestAnimationFrame(() => { me.style.transition = ''; });
         if (Math.hypot(dx, dy) < 4) return;
-        const snap = (v) => Math.max(0, Math.round(v / 10) * 10);
+        const snap = (v) => Math.round(v / 10) * 10;
         onMove && onMove({ x: snap(position.x + dx), y: snap(position.y + dy) });
       },
     });
@@ -857,7 +864,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, moved, s
 
   return (
     <div ref={ref} data-dc-slot={id} style={position
-      ? { position: 'absolute', left: position.x, top: position.y }
+      ? { position: 'absolute', left: position.x - (origin ? origin.x : 0), top: position.y - (origin ? origin.y : 0) }
       : { position: 'relative', flexShrink: 0 }}>
       <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="dc-labelrow">
