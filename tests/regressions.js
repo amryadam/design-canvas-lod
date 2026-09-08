@@ -208,6 +208,42 @@ window.canvasTestsDone = (async () => {
     check(world.style.transform === held, 'the transform moved during the test');
     check(worst < 0.01, 'a world box (' + culprit + ') moved ' + worst.toFixed(2) + 'px with --dc-inv-zoom');
   });
+  await test('a wheel roll does not mount or drop iframes mid-gesture', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 400, height: 300 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 400, height: 300 })));
+    }
+    draw('review-rollchurn.json', E(DCSection, { id: 'review', title: 'Roll' }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: Math.min(900, innerWidth), height: Math.min(700, innerHeight) } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(600);
+    // DC.movingMs must outlast DC.settleMs. If it does not, the moving flag
+    // clears before the LOD pass is armed to run, dcLodRun's guard never fires,
+    // and slots mount and drop between two notches — the cards blink.
+    check(DC.movingMs > DC.settleMs, 'movingMs (' + DC.movingMs + ') must exceed settleMs (' + DC.settleMs + ')');
+    const vp = host.querySelector('.design-canvas');
+    let churn = 0;
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) {
+        r.addedNodes.forEach((n) => { if (n.nodeType === 1 && n.tagName === 'IFRAME') churn++; });
+        r.removedNodes.forEach((n) => { if (n.nodeType === 1 && n.tagName === 'IFRAME') churn++; });
+      }
+    });
+    mo.observe(vp, { childList: true, subtree: true });
+    // A gap between settleMs and movingMs: the cadence that used to churn.
+    const gap = Math.round((DC.settleMs + DC.movingMs) / 2);
+    for (let i = 0; i < 6; i++) {
+      vp.dispatchEvent(new WheelEvent('wheel', { clientX: 200, clientY: 200,
+        deltaX: 0, deltaY: -120, deltaMode: 0, bubbles: true, cancelable: true }));
+      await wait(gap);
+    }
+    mo.disconnect();
+    check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

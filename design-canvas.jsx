@@ -22,6 +22,12 @@ const DC = {
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
+  movingMs: 220,        // how long a pan or a zoom counts as still moving. It
+                        // MUST be more than settleMs. The LOD pass is armed for
+                        // settleMs and refuses to run while the world moves, so
+                        // a shorter window lets the flag clear first and the
+                        // guard never fires: slots then mounted and dropped
+                        // between two wheel notches, and the cards blinked
   settleMs: 150,        // wait after the last zoom or pan change. Three things then
                         // occur: the LOD pass runs, the --dc-inv-zoom variable is
                         // written, and the lost-pill check runs. A larger value
@@ -31,6 +37,11 @@ const DC = {
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
+  rail: 320,            // px the focus modal's options rail holds. It never
+                        // scales: only the screen beside it re-fits
+  railMinW: 1020,       // shell width under which the rail always folds
+  railKeep: 0.8,        // the rail may not cost more than 20 % of the screen
+                        // scale. A wide screen in a small window thus folds it
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 
@@ -96,6 +107,30 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-backto:hover{background:#faf8f5}
 @keyframes dc-backto-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 .dc-placeholder{width:100%;height:100%;background:repeating-linear-gradient(135deg,#f6f4f0 0 12px,#eeece7 12px 24px);display:flex;align-items:center;justify-content:center;color:#9a958c;font:500 14px ui-monospace,Menlo,monospace}
+/* The focus modal: one shell that holds the screen and the page options. The
+   rail keeps DC.rail px at every window size; only the screen re-fits. */
+.dc-shell{position:absolute;top:64px;left:40px;right:40px;bottom:40px;display:flex;background:#232019;border-radius:14px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06)}
+.dc-shell-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.dc-shell-head{flex:0 0 56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+.dc-shell-body{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px 40px;background:rgba(0,0,0,.18)}
+.dc-rail{box-sizing:border-box;width:320px;flex:0 0 320px;border-left:1px solid rgba(255,255,255,.08);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:18px;transition:margin-right .18s ease}
+.dc-shell.dc-rail-off .dc-rail{margin-right:-320px}
+.dc-rail h4{margin:0;font:600 10.5px/1 inherit;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.45)}
+.dc-rail .dc-chips{margin-left:0}
+.dc-rail .dc-editable{display:block;background:rgba(255,255,255,.07);border-radius:7px;padding:8px 10px;margin:0;color:#fff;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.dc-rail .dc-editable:focus{background:#fff;color:#29261b;box-shadow:none}
+.dc-grp{display:flex;flex-direction:column;gap:8px}
+.dc-axis{display:flex;align-items:center;gap:8px}
+.dc-axis>span{width:62px;flex:0 0 62px;font:400 11px/1 inherit;color:rgba(255,255,255,.45)}
+.dc-row{display:flex;width:100%;align-items:center;gap:8px;border:0;background:transparent;color:#fff;font:500 13px/1.2 inherit;padding:8px 10px;border-radius:7px;cursor:pointer;text-align:left;transition:background .12s}
+.dc-row:hover{background:rgba(255,255,255,.08)}
+.dc-row.dc-danger{color:#c96442}
+.dc-row.dc-danger:hover{background:rgba(201,100,66,.14)}
+.dc-opt{border:0;border-radius:7px;background:rgba(255,255,255,.1);color:#fff;font:600 12px/1 inherit;padding:8px 11px;cursor:pointer;transition:background .12s,color .12s}
+.dc-opt:hover{background:rgba(255,255,255,.2)}
+.dc-opt.dc-on{background:#fff;color:#2a251f}
+.dc-meta{margin-top:auto;padding-top:12px;font:400 11px/1.6 inherit;color:rgba(255,255,255,.4)}
+.dc-meta b{display:block;font:500 11px/1.6 ui-monospace,Menlo,monospace;color:rgba(255,255,255,.6)}
 `;
   document.head.appendChild(s);
 }
@@ -110,7 +145,7 @@ const DCCtx = React.createContext(null);
 // A class left behind by a drag that did not finish thus cannot stop the LOD
 // registry for the life of the page.
 // Two sources set the flag: a pan or a zoom arms dcMarkMoving, which clears
-// itself after 120 ms; a card drag holds dcDragDepth for the length of the
+// itself after DC.movingMs; a card drag holds dcDragDepth for the length of the
 // gesture.
 let dcMovingTimer = 0;
 let dcDragDepth = 0;
@@ -123,7 +158,7 @@ function dcMarkMoving(vp) {
     dcMovingTimer = 0;
     vp.classList.remove('dc-moving');
     dcLodSchedule();
-  }, 120);
+  }, DC.movingMs);
 }
 
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
@@ -402,7 +437,7 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
     sectionMeta[sid] = {
       title: persisted.title ?? sec.props.title, subtitle: sec.props.subtitle,
-      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
+      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))], srcKey,
     };
   });
 
@@ -766,6 +801,34 @@ function dcSize(props, chosen) {
   return { width: cur.w, height: cur.h, href: cur.href ?? href, variants, idx, cur, axes };
 }
 
+// The page actions. Both the card menu and the focus modal's rail call these.
+function dcActions(patchSection, setFocus, sid, srcKey) {
+  return {
+    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
+    move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
+    rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
+    reorder: (next) => patchSection && patchSection(sid, { order: next }),
+    focus: (k) => setFocus && setFocus(`${sid}/${k}`),
+    resetPosition: (k) => patchSection && patchSection(sid, (x) => {
+      const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
+    }),
+    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
+      // Only the end that meets this page: the far page keeps its side.
+      const n = {};
+      Object.entries(x.arrows || {}).forEach(([key, o]) => {
+        const { from, to } = dcFlowKeyParts(key), r = { ...o };
+        if (from === k) delete r.fs;
+        if (to === k) delete r.ts;
+        if (Object.keys(r).length) n[key] = r;
+      });
+      return { arrows: n };
+    }),
+    remove: (k) => patchSection && patchSection(sid, (x) => ({
+      hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
+    })),
+  };
+}
+
 function DCSizeChips({ size, onSize, style }) {
   if (!size.axes.length) return null;
   return (
@@ -851,32 +914,12 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
 
   // One stable object of actions. Each action takes the slot id. Without it,
   // each slot would get eight new closures in each render, and the memo on the
-  // frame could never hit.
+  // frame could never hit. The focus modal builds the same set, so a page has
+  // one behaviour whether you use the card menu or the options rail.
   const patchSection = ctx && ctx.patchSection, setFocus = ctx && ctx.setFocus;
-  const actions = React.useMemo(() => ({
-    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
-    move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
-    rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
-    reorder: (next) => patchSection && patchSection(sid, { order: next }),
-    focus: (k) => setFocus && setFocus(`${sid}/${k}`),
-    resetPosition: (k) => patchSection && patchSection(sid, (x) => {
-      const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
-    }),
-    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
-      // Only the end that meets this page: the far page keeps its side.
-      const n = {};
-      Object.entries(x.arrows || {}).forEach(([key, o]) => {
-        const { from, to } = dcFlowKeyParts(key), r = { ...o };
-        if (from === k) delete r.fs;
-        if (to === k) delete r.ts;
-        if (Object.keys(r).length) n[key] = r;
-      });
-      return { arrows: n };
-    }),
-    remove: (k) => patchSection && patchSection(sid, (x) => ({
-      hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
-    })),
-  }), [patchSection, setFocus, sid, srcKey]);
+  const actions = React.useMemo(
+    () => dcActions(patchSection, setFocus, sid, srcKey),
+    [patchSection, setFocus, sid, srcKey]);
 
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? '540px' : '80px', position: 'relative' }}>
@@ -1143,6 +1186,9 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const aid = artboard.props.id ?? artboard.props.label;
   const idx = peers.indexOf(aid);
   const secIdx = sectionOrder.indexOf(sectionId);
+  const actions = React.useMemo(
+    () => dcActions(ctx.patchSection, ctx.setFocus, sectionId, meta.srcKey),
+    [ctx.patchSection, ctx.setFocus, sectionId, meta.srcKey]);
   const go = (d) => { const n = peers[(idx + d + peers.length) % peers.length]; if (n) ctx.setFocus(`${sectionId}/${n}`); };
   const goSection = (d) => {
     const n = sectionOrder.length;
@@ -1154,6 +1200,7 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   };
   React.useEffect(() => {
     const k = (e) => {
+      if (e.target && e.target.isContentEditable) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
       if (e.key === 'ArrowUp') { e.preventDefault(); goSection(-1); }
@@ -1165,14 +1212,41 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const size = dcSize(artboard.props, (sec.variant || {})[aid]);
   const { width, height, href } = size;
   const children = typeof artboard.props.children === 'function' ? artboard.props.children(size.cur, size) : artboard.props.children;
-  const onSize = (file) => ctx.patchSection(sectionId, (x) => dcMapPatch(x, 'variant', aid, file));
   const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
   React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
-  const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
+
+  // The rail holds DC.rail px whatever the window does; only the screen
+  // re-fits. Two conditions fold it: a shell under DC.railMinW, and a rail
+  // that costs more than 20 % of the screen scale (a wide screen in a small
+  // window). The numbers come from the shell, not from the screen box: that
+  // box moves while the rail slides, and a rule that read it would judder.
+  const shellW = Math.max(320, vp.w - 80), shellH = Math.max(240, vp.h - 104);
+  const boxH = Math.max(80, shellH - 156); // head 56, body padding 56, dots 44
+  const fitTo = (w) => Math.max(0.1, Math.min(w / width, boxH / height, 2));
+  const sOpen = fitTo(shellW - DC.rail - 80), sShut = fitTo(shellW - 80);
+  const auto = shellW >= DC.railMinW && sOpen >= DC.railKeep * sShut;
+  // A click on Options wins, until the rule changes its mind.
+  const [pin, setPin] = React.useState(null);
+  const lastAuto = React.useRef(auto);
+  React.useEffect(() => { if (auto !== lastAuto.current) { lastAuto.current = auto; setPin(null); } }, [auto]);
+  const railOpen = pin === null ? auto : pin;
+  const scale = railOpen ? sOpen : sShut;
+
   const [ddOpen, setDd] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  React.useEffect(() => setConfirming(false), [aid]);
+  const label = (sec.labels || {})[aid] ?? artboard.props.label;
+  const moved = !!(sec.positions && sec.positions[aid]);
+  const arrowsMoved = Object.entries(sec.arrows || {}).some(([key, o]) => {
+    const { from, to } = dcFlowKeyParts(key); return (from === aid && o.fs) || (to === aid && o.ts);
+  });
+  const fileName = String(label || aid || 'artboard').replace(/[^\w\s.-]+/g, '_');
+  const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
+    .catch((err) => console.error('[design-canvas] export failed:', err));
+  const AXIS = { size: 'Size', lang: 'Language', state: 'State' };
   const Arrow = ({ dir, onClick }) => (
     <button onClick={(e) => { e.stopPropagation(); onClick(); }}
-      style={{ position: 'absolute', top: '50%', [dir]: 28, transform: 'translateY(-50%)', border: 'none', background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.9)', width: 44, height: 44, borderRadius: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      style={{ position: 'absolute', top: '50%', [dir]: 14, transform: 'translateY(-50%)', border: 'none', background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.9)', width: 44, height: 44, borderRadius: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'} /></svg>
     </button>
   );
@@ -1181,46 +1255,96 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   return ReactDOM.createPortal(
     <div className="dc-focus" onClick={() => ctx.setFocus(null)} onWheel={(e) => e.preventDefault()}
       style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(24,20,16,.6)', backdropFilter: 'blur(14px)', fontFamily: DC.font, color: '#fff' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'flex-start', padding: '16px 20px 0', gap: 16 }}>
-        <div style={{ position: 'relative' }}>
-          <button onClick={() => setDd((o) => !o)} style={{ border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, textAlign: 'left', fontFamily: 'inherit' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>{meta.title}</span>
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ opacity: .7 }}><path d="M2 4l3.5 3.5L9 4"/></svg>
-            </span>
-          </button>
-          {ddOpen && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#2a251f', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', padding: 4, minWidth: 200, zIndex: 10 }}>
-              {sectionOrder.filter((sid) => sectionMeta[sid].slotIds.length).map((sid) => (
-                <button key={sid} onClick={() => { setDd(false); const f = sectionMeta[sid].slotIds[0]; if (f) ctx.setFocus(`${sid}/${f}`); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent', color: '#fff', padding: '8px 12px', borderRadius: 5, fontSize: 14, fontWeight: sid === sectionId ? 600 : 400, fontFamily: 'inherit' }}>
-                  {sectionMeta[sid].title}
-                </button>
+      <div className={'dc-shell' + (railOpen ? '' : ' dc-rail-off')} onClick={(e) => e.stopPropagation()}>
+        <div className="dc-shell-main">
+          <div className="dc-shell-head">
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setDd((o) => !o)} style={{ border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, textAlign: 'left', fontFamily: 'inherit' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: -0.3 }}>{meta.title}</span>
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ opacity: .7 }}><path d="M2 4l3.5 3.5L9 4"/></svg>
+                </span>
+              </button>
+              {ddOpen && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#2a251f', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', padding: 4, minWidth: 200, zIndex: 10 }}>
+                  {sectionOrder.filter((sid) => sectionMeta[sid].slotIds.length).map((sid) => (
+                    <button key={sid} onClick={() => { setDd(false); const f = sectionMeta[sid].slotIds[0]; if (f) ctx.setFocus(`${sid}/${f}`); }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent', color: '#fff', padding: '8px 12px', borderRadius: 5, fontSize: 14, fontWeight: sid === sectionId ? 600 : 400, fontFamily: 'inherit' }}>
+                      {sectionMeta[sid].title}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,.45)', fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
+            <button className={'dc-opt' + (railOpen ? ' dc-on' : '')} onClick={() => setPin(!railOpen)}
+              title={railOpen ? 'Hide the page options' : 'Show the page options'}>Options</button>
+            <button onClick={() => ctx.setFocus(null)} style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,.7)', width: 32, height: 32, borderRadius: 16, fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          </div>
+          <div className="dc-shell-body">
+            <div style={{ width: width * scale, height: height * scale, position: 'relative' }}>
+              <div style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left', background: '#fff', borderRadius: 2, overflow: 'hidden', boxShadow: '0 20px 80px rgba(0,0,0,.4)' }}>
+                {content}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {peers.map((pid, i) => (
+                <button key={pid} onClick={() => ctx.setFocus(`${sectionId}/${pid}`)} title={pid}
+                  style={{ border: 'none', padding: 0, cursor: 'pointer', width: 6, height: 6, borderRadius: 3, background: i === idx ? '#fff' : 'rgba(255,255,255,.3)' }} />
+              ))}
+            </div>
+            <Arrow dir="left" onClick={() => go(-1)} />
+            <Arrow dir="right" onClick={() => go(1)} />
+          </div>
+        </div>
+        <div className="dc-rail">
+          <div className="dc-grp">
+            <h4>Page</h4>
+            <DCEditable value={label} onChange={(v) => actions.rename(aid, v)} />
+          </div>
+          {size.axes.length > 0 && (
+            <div className="dc-grp">
+              <h4>Variant</h4>
+              {size.axes.map((ax) => (
+                <div key={ax.key} className="dc-axis">
+                  <span>{AXIS[ax.key] || ax.key}</span>
+                  <div className="dc-sizes">
+                    {ax.chips.map((c) => (
+                      <button key={c.value} className={'dc-size' + (c.value === ax.on ? ' dc-on' : '')} title={c.file}
+                        onClick={() => actions.size(aid, c.file)}>{c.label}</button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
-        </div>
-        <div style={{ flex: 1 }} />
-        <button onClick={() => ctx.setFocus(null)} style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,.7)', width: 32, height: 32, borderRadius: 16, fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
-      </div>
-      <div style={{ position: 'absolute', top: 64, bottom: 56, left: 100, right: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-        <div onClick={(e) => e.stopPropagation()} style={{ width: width * scale, height: height * scale, position: 'relative' }}>
-          <div style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left', background: '#fff', borderRadius: 2, overflow: 'hidden', boxShadow: '0 20px 80px rgba(0,0,0,.4)' }}>
-            {content}
+          {(moved || arrowsMoved) && (
+            <div className="dc-grp">
+              <h4>Layout</h4>
+              {moved && <button className="dc-row" onClick={() => actions.resetPosition(aid)}>Reset position</button>}
+              {arrowsMoved && <button className="dc-row" onClick={() => actions.resetArrows(aid)}>Reset arrow sides</button>}
+            </div>
+          )}
+          {href && (
+            <div className="dc-grp">
+              <h4>Export</h4>
+              <button className="dc-row" onClick={() => window.open(href, '_blank')}>Open screen</button>
+              <button className="dc-row" onClick={() => save('png')}>Download PNG</button>
+              <button className="dc-row" onClick={() => save('html')}>Download HTML</button>
+            </div>
+          )}
+          <div className="dc-grp">
+            <button className="dc-row dc-danger"
+              onClick={() => { if (!confirming) return setConfirming(true); actions.remove(aid); ctx.setFocus(null); }}>
+              {confirming ? 'Click again to delete' : 'Delete page'}
+            </button>
+          </div>
+          <div className="dc-meta">
+            {href && <b>{href.split('/').pop()}</b>}
+            {width} × {height}{size.variants ? ` · ${size.variants.length} variants` : ''}
           </div>
         </div>
-        <div onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 500, opacity: .85, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {(sec.labels || {})[aid] ?? artboard.props.label}
-          <span style={{ opacity: .5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
-          <DCSizeChips size={size} onSize={onSize} />
-        </div>
-      </div>
-      <Arrow dir="left" onClick={() => go(-1)} />
-      <Arrow dir="right" onClick={() => go(1)} />
-      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
-        {peers.map((p, i) => (
-          <button key={p} onClick={() => ctx.setFocus(`${sectionId}/${p}`)} style={{ border: 'none', padding: 0, cursor: 'pointer', width: 6, height: 6, borderRadius: 3, background: i === idx ? '#fff' : 'rgba(255,255,255,.3)' }} />
-        ))}
       </div>
     </div>,
     document.body,
