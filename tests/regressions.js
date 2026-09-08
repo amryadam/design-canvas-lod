@@ -179,6 +179,35 @@ window.canvasTestsDone = (async () => {
     const after = slot.getBoundingClientRect().top;
     check(Math.abs(after - want) < 1, 'content jumped ' + (after - want).toFixed(2) + 'px when --dc-inv-zoom settled');
   });
+  await test('the world layout does not read the zoom', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw('review-worldunits.json',
+      E(DCSection, { id: 'review', title: 'World units' },
+        E(DCArtboard, { id: 'a', width: 600, height: 400 }),
+        E(DCArtboard, { id: 'b', width: 600, height: 400 })));
+    await until(() => host.querySelector('[data-dc-row]'));
+    await wait(400);
+    const world = host.querySelector('[data-dc-world]');
+    const boxes = [...host.querySelectorAll('[data-dc-slot],[data-dc-section],[data-dc-row]')];
+    check(boxes.length >= 3, 'fixture did not render');
+    const rects = () => boxes.map((b) => { const q = b.getBoundingClientRect(); return [q.top, q.left]; });
+    // Hold the transform still and swing --dc-inv-zoom over its whole range.
+    // Nothing in the world's flow may read it, or the settled write moves every
+    // card and the content steps out from below the pointer as you zoom.
+    const held = world.style.transform;
+    const before = rects();
+    let worst = 0, culprit = '';
+    for (const v of ['0.25', '1', '4', '20']) {
+      world.style.setProperty('--dc-inv-zoom', v);
+      void world.offsetHeight;
+      rects().forEach(([t, l], i) => {
+        const d = Math.max(Math.abs(t - before[i][0]), Math.abs(l - before[i][1]));
+        if (d > worst) { worst = d; culprit = boxes[i].dataset.dcSlot || boxes[i].dataset.dcSection || 'row'; }
+      });
+    }
+    check(world.style.transform === held, 'the transform moved during the test');
+    check(worst < 0.01, 'a world box (' + culprit + ') moved ' + worst.toFixed(2) + 'px with --dc-inv-zoom');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
