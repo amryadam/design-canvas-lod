@@ -34,6 +34,7 @@ const DC = {
                         // also delays the mount of an iframe. It does not move
                         // the view: nothing in the world's layout reads the zoom
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
+  rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -139,26 +140,23 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
 
 const DCCtx = React.createContext(null);
-// Shared "is the world moving" flag. The .dc-moving class drives CSS only:
-// live iframes lose pointer events while the world moves. The module keeps its
-// own answer in dcMovingTimer and dcDragDepth, and dcMoving() reads those.
-// A class left behind by a drag that did not finish thus cannot stop the LOD
-// registry for the life of the page.
-// Two sources set the flag: a pan or a zoom arms dcMarkMoving, which clears
-// itself after DC.movingMs; a card drag holds dcDragDepth for the length of the
-// gesture.
+// Shared "is the world moving" flag. Two sources set it: a pan or a zoom arms
+// dcMarkMoving, which clears itself after DC.movingMs; a card drag holds
+// dcDragDepth for the length of the gesture. dcMoving() reads both.
+// The .dc-moving class drives CSS only (live iframes lose pointer events).
+// dcSyncMoving is the one writer of that class: it copies dcMoving() onto every
+// viewport, so the class can never disagree with the flag.
 let dcMovingTimer = 0;
 let dcDragDepth = 0;
 const dcMoving = () => dcMovingTimer !== 0 || dcDragDepth > 0;
-function dcMarkMoving(vp) {
-  if (!vp) return;
-  if (!vp.classList.contains('dc-moving')) vp.classList.add('dc-moving');
+function dcSyncMoving() {
+  const on = dcMoving();
+  document.querySelectorAll('.design-canvas').forEach((vp) => vp.classList.toggle('dc-moving', on));
+}
+function dcMarkMoving() {
   clearTimeout(dcMovingTimer);
-  dcMovingTimer = setTimeout(() => {
-    dcMovingTimer = 0;
-    vp.classList.remove('dc-moving');
-    dcLodSchedule();
-  }, DC.movingMs);
+  dcMovingTimer = setTimeout(() => { dcMovingTimer = 0; dcSyncMoving(); dcLodSchedule(); }, DC.movingMs);
+  dcSyncMoving();
 }
 
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
@@ -550,7 +548,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       lastPostedScale.current = scale;
       window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
     }
-    dcMarkMoving(vpRef.current);
+    dcMarkMoving();
     if (lostRef.current) checkLost();
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
@@ -644,7 +642,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > 0 && r.left < vw && r.bottom > 0 && r.top < vh) return; }
       const r = slots[0].getBoundingClientRect(); const t = tf.current;
       t.x += 60 - r.left; t.y += 100 - r.top; apply(true);
-    }, 500);
+    }, DC.rescueMs);
     return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
   }, [hasContent, apply, minScale, maxScale]);
 
@@ -699,7 +697,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
       // Arm the removal timer with the class, so a click with no move still
       // clears dc-moving; dcLodRun freezes the whole LOD registry while it is set.
-      vp.style.cursor = 'grabbing'; dcMarkMoving(vp);
+      vp.style.cursor = 'grabbing'; dcMarkMoving();
     };
     const onPointerMove = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -995,39 +993,47 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   );
 }
 
-// One pointer drag on a slot: marks the slot and viewport as moving, reports
-// pointer deltas in world px (screen px ÷ zoom), and cleans up on release or
-// cancel. `me` sets the scale (its screen width over its layout width) and
-// gets the dragging class. `move` also receives the pointer's world position,
-// measured against `me`'s current rect so a zoom mid-drag does not go stale.
-// `keepMoving` leaves the viewport's moving flag for the caller to clear.
+// One pointer drag on a slot. Reports pointer deltas in world px (screen px ÷
+// zoom) and cleans up on release, cancel, lost capture or a window blur, so a
+// pointer released outside the window cannot hold dcDragDepth for ever.
+// `keepMoving` keeps the moving flag armed for DC.movingMs after the drop, so
+// the drop animation runs with iframes still inert.
 // Returns a cancel function for unmounts.
 function dcDragSession(e, me, { move, up, keepMoving }) {
   e.preventDefault(); e.stopPropagation();
   const sx = e.clientX, sy = e.clientY;
-  const scaleOf = () => me.getBoundingClientRect().width / me.offsetWidth || 1;
-  const scale = scaleOf();
+  // One rect and one offsetWidth per event: both are reads, so they share one
+  // forced layout.
+  const measure = () => { const r = me.getBoundingClientRect(); return { r, z: r.width / me.offsetWidth || 1 }; };
+  const scale = measure().z;
   me.classList.add('dc-dragging');
-  const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
-  dcDragDepth++;
+  try { me.setPointerCapture(e.pointerId); } catch {}
+  dcDragDepth++; dcSyncMoving();
   const onMove = (ev) => {
-    const r = me.getBoundingClientRect(), z = scaleOf();
+    const { r, z } = measure();
     move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
   };
   let done = false;
   const finish = (cancelled) => {
     if (done) return; done = true;
-    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onCancel);
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onCancel);
+    me.removeEventListener('lostpointercapture', onCancel);
+    window.removeEventListener('blur', onCancel);
+    try { me.releasePointerCapture(e.pointerId); } catch {}
     me.classList.remove('dc-dragging');
-    // The drag is over here even when keepMoving leaves the class on for the
-    // drop animation, so the registry is released at the same point.
     dcDragDepth = Math.max(0, dcDragDepth - 1);
+    if (keepMoving) dcMarkMoving(); else dcSyncMoving();
     dcLodSchedule();
-    if (!keepMoving && vp) vp.classList.remove('dc-moving');
-    up(scale, vp, cancelled);
+    up(scale, cancelled);
   };
   const onUp = () => finish(false), onCancel = () => finish(true);
-  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onCancel);
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onCancel);
+  me.addEventListener('lostpointercapture', onCancel);
+  window.addEventListener('blur', onCancel);
   return onCancel;
 }
 
@@ -1054,6 +1060,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
   const menuRef = React.useRef(null);
+  const cancelDrag = React.useRef(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
@@ -1064,6 +1071,8 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     return () => document.removeEventListener('pointerdown', off, true);
   }, [menuOpen]);
 
+  React.useEffect(() => () => { cancelDrag.current && cancelDrag.current(); }, []);
+
   // Free placement: the grip moves the card anywhere in the section, including
   // left of and above the origin. The live drag is a transform (React never
   // writes one on the slot), the drop commits a snapped position to the section
@@ -1071,9 +1080,10 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   const onMoveDown = (e) => {
     const me = ref.current;
     let dx = 0, dy = 0;
-    dcDragSession(e, me, {
+    cancelDrag.current = dcDragSession(e, me, {
       move: (wx, wy) => { dx = wx; dy = wy; me.style.transform = `translate(${dx}px, ${dy}px)`; },
       up: () => {
+        cancelDrag.current = null;
         me.style.transition = 'none'; me.style.transform = '';
         requestAnimationFrame(() => { me.style.transition = ''; });
         if (Math.hypot(dx, dy) < 4) return;
@@ -1094,7 +1104,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     const layout = (scale) => {
       for (const h of homes) { if (h.id === id) continue; h.el.style.transform = `translateX(${(slotXs[liveOrder.indexOf(h.id)] - h.x) / scale}px)`; }
     };
-    dcDragSession(e, me, {
+    cancelDrag.current = dcDragSession(e, me, {
       keepMoving: true,
       move: (wx, wy, scale) => {
         me.style.transform = `translateX(${wx}px)`;
@@ -1103,13 +1113,13 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         for (let i = 0; i < slotXs.length; i++) { const d = Math.abs(slotXs[i] - cur); if (d < best) { best = d; nearest = i; } }
         if (liveOrder.indexOf(id) !== nearest) { liveOrder = order.filter((k) => k !== id); liveOrder.splice(nearest, 0, id); layout(scale); }
       },
-      up: (scale, vp) => {
+      up: (scale) => {
+        cancelDrag.current = null;
         const finalSlot = liveOrder.indexOf(id);
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
         setTimeout(() => {
           for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
-          vp && vp.classList.remove('dc-moving');
           requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
         }, 180);
       },
@@ -1363,4 +1373,4 @@ function DCLib() { return null; }
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. DC, dcLod and dcArtboardSvg are read by
 // perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcArtboardSvg, dcSvgUrl });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl });

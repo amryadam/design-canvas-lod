@@ -244,6 +244,40 @@ window.canvasTestsDone = (async () => {
     mo.disconnect();
     check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
   });
+  async function dragFixture(name) {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw(name, E(DCSection, { id: 'review', positions: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } } },
+      E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })));
+    await until(() => host.querySelector('[data-dc-slot] .dc-grip'));
+    await wait(DC.rescueMs + 200);
+    const vp = host.querySelector('.design-canvas');
+    const grip = host.querySelector('[data-dc-slot="A"] .dc-grip');
+    const r = grip.getBoundingClientRect();
+    const at = (type, x, y, target = grip) => target.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+    return { vp, grip, r, at };
+  }
+  await test('a lost pointer ends the card drag', async () => {
+    const { vp, r, at } = await dragFixture('review-lostdrag.json');
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 60, r.top + 60, document);
+    check(dcMoving(), 'the drag did not set the moving flag');
+    window.dispatchEvent(new Event('blur'));
+    await wait(50);
+    check(!dcMoving(), 'dcMoving() stayed true after the pointer was lost');
+    check(!vp.classList.contains('dc-moving'), '.dc-moving stayed on after the pointer was lost');
+  });
+  await test('a pan timer does not strip .dc-moving from a running drag', async () => {
+    const { vp, r, at } = await dragFixture('review-pandrag.json');
+    vp.dispatchEvent(new WheelEvent('wheel', { deltaX: 3.5, deltaY: 0, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+    await wait(20);
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 60, r.top + 60, document);
+    await wait(DC.movingMs + 60);
+    check(vp.classList.contains('dc-moving'), 'the pan timer removed .dc-moving mid-drag');
+    at('pointerup', r.left + 60, r.top + 60, document);
+    await wait(DC.movingMs + 60);
+    check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the drop');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
