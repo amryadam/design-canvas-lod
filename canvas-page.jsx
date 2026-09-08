@@ -271,6 +271,8 @@ function CanvasFlows({ flows: authored, section }) {
   const [paths, setPaths] = React.useState([]);
   const [hover, setHover] = React.useState(null);
   const dragging = React.useRef(false);
+  // A zero-size probe in the tree, so the layer finds the world it is inside.
+  const probe = React.useRef(null);
   // Arrow sides dragged on the canvas are saved in the section state
   // (sec.arrows[flow key] = { fs, ts }) and win over canvas.json.
   const ctx = React.useContext(DCCtx);
@@ -300,9 +302,9 @@ function CanvasFlows({ flows: authored, section }) {
   React.useEffect(() => () => { clearTimeout(hoverTimer.current); cancelDrag.current && cancelDrag.current(); }, []);
 
   React.useEffect(() => {
-    // The world is the transformed layer, not whatever sits first under the
-    // viewport: the grid layer is a sibling in front of it.
-    const el = document.querySelector('[data-dc-world]');
+    // The world is the transformed layer that holds this layer, not the first
+    // one in the document: a page can hold more than one canvas.
+    const el = probe.current && probe.current.closest('[data-dc-world]');
     if (el) setWorld(el);
   }, []);
 
@@ -346,8 +348,8 @@ function CanvasFlows({ flows: authored, section }) {
     };
   }, [world, flows]);
 
-  if (!world || !paths.length) return null;
-  return ReactDOM.createPortal(
+  if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
+  return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
     <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {paths.map((p, i) => {
@@ -383,7 +385,7 @@ function CanvasFlows({ flows: authored, section }) {
       ))}
     </div>,
     world,
-  );
+  )}</>;
 }
 
 // ---- Page ------------------------------------------------------------------
