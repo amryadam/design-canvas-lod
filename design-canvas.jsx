@@ -103,11 +103,14 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
    never reflows, so the head keeps a fixed world box and the world's layout
    stays free of the zoom. The head grows from its bottom edge, upwards into the
    gap above it. The cap keeps the grown head inside that gap. A head with a
-   title and a subtitle is 93 px high (28 px title, 6 px margin, 16 px subtitle,
-   36 px padding). The smaller gap is the 72 px world top padding; the section
-   gap is 80 px. The head thus grows at most 1 + 72 / 93 = 1.77 times. The cap of
-   1.75 grows a 93 px head by 0.75 x 93 = 70 px, which stays in the 72 px.
-   Below 57 % zoom (1 / 1.75) the head follows the world. */
+   title and a subtitle measures 93 px high in headless Chrome at these styles.
+   The smaller gap is the 72 px world top padding; the section gap is 80 px. The
+   head thus grows at most 1 + 72 / 93 = 1.77 times. The cap of 1.75 grows a
+   93 px head by 0.75 x 93 = 70 px, which stays in the 72 px. Below 57 % zoom
+   (1 / 1.75) the head follows the world. A change to the title size, the
+   subtitle size or the head padding changes the 93 px. Measure the head again
+   and calculate the cap again. The check "a grown section head stays inside its
+   gap" fails if you do not. */
 .dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),${DC.sectionHeadMax}));transform-origin:bottom left}
 /* Shown only when no section is on screen. */
 .dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
