@@ -25,6 +25,15 @@ const DC = {
                         // order both read it, so they cannot drift apart
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
+  stickyMs: 4000,       // a slot keeps its place in the budget this long after a
+                        // pointer goes down on it or comes up on it, so a card
+                        // you are working on does not drop under you. The
+                        // pointer up is what makes a drag longer than this
+                        // window keep its place: no pass runs during a drag
+  stickyBias: 1e6,      // px a touched slot counts as nearer. It outranks every
+                        // real distance, but it never outranks a visible slot:
+                        // the visible sort runs first, and that rule exists to
+                        // stop off-screen frames holding the budget
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   movingMs: 220,        // how long a pan or a zoom counts as still moving. It
                         // MUST be more than settleMs. The LOD pass is armed for
@@ -189,7 +198,49 @@ const dcView = { x: 0, y: 0, scale: 1 };
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
 // one poll and one IntersectionObserver serve them all, instead of N timers
 // that fire per frame.
-const dcLod = { subs: new Set(), timer: 0, poll: 0, io: null };
+// `world` is the transformed element the slots sit in, and `gen` is the
+// measurement generation. DCViewport writes both through dcSetCamera on every
+// flushed frame, and gives the world back through dcClearCamera when it goes
+// away. `world` is thus null, and not a dead element, between one canvas and
+// the next. The registry keeps no scale of its own. dcLodRun derives the scale
+// from the world rect that it reads anyway, and every other reader takes the
+// scale from dcView.
+const dcLod = { world: null, gen: 0, subs: new Set(), timer: 0, poll: 0, io: null };
+
+// A slot's box inside the world does not move when the world pans or zooms.
+// The world carries transform-origin 0 0. No reader of --dc-inv-zoom reflows
+// the world. .dc-sectionhead reads it through a transform, and a transform
+// never reflows. The flow layer in canvas-page.jsx reads it too, but that
+// layer is an absolute overlay of zero box, so its own layout moves nothing.
+// The world layout is thus the same at every zoom. Each entry therefore holds
+// its world box and the generation it was measured in, and one pass turns the
+// held boxes into screen space with one rect read of the world itself.
+// Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
+// slightly wrong ranking until the next real one, never a wrong render.
+function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
+// A pointer down anywhere in a slot marks it, and the pointer up marks it
+// again. The mark wins the budget for DC.stickyMs, so a card you drag, rename
+// or open the ⋯ menu on does not drop while you work on it. It does not win
+// the margin, and it does not win against a visible slot: a slot that has left
+// the screen must still give its place up.
+// The second mark is what makes the window start at the end of the gesture. A
+// drag holds the registry moving for its whole length, so no pass reads the
+// mark until the drop. A drag longer than DC.stickyMs would then find a stale
+// mark, at the one moment the mark is for. The drag holds the pointer capture,
+// so the pointer up reaches the dragged slot even outside it. A drag that the
+// browser cancels gets no second mark. That is safe: a cancelled drag commits
+// no move, so the card keeps the place it already had.
+// Capture phase, because the slot header stops propagation on its own pointer
+// down. A pointer down inside a live iframe never reaches this document, so the
+// mark covers the parent-side gestures only. The mark needs no clean-up: the
+// 500 ms poll re-ranks within 500 ms of it going stale.
+function dcTouch(e) {
+  const box = e.target.closest && e.target.closest('[data-dc-slot]');
+  if (!box) return;
+  let hit = false;
+  dcLod.subs.forEach((s) => { if (s.box === box) { s.touchedAt = performance.now(); hit = true; } });
+  if (hit) dcLodSchedule();
+}
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 // `v` is the slot's own viewport box, not the window: a canvas in a panel must
@@ -216,6 +267,25 @@ function dcLodRun() {
   // full iframe. Do not measure the slots during the gesture. Wait until the
   // world stops. dcLodSchedule then runs this pass again.
   if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
+  // The registry lives longer than one canvas. There is thus no world to
+  // measure against before the first flushed frame, and again after the
+  // viewport goes away. A detached world is the same case: its rect is all
+  // zeros, so every box that it makes is wrong.
+  // With no world the pass measures each slot itself, as it did before the
+  // held boxes. This costs one rect for each slot, but only in that short
+  // window. It also keeps the budget correct at all times: an absent camera
+  // can never leave the canvas with no live iframes.
+  const cam = dcLod.world;
+  const world = cam && cam.isConnected && cam.offsetWidth ? cam : null;
+  // One rect read for the whole pass. The scale comes from the same read, so
+  // it cannot fall out of step with the DOM the way a stored copy can.
+  // offsetWidth is an integer, so the derived scale carries up to half a pixel
+  // of error at the far edge of a wide world. That error can only change the
+  // order of two slots that sit exactly on the viewport edge in the visible
+  // sort.
+  const wr = world ? world.getBoundingClientRect() : null;
+  const scale = world ? wr.width / world.offsetWidth : 1;
+  const now = performance.now();
   const all = [];
   // One rect per viewport, not one per slot: all the slots of a canvas share
   // its box.
@@ -224,11 +294,35 @@ function dcLodRun() {
     const vp = s.vp;
     let v = vpRects.get(vp);
     if (!v) { v = vp ? vp.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight }; vpRects.set(vp, v); }
-    const r = s.box.getBoundingClientRect();
+    // A held box is an offset inside the camera's world, so it is only valid
+    // for a slot that this world holds. A second canvas has its own world.
+    // Its slots do not move with the camera, and a pan of the camera does not
+    // put the generation up, so a held box for such a slot would be wrong on
+    // every pass after the first one.
+    const held = world && world.contains(s.box);
+    let r;
+    if (!held) {
+      // Do not hold this box. There is no world of this slot's own to make it
+      // relative to, so the next pass must measure the slot again.
+      const b = s.box.getBoundingClientRect();
+      r = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    } else {
+      if (s.gen !== dcLod.gen) {
+        const b = s.box.getBoundingClientRect();
+        // The edges, not width and height: near, visible and the distance ask
+        // for the edges only, so a box that carries no size still ranks.
+        s.wx = (b.left - wr.left) / scale; s.wy = (b.top - wr.top) / scale;
+        s.ww = (b.right - b.left) / scale; s.wh = (b.bottom - b.top) / scale;
+        s.gen = dcLod.gen;
+      }
+      const left = wr.left + s.wx * scale, top = wr.top + s.wy * scale;
+      r = { left, top, right: left + s.ww * scale, bottom: top + s.wh * scale };
+    }
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > v.left - m && r.left < v.left + v.width + m && r.bottom > v.top - m && r.top < v.top + v.height + m;
     const visible = r.right > v.left && r.left < v.left + v.width && r.bottom > v.top && r.top < v.top + v.height;
-    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
+    const sticky = s.touchedAt !== undefined && now - s.touchedAt < DC.stickyMs;
+    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) - (sticky ? DC.stickyBias : 0) });
   });
   // Hysteresis stabilizes peers, but must not let off-screen live frames keep
   // the entire budget while visible slots remain placeholders indefinitely.
@@ -245,9 +339,28 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
+// The camera is the world element that the held boxes are relative to. Only
+// DCViewport writes it, and only for the world that it owns.
+function dcSetCamera(world) {
+  // A different world element means a different canvas. Its slots have not
+  // been measured against it, so a stale generation would wrongly let them
+  // keep their old boxes. Bump the generation to make those boxes invalid.
+  if (dcLod.world !== world) dcLod.gen++;
+  dcLod.world = world; dcLodSchedule();
+}
+// The viewport calls this when it goes away. The registry must not keep a
+// world that has left the page, because the held boxes are relative to that
+// world only. The generation goes up with it, so no box can live on into a
+// different world. The element is compared first: a canvas that goes away
+// late must not clear the camera of a canvas that came after it.
+function dcClearCamera(world) {
+  if (dcLod.world !== world) return;
+  dcLod.world = null; dcLod.gen++;
+}
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
-// is live now, and the setter that mounts or drops it.
+// is live now, and the setter that mounts or drops it. dcLodRun adds the held
+// world box and its generation.
 // The poll is a safety net for the moves that no observer reports. It forces
 // layout twice a second, so it must not run in a hidden tab. It also must not
 // run when no slot is left.
@@ -260,14 +373,20 @@ function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
     dcLodPoll(!document.hidden);
     document.addEventListener('visibilitychange', dcLodVisibility);
+    document.addEventListener('pointerdown', dcTouch, true);
+    document.addEventListener('pointerup', dcTouch, true);
     dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
+  dcLodInvalidate();
   return () => {
     dcLod.subs.delete(entry); dcLod.io && dcLod.io.unobserve(entry.box);
+    dcLodInvalidate();
     if (!dcLod.subs.size) {
       dcLodPoll(false); clearTimeout(dcLod.timer);
       document.removeEventListener('visibilitychange', dcLodVisibility);
+      document.removeEventListener('pointerdown', dcTouch, true);
+      document.removeEventListener('pointerup', dcTouch, true);
       dcLod.io && dcLod.io.disconnect(); dcLod.io = null;
     }
   };
@@ -468,10 +587,22 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   // patchSection keeps one identity for the life of the canvas, so the per-slot
   // callbacks built on it survive a state change. Only `state` and `section`
   // move, and only the components that read them re-render.
-  const patchSection = React.useCallback((id, p) => setState((s) => ({
-    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
-    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
-  })), []);
+  // A section patch can also move a slot, so the held world boxes go stale
+  // here. A variant changes a card's width and height, and every sibling to
+  // its right in the flex row shifts. A reset position sends a freely placed
+  // card back to its authored spot. The world keeps its own border box in both
+  // cases, because it is as wide as its widest row and as tall as its tallest
+  // card. The ResizeObserver on the world thus does not fire, and no other
+  // path recovers the boxes: a pan or a zoom keeps the same world element and
+  // puts no generation up. One call here covers every patch, which a call in
+  // each action of dcActions would not: the next action added would miss it.
+  const patchSection = React.useCallback((id, p) => {
+    dcLodInvalidate();
+    setState((s) => ({
+      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    }));
+  }, []);
   const api = React.useMemo(() => ({
     state,
     section: (id) => state.sections[id] || {},
@@ -785,8 +916,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     armSettle();
-    // A new view changes which slots are near the viewport centre.
-    dcLodSchedule();
+    // A new view changes which slots are near the viewport centre. The camera
+    // is this world, and dcSetCamera schedules the pass that ranks against it.
+    dcSetCamera(el);
     dcMarkMoving();
     onFrame(x, y, scale);
     schedule();
@@ -806,6 +938,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe });
 
   React.useLayoutEffect(() => {
+    // Hold the world element now. React can detach the ref before this
+    // cleanup runs, and the cleanup must know which world it gives back.
+    const world = worldRef.current;
     const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
     try {
       const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
@@ -820,8 +955,11 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // The pill timer, the tween and the settle timer live as long as the
     // viewport, so they stop here and not in the fit effect, which re-runs
     // whenever the content or the scale bounds change.
+    // The LOD registry is module state, so it also outlives this viewport.
+    // Give the world back, or the next canvas ranks against a dead one.
     return () => {
       stop(); stopSettle();
+      dcClearCamera(world);
       window.removeEventListener('pagehide', flush); flush();
     };
   }, []);
@@ -855,11 +993,15 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // The pages can also leave the screen with the view held still: the window
   // gets smaller, or the section box grows as a page is moved. Neither goes
   // through flushNow, so watch for both.
+  // Both moves also change the world layout, so the held boxes are wrong. The
+  // pill schedule alone would leave the registry ranking the old boxes for
+  // ever: no pass measures a slot again until the generation goes up.
   React.useEffect(() => {
-    const ro = new ResizeObserver(schedule);
+    const onMove = () => { dcLodInvalidate(); schedule(); };
+    const ro = new ResizeObserver(onMove);
     if (worldRef.current) ro.observe(worldRef.current);
-    window.addEventListener('resize', schedule);
-    return () => { ro.disconnect(); window.removeEventListener('resize', schedule); };
+    window.addEventListener('resize', onMove);
+    return () => { ro.disconnect(); window.removeEventListener('resize', onMove); };
   }, [schedule]);
 
   return (
@@ -1118,9 +1260,8 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const off = dcLodSubscribe({ box, vp: box.closest('.design-canvas'), margin, live: false, set: setLive });
-    dcLodSchedule();
-    return off;
+    // The subscribe invalidates, and the invalidation schedules the pass.
+    return dcLodSubscribe({ box, vp: box.closest('.design-canvas'), margin, live: false, set: setLive });
   }, [eager, margin]);
   const on = eager || live;
   // Shield: iframes swallow wheel/pinch, so a transparent layer sits over the
@@ -1169,7 +1310,8 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
     me.classList.remove('dc-dragging');
     dcDragDepth = Math.max(0, dcDragDepth - 1);
     if (keepMoving) dcMarkMoving(); else dcSyncMoving();
-    dcLodSchedule();
+    // A drag moves a card, so the held world boxes are wrong. Drop them.
+    dcLodInvalidate();
     up(scale, cancelled);
   };
   const onUp = () => finish(false), onCancel = () => finish(true);
@@ -1277,6 +1419,10 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
           dropT.current = 0;
           home();
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
+          // The reorder lands here, DC.dropMs after the drop. That is past the
+          // settle that finish()'s own invalidation already spent. Measure
+          // again, or the registry keeps ranking the pre-reorder boxes.
+          dcLodInvalidate();
         }, DC.dropMs);
       },
     });
@@ -1384,6 +1530,10 @@ Object.assign(window, {
   // tests/regressions.js reads DC for its waits and its budget checks, and
   // dcLod for the registry it drives by hand.
   DC, dcLod,
+  // perf/bench.js and tests/regressions.js drive the LOD pass by hand with
+  // dcLodRun, and tests/regressions.js drops the held boxes with
+  // dcLodInvalidate.
+  dcLodRun, dcLodInvalidate,
   // cfMeasure in canvas-page.jsx, perf/bench.js and tests/regressions.js read
   // the view scale from dcView.
   dcView,

@@ -1,0 +1,48 @@
+{
+ "planPath": "docs/superpowers/plans/2026-09-08-lod-ranking.md",
+ "tasks": [
+  {
+   "id": 0,
+   "subject": "Task 1: Measure the pass as it is today",
+   "status": "completed",
+   "description": "**Goal:** A bench function that reports what one settled level-of-detail pass costs and how many slot rects it reads, so Task 2 has a baseline.\n\nComplete \u2014 see ledger."
+  },
+  {
+   "id": 1,
+   "subject": "Task 2: Rank from held world boxes",
+   "status": "completed",
+   "blockedBy": [
+    0
+   ],
+   "description": "**Goal:** One pass reads one rect instead of one per slot, and the ranking it produces is identical.\n\nComplete \u2014 see ledger."
+  },
+  {
+   "id": 4,
+   "subject": "Task 2b: Merge main and re-integrate",
+   "status": "completed",
+   "blockedBy": [
+    1
+   ],
+   "description": "**Goal:** feature/lod-ranking contains main's viewport-box ranking AND this plan's held world boxes, in one dcLodRun that does both.\n\nComplete \u2014 see ledger."
+  },
+  {
+   "id": 2,
+   "subject": "Task 3: Keep a slot you just touched",
+   "status": "completed",
+   "blockedBy": [
+    1
+   ],
+   "description": "**Goal:** A slot that had a pointer down on it in the last DC.stickyMs sorts ahead of its equally-visible peers.\n\nComplete \u2014 see ledger."
+  },
+  {
+   "id": 3,
+   "subject": "Task 4: Record the outcome",
+   "status": "completed",
+   "blockedBy": [
+    2
+   ],
+   "description": "**Goal:** The README describes what the registry now does, and the design doc carries the measured outcome and the corrections.\n\nComplete \u2014 see ledger."
+  }
+ ],
+ "lastUpdated": "2026-09-08T17:36:27"
+}

@@ -222,6 +222,45 @@
     return { dragged: slot.dataset.dcSlot, dragFrames: frames, cfCalls: acc.calls, cfMs: round(acc.ms), frameStats: stats };
   };
 
+  // What one settled level-of-detail pass costs, and how many slot rects it
+  // reads. The pass runs directly, so nothing else is in the sample.
+  // slotRectsPerPass is the structural number and it is exact. msPerPass is
+  // indicative only: a pass over a clean layout is cheap whatever it reads, so
+  // read it beside the count and not on its own.
+  // dcLodRun returns at its first statement while the world moves. A page
+  // still inside its moving window would thus report zero rects and no time
+  // for a pass that never ranked, which is the same headline as a pass that
+  // read no rects. Two guards separate the cases. The check below refuses to
+  // report at all while the world moves, and rankedPasses counts the passes
+  // that reached the ranking loop. One viewport rect is read in that loop, and
+  // it is cached for the rest of the pass, so the count is one for each pass.
+  const lodPassCost = async (n = 40) => {
+    await fit();
+    await sleep(600);
+    if (window.dcMoving && window.dcMoving()) return { error: 'the world still moves; a pass would not run' };
+    const original = Element.prototype.getBoundingClientRect;
+    const viewport = vp();
+    let reads = 0, ranked = 0;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.hasAttribute('data-dc-slot')) reads++;
+      else if (this === viewport) ranked++;
+      return original.apply(this, arguments);
+    };
+    try {
+      window.dcLodRun();   // settle a pending mount first, then start clean
+      reads = 0; ranked = 0;
+      const t0 = performance.now();
+      for (let i = 0; i < n; i++) window.dcLodRun();
+      return {
+        slots: slots().length,
+        passes: n,
+        rankedPasses: ranked,
+        msPerPass: round((performance.now() - t0) / n),
+        slotRectsPerPass: round(reads / n),
+      };
+    } finally { Element.prototype.getBoundingClientRect = original; }
+  };
+
   // What one state patch costs. The control is a click on something inert, so
   // the difference is the React render plus the layout it causes.
   const patchCost = async (n = 8) => {
@@ -261,11 +300,12 @@
     invWrites: await invWrites(),
     zoomFrames: await zoomFrames(),
     liveByZoom: await liveByZoom(),
+    lodPassCost: await lodPassCost(),
     flowCost: await flowCost(),
     dragFlowCost: await dragFlowCost(),
     patchCost: await patchCost(),
   });
 
-  window.dcBench = { fit, gesture, frameStats, zoomFrames, zoomFrameCost, invWrites, liveByZoom, flowCost, dragFlowCost, patchCost, all };
+  window.dcBench = { fit, gesture, frameStats, zoomFrames, zoomFrameCost, invWrites, liveByZoom, lodPassCost, flowCost, dragFlowCost, patchCost, all };
   console.log('[dcBench] ready — run: await dcBench.all()');
 })();
