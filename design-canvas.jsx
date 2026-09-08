@@ -434,6 +434,10 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   );
 }
 
+// The world transform. Translate first, then scale, with transform-origin
+// 0 0: a screen-space delta thus maps 1:1 onto tf.x and tf.y at every zoom.
+const dcTransform = (t) => `translate3d(${t.x}px, ${t.y}px, 0) scale(${t.scale})`;
+
 function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const vpRef = React.useRef(null);
   const worldRef = React.useRef(null);
@@ -481,24 +485,94 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // written when the gesture settles. During the gesture the world is one
   // composited transform, and the headers scale with it. They go back to their
   // screen size when the gesture stops.
+  // All three of those consumers change the box model, so the write moves every
+  // card in world space. The view is held still across it, or the cards step
+  // out from below the pointer: 33 px for one wheel notch. A slow wheel roll
+  // shows this most, because each notch is more than DC.settleMs apart, so the
+  // write lands between the notches and each one gets its own step.
   const invT = React.useRef(0);
   const lastInv = React.useRef(null);
+  // Client point of the last zoom. A pan does not set it. A pan changes no
+  // scale, so it never gets as far as the correction below.
+  const zoomPt = React.useRef(null);
+
+  // The box that the settled write must not move. First the slot below the last
+  // zoom point, or below the middle of the view. If the point is over open
+  // canvas, the nearest slot to it — on screen or not. The anchor only has to
+  // measure how far the layout moves at that place in the flow, and an
+  // off-screen slot measures that as well as a visible one. A view zoomed into
+  // the gap between two cards has no slot on screen at all, and a test for
+  // "on screen" gave up there and fell to the section.
+  // A section is the last resort, and only when the world holds no slot: the
+  // section's own top does not carry the .dc-sectionhead zoom, so holding a
+  // section still lets every card inside it move. Measured at 19 px for one
+  // notch in that gap, and at 87 px for one notch over a section head.
+  // Only a box inside the world can move, so the focus overlay and the pill are
+  // refused. Never a .dc-card: it has content-visibility:auto, and a rect read
+  // there lays out a skipped subtree.
+  const invAnchor = React.useCallback(() => {
+    const vp = vpRef.current, w = worldRef.current;
+    if (!vp || !w) return null;
+    const r = vp.getBoundingClientRect();
+    const p = zoomPt.current;
+    const on = p && p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom;
+    const pt = on ? p : { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    const hit = document.elementFromPoint(pt.x, pt.y);
+    const el = hit && hit.closest ? hit.closest('[data-dc-slot]') : null;
+    if (el && w.contains(el)) return el;
+    let best = null, bestD = Infinity;
+    for (const b of w.querySelectorAll('[data-dc-slot]')) {
+      const q = b.getBoundingClientRect();
+      const dx = Math.max(q.left - pt.x, 0, pt.x - q.right);
+      const dy = Math.max(q.top - pt.y, 0, pt.y - q.bottom);
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best || w.querySelector('[data-dc-section]');
+  }, []);
+
   const writeInv = React.useCallback(() => {
     invT.current = 0;
     const el = worldRef.current; if (!el) return;
     const inv = 1 / tf.current.scale;
     if (lastInv.current === inv) return;
+    // The first write makes the layout that the saved view, or the fitted view,
+    // was calculated against. There is thus nothing on screen to hold still,
+    // and a rect read before it describes a layout that no one saw. A
+    // correction here would move the restored view by the same amount at each
+    // reload, because the corrected transform is what gets saved.
+    const first = lastInv.current === null;
     lastInv.current = inv;
+    const anchor = first ? null : invAnchor();
+    const before = anchor && anchor.getBoundingClientRect();
     el.style.setProperty('--dc-inv-zoom', String(inv));
-  }, []);
+    if (!before) return;
+    // One forced layout, once for each settle. It replaces the two for each
+    // zoom tick that the drift correction in zoomAt used to cost.
+    const after = anchor.getBoundingClientRect();
+    const dx = after.left - before.left, dy = after.top - before.top;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    const t = tf.current;
+    t.x -= dx; t.y -= dy;
+    // Written here, and not through apply(): apply() goes back into flushNow,
+    // which would arm this timer again, mark the world as moving again, and
+    // push the LOD pass out by one more settle. Only the transform changed.
+    el.style.transform = dcTransform(t);
+  }, [invAnchor]);
 
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
   const flushNow = React.useCallback(() => {
     raf.current = 0;
-    const { x, y, scale } = tf.current;
+    const { scale } = tf.current;
     const el = worldRef.current; if (!el) return;
-    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    el.style.transform = dcTransform(tf.current);
     // First paint writes at once, so the chrome is never wrong before a gesture.
+    // Armed before dcSetZoom and before lostT, and all three use the same
+    // delay: timers that expire together fire in the order they were armed. So
+    // writeInv makes its correction before the LOD pass and the pill read any
+    // rect. saveT has twice the delay, and it serialises tf.current when it
+    // fires, so it saves the corrected offset.
     if (lastInv.current === null) writeInv();
     else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
     dcSetZoom(scale);
@@ -561,7 +635,15 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   }, [apply, stopTween, minScale, maxScale]);
 
   React.useLayoutEffect(() => {
-    const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
+    // A zoom less than DC.settleMs before the page is hidden leaves the anchor
+    // correction still on its timer. Saving tf.current now would store the
+    // uncorrected offset, and the restore takes the first-write path, which
+    // makes no correction. The view would then open short by that amount.
+    const flush = () => {
+      if (invT.current) { clearTimeout(invT.current); writeInv(); }
+      clearTimeout(saveT.current);
+      try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {}
+    };
     try {
       const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
       if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
@@ -617,8 +699,6 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
   React.useEffect(() => {
     const vp = vpRef.current; if (!vp) return;
-    let lastAnchorFrame = -1, anchor = null, anchorY0 = 0;
-
     const zoomAt = (cx, cy, factor) => {
       const r = vp.getBoundingClientRect();
       const px = cx - r.left, py = cy - r.top;
@@ -626,20 +706,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       const next = Math.min(maxScale, Math.max(minScale, t.scale * factor));
       const k = next / t.scale;
       if (k === 1) return;
-      // Throttled anchor lookup: elementFromPoint is expensive with many iframes.
-      const now = performance.now();
-      if (now - lastAnchorFrame > 16) {
-        lastAnchorFrame = now;
-        const hit = document.elementFromPoint(cx, cy);
-        anchor = hit && hit.closest ? hit.closest('[data-dc-slot],[data-dc-section]') : null;
-      }
-      if (anchor) anchorY0 = anchor.getBoundingClientRect().top;
+      // The tick needs no drift correction. It is exact arithmetic on tf, and
+      // no rule reads the live scale, so nothing in the layout moves until
+      // --dc-inv-zoom is written. Record the point instead: writeInv holds
+      // whatever is below it still across that write.
+      zoomPt.current = { x: cx, y: cy };
       t.x = px - (px - t.x) * k; t.y = py - (py - t.y) * k; t.scale = next;
       apply(true);
-      if (anchor) {
-        const drift = anchor.getBoundingClientRect().top - (cy + (anchorY0 - cy) * k);
-        if (Math.abs(drift) > 0.1) { t.y -= drift; apply(true); }
-      }
     };
 
     const isMouseWheel = (e) => e.deltaMode !== 0 || (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
