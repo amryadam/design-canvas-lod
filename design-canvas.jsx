@@ -1367,6 +1367,7 @@ Object.assign(window, {
   DC, dcLod,
   // tests/regressions.js rasterizes a fixture with these.
   dcArtboardSvg, dcSvgUrl,
-  // tests/regressions.js calls the export inliners on their own.
+  // tests/regressions.js calls dcFontCss and dcInlineDoc on their own.
+  // dcInlineCss goes with them, for a host page that inlines its own CSS.
   dcFontCss, dcInlineCss, dcInlineDoc,
 });
