@@ -159,7 +159,7 @@ window.canvasTestsDone = (async () => {
       E(DCSection, { id: 'review', title: 'Anchor' }, E(DCArtboard, { id: 'a', width: 600, height: 4000 })),
       { style: { position: 'fixed', top: 0, left: 0, width: w, height: h } });
     await until(() => host.querySelector('[data-dc-slot]'));
-    await wait(700); // past the first fit, its 500 ms rescue and the first write
+    await wait(DC.rescueMs + 200);
     const world = host.querySelector('[data-dc-world]');
     const slot = host.querySelector('[data-dc-slot]');
     const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
@@ -301,6 +301,17 @@ window.canvasTestsDone = (async () => {
     check(dcMoving() && vp.classList.contains('dc-moving'), 'the drop cleared the flag before the slide ran');
     await wait(DC.movingMs + 60);
     check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the slide');
+  });
+  await test('the rescue nudge keeps a restored pan', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: -5000, y: -5000, scale: 1 }));
+    draw('review-rescue.json', E(DCSection, { id: 'review', title: 'Rescue' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+    await until(() => host.querySelector('[data-dc-slot]'));
+    await wait(DC.rescueMs + 200);
+    const world = host.querySelector('[data-dc-world]');
+    // The style getter prints the written `0` as `0px`, so read the matrix.
+    const m = new DOMMatrix(world.style.transform);
+    check(m.a === 1 && m.e === -5000 && m.f === -5000, 'the rescue moved a restored view: ' + world.style.transform);
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

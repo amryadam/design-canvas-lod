@@ -649,12 +649,14 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       tf.current = { x: 0, y: 0, scale: s }; apply(true);
     });
     const rescue = setTimeout(() => {
+      // A restored view is the user's choice, even one with nothing on screen.
+      if (restoredView.current) return;
       const slots = worldRef.current.querySelectorAll('[data-dc-slot]');
       if (!slots.length) return;
-      const vw = window.innerWidth, vh = window.innerHeight;
-      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > 0 && r.left < vw && r.bottom > 0 && r.top < vh) return; }
+      const v = vpRef.current.getBoundingClientRect();
+      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > v.left && r.left < v.right && r.bottom > v.top && r.top < v.bottom) return; }
       const r = slots[0].getBoundingClientRect(); const t = tf.current;
-      t.x += 60 - r.left; t.y += 100 - r.top; apply(true);
+      t.x += v.left + 60 - r.left; t.y += v.top + 100 - r.top; apply(true);
     }, DC.rescueMs);
     return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
   }, [hasContent, apply, minScale, maxScale]);
