@@ -56,10 +56,14 @@ screens are placeholders.
 - `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with
   `flows`, and an `index.html` that runs the canvas on them.
 - `perf/bench.js` — the measurement harness. The app never loads it. Open the
-  sample, then paste the full file into the DevTools console and run
-  `await dcBench.all()`. It reports frame times through a pinch, the number of
-  `--dc-inv-zoom` writes in a gesture, the live iframe count at five zoom
-  levels, the arrow re-route cost, and the render count for one state patch.
+  sample, wait for the cards, then paste the full file into the DevTools
+  console and run `await dcBench.all()`. It takes seven measurements:
+  `zoomFrameCost` (the cost of one zoom frame, split by what the frame writes),
+  `zoomFrames` (frame times through one pinch), `invWrites` (the number of
+  `--dc-inv-zoom` writes in a gesture), `liveByZoom` (the live iframe count at
+  five zoom levels), `flowCost` (one full re-route of every arrow),
+  `dragFlowCost` (what the arrows cost over a card drag) and `patchCost` (the
+  time and the frame count for one state patch).
   **`all()` writes to saved state.** It drags a card and it clicks variant
   chips, and the canvas keeps both. To undo, delete the page's `dc-state:`
   entry from localStorage and reload.
@@ -98,7 +102,8 @@ Local edits are saved to the browser immediately; host file writes are debounced
 by 400 ms. Changing `stateFile` starts a fresh restoration lifecycle.
 
 Editing and initial fitting wait for restoration. If the state request fails or
-takes more than five seconds, the canvas falls back to browser state.
+takes more than `DC.stateTimeoutMs` (1500 ms), the canvas falls back to browser
+state.
 
 ## Run the sample
 
@@ -117,6 +122,28 @@ visible. The suite uses the same React/Babel CDN scripts as the sample. The
 checks exercise real React lifecycles, connector DOM updates, the live iframe
 budget, and export pixels. Fetch responses are controlled, to reproduce the
 loading and asset cases.
+
+Three checks hold the zoom work in place. "The settled `--dc-inv-zoom` write
+holds the zoom anchor" proves that the deferred write moves no content: the
+slot stays where the transform alone puts it, during the gesture and after the
+settle. "The world layout does not read the zoom" swings `--dc-inv-zoom` over
+its whole range with the transform held, and no box in the world may move.
+"A wheel roll does not mount or drop iframes mid-gesture" rolls the wheel and
+counts the iframes that are added or removed: the moving flag must outlast the
+settle timer, or the cards blink between two notches.
+
+## Host protocol
+
+A canvas in an iframe talks to its host with `postMessage`. Every message uses
+the target origin `'*'`. The canvas posts nothing when it is not embedded: a
+top-level canvas would only talk to itself.
+
+| Message | Direction | When |
+|---|---|---|
+| `{ type: '__dc_present' }` | canvas → host | on mount, and as the answer to `__dc_probe` |
+| `{ type: '__dc_zoom', scale }` | canvas → host | on each settled gesture, and only when embedded. One post for each gesture, not one for each frame. The same scale is not posted twice |
+| `{ type: '__dc_set_zoom', scale }` | host → canvas | the host sets the zoom. The canvas anchors on the middle of its viewport, as a pinch does |
+| `{ type: '__dc_probe' }` | host → canvas | the host asks whether a canvas is there. The canvas answers `__dc_present` and posts its zoom again |
 
 ## Use in claude.ai/design
 

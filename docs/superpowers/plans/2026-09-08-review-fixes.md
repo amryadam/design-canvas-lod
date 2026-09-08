@@ -502,7 +502,8 @@ Also replace `wait(450)` in "navigation before debounce retains browser edits" w
 - Test: `tests/regressions.js`
 
 **Acceptance Criteria:**
-- [ ] For A at (0,0) side `r`, B at (600,0) side `l`, and an obstacle `{x:250,y:-60,w:100,h:120}`, `cfHits(cfRoute(...), [obs], 96) < cfHits(cfCurve(...), [obs], 96)`.
+- [ ] For A at (0,0) side `r`, B at (600,0) side `l`, and an obstacle `{x:440,y:-300,w:160,h:600}`, `cfHits(cfRoute(...), [obs], 96) < cfHits(cfCurve(...), [obs], 96)`.
+  (Shipped fixture. The obstacle stands against B's left anchor, so no route around it is clear and the router must pick the candidate that crosses the least. A small obstacle lets a clear route exist, and the check then proves nothing about the comparison.)
 - [ ] `cfRoute`, `cfCurve`, `cfHits` are published on `window`.
 
 **Verify:** `node tests/run.mjs`.
@@ -513,7 +514,7 @@ Also replace `wait(450)` in "navigation before debounce retains browser edits" w
 
 ```js
   await test('cfRoute picks a candidate that crosses less than the plain curve', async () => {
-    const a = { x: 0, y: 0 }, b = { x: 600, y: 0 }, obs = [{ x: 250, y: -60, w: 100, h: 120 }];
+    const a = { x: 0, y: 0 }, b = { x: 600, y: 0 }, obs = [{ x: 440, y: -300, w: 160, h: 600 }];
     const plainHits = cfHits(cfCurve(a, 'r', b, 'l'), obs, 96);
     const routed = cfRoute(a, 'r', b, 'l', obs);
     check(plainHits > 0, 'fixture: the plain curve must cross the obstacle');

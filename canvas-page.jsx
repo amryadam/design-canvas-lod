@@ -30,6 +30,9 @@ const CF = {
   // with the pages from there. Pages are 1440 world px wide with a 22px window
   // title, so a smaller pill vanishes at the zoom that fits one page on screen.
   pill: { font: '600 18px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
+  // Wait before the second measure. A slot slides for DC.dropMs after a drop,
+  // so this must outlast that slide. The arrows then meet the settled boxes.
+  remeasureMs: 240,
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 // Outward normals of the source and target sides; unknown sides read as r → l.
@@ -323,11 +326,12 @@ function CanvasFlows({ flows: authored, section }) {
       const next = cfMeasure(world, flowsRef.current);
       setPaths((prev) => (prev.sig === next.sig ? prev : next));
     };
-    // Slots animate their transform for 180ms; measure now and again after that.
+    // Slots animate their transform for DC.dropMs. Measure now, and again
+    // after CF.remeasureMs, when the slide is over.
     const schedule = () => {
       cancelAnimationFrame(raf); clearTimeout(timer);
       raf = requestAnimationFrame(measure);
-      timer = setTimeout(measure, 240);
+      timer = setTimeout(measure, CF.remeasureMs);
     };
     scheduleRef.current = schedule;
     schedule();
@@ -522,8 +526,14 @@ function CanvasPage({ page, stateFile, data: given }) {
   );
 }
 
-window.CanvasPage = CanvasPage;
-window.CanvasFlows = CanvasFlows;
-window.cfRoute = cfRoute;
-window.cfCurve = cfCurve;
-window.cfHits = cfHits;
+// The names a host page or a tool needs. Each name says which file reads it.
+window.CanvasPage = CanvasPage;        // sample/index.html, tests/regressions.js
+window.CanvasFlows = CanvasFlows;      // tests/regressions.js flow fixtures
+window.cfRoute = cfRoute;              // tests/regressions.js router check
+window.cfCurve = cfCurve;              // tests/regressions.js router check
+window.cfHits = cfHits;                // tests/regressions.js router check
+window.CF = CF;                        // tests/regressions.js reads CF.remeasureMs
+// perf/bench.js measures the arrow re-route through this name, and patches it
+// to count the calls one drag makes. The measure effect above calls it through
+// the same global binding, so the patch is seen.
+window.cfMeasure = cfMeasure;

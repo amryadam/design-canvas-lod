@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **No build step exists.** No `package.json`, no bundler, no CLI test runner. Do not add one. Both `.jsx` files are loaded as `<script type="text/babel">` and must stay valid standalone scripts whose top-level `function` declarations land on `window`.
-- **There IS a regression suite, and it must stay green.** `tests/regressions.html` runs 11 checks in the browser against real React lifecycles, connector DOM updates, persistence races and snapshot pixels. With the server running, open `http://localhost:8000/tests/regressions.html`; the page title reads `PASS: canvas regressions` or `FAIL: canvas regressions` and `window.canvasTestResults` holds the per-check detail. **Every task must leave it at 11/11 PASS** — run it before you commit, not only at the end.
+- **There IS a regression suite, and it must stay green.** `tests/regressions.html` runs the checks in the browser against real React lifecycles, connector DOM updates, persistence races and snapshot pixels. `node tests/run.mjs` runs that page in headless Chrome and prints one line for each check. With the server running, you can also open `http://localhost:8000/tests/regressions.html`; the page title reads `PASS: canvas regressions` or `FAIL: canvas regressions` and `window.canvasTestResults` holds the per-check detail. **Every task must leave every check in `tests/regressions.html` PASS** — run it before you commit, not only at the end.
 - **Another session is committing to this repo concurrently.** Three commits landed during profiling (`c7e903c`, `31cfbe0`, `5860a8d`). Before editing either `.jsx` file, run `git log --oneline -3` and re-read the region you are about to change — line numbers in this plan are from `5860a8d` and may have moved. Never `git add -A`; stage only the files you touched.
 - **Branch base.** This plan runs on `feature/canvas-performance`, cut from `main` after the `dev` merge (`7276996`). That merge brought revision-based persistence, a restoration-gated first fit, a connector signature change and the regression suite. The earlier `.perf-traces` trace files are gone — the parallel session rebuilt history and dropped them; there is nothing left to clean up.
 - **Every measurement runs against the sample** with `python3 -m http.server 8000` from the repo root and `http://localhost:8000/sample/` open. Numbers in acceptance criteria came from a 1066 × 666 viewport, DPR 3, ~144 Hz display, no CPU throttling. On different hardware, compare against the Task 2 baseline captured on *that* machine, not against the absolute numbers here.
@@ -49,7 +49,8 @@
 > taken first place under `.design-canvas`, so both `canvas-page.jsx` and the
 > test at `tests/regressions.js:81` were reading the grid instead of the world.
 > The world now carries `data-dc-world` and both lookups use it. Verified:
-> 11/11 PASS, and the sample shows 24 paths and 12 labels, the value this task
+> every check in `tests/regressions.html` PASS, and the sample shows 24 paths
+> and 12 labels, the value this task
 > predicted. No further work.
 
 **Goal:** Arrows render again by finding the transformed world through a stable hook instead of by sibling position.
@@ -424,7 +425,8 @@ Expected: no output.
 - [ ] **Step 3: Confirm the suite is green before measuring**
 
 Open `http://localhost:8000/tests/regressions.html` and wait for the title to
-settle. Expected: `PASS: canvas regressions`, 11 of 11. A red suite makes every
+settle. Expected: `PASS: canvas regressions`, every check in
+`tests/regressions.html`. A red suite makes every
 later number ambiguous — fix that first.
 
 - [ ] **Step 4: Take the baseline**
@@ -439,7 +441,7 @@ Fill the table below in with the numbers you got. Later tasks compare against **
 
 Taken on 2026-09-08 at base `e8e871c`, worktree served on :8020, viewport
 1066 x 666, DPR 3, ~144 Hz display (6.9 ms frame budget), no CPU throttling,
-regression suite 11/11 PASS.
+regression suite: every check in `tests/regressions.html` PASS.
 
 | Measure | This machine | Reference | Verdict |
 |---|---|---|---|
@@ -622,7 +624,7 @@ git commit -m "Write the zoom variable once the view settles"
 - [ ] `dcSnap`, `dcHash`, `dcRasterize`, `DC.liveScale` and `DC.snapWidth` no longer appear anywhere in `design-canvas.jsx`
 - [ ] No `[dc-snap]` warnings in the console
 - [ ] `README.md` no longer describes snapshots
-- [ ] `tests/regressions.html` reports 11 of 11 PASS, with the rasterize check rewritten against the export path rather than deleted
+- [ ] `tests/regressions.html` reports every check PASS, with the rasterize check rewritten against the export path rather than deleted
 
 **Verify:** `await dcBench.liveByZoom()` → every row has `live <= 8`; `await dcBench.zoomFrames()` → `over16: 0` and `max < 20`; `grep -c "dcSnap\|dcRasterize\|liveScale\|snapWidth\|dc-thumb" design-canvas.jsx` → `0`.
 
@@ -913,7 +915,8 @@ The `dcInlineDoc` assertion at the end of that test stays exactly as it is.
 
 Reload `http://localhost:8000/tests/regressions.html` with cache disabled.
 
-Expected: title `PASS: canvas regressions`, 11 of 11. If the snapshot-related
+Expected: title `PASS: canvas regressions`, every check in
+`tests/regressions.html`. If the snapshot-related
 check fails, fix it here — do not delete the check.
 
 - [ ] **Step 15: Confirm the exports still work**
@@ -1514,7 +1517,7 @@ here, and they stay unverified.
 | `patchCost.framesRenderedPerPatch` | at most 2 | 10 | **1** | pass |
 | `dragFlowCost.cfCalls` | control; Task 6 withdrawn | 2 | **2** | unchanged, as expected |
 | `img.dc-thumb` count | 0 at every zoom | — | **0** | pass |
-| `tests/regressions.html` | all checks pass | 11 of 11 | **12 of 12** | pass |
+| `tests/regressions.html` | all checks pass | every check | **every check** | pass |
 | `zoomFrames.median` / `over16` | no worse than baseline | — | not comparable | not verified |
 
 **Task 5 did not meet its criterion until the review fixes.** Measured at the

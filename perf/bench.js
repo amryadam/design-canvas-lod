@@ -8,6 +8,10 @@
 //
 //   python3 -m http.server 8000   →   http://localhost:8000/sample/
 //
+// Wait until the cards are on screen before you paste. The sample loads the two
+// .jsx files through Babel standalone, which fetches and transforms them after
+// the page load. window.DC and window.cfMeasure appear only after that.
+//
 // WARNING: `all()` runs dragFlowCost and patchCost, and both edit saved state,
 // not just the DOM. dragFlowCost does a real grip drag of about (533, 266)
 // world px, past the 4 px move threshold, so a card is actually moved and its
@@ -19,8 +23,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const frame = () => new Promise((r) => requestAnimationFrame(r));
   const vp = () => document.querySelector('.design-canvas');
-  const world = () => document.querySelector('[data-dc-world]')
-    || [...vp().children].find((el) => el.style.transform.includes('scale'));
+  const world = () => document.querySelector('[data-dc-world]');
   const slots = () => [...document.querySelectorAll('[data-dc-slot]')];
   const iframes = () => document.querySelectorAll('.dc-card iframe').length;
   const round = (n) => +n.toFixed(2);
@@ -176,6 +179,10 @@
 
   // Drag a card by its grip and count what the arrows cost over the drag.
   const dragFlowCost = async (frames = 40) => {
+    // The count comes from a patch on window.cfMeasure. Without that name the
+    // patch is silent and the run reports 0 calls, which reads as a win.
+    // canvas-page.jsx publishes it; a page without that file has no arrows.
+    if (typeof window.cfMeasure !== 'function') throw new Error('window.cfMeasure is not patchable');
     if (!window.__cfOrig) window.__cfOrig = window.cfMeasure;
     const acc = { calls: 0, ms: 0 };
     window.cfMeasure = function (...a) {

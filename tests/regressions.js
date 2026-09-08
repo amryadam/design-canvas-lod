@@ -49,7 +49,7 @@ window.canvasTestsDone = (async () => {
   });
   await test('editing waits for restoration', async () => {
     let release; window.fetch = () => new Promise((resolve) => { release = () => resolve(json(envelope('loaded', 20))); });
-    draw('review-delay.json'); await until(() => release); await wait(250);
+    draw('review-delay.json'); await until(() => release); await wait(DC.settleMs + 100);
     const exposed = !!host.querySelector('#ready-probe');
     release(); await until(() => api && api.section('review').title === 'loaded');
     check(!exposed, 'canvas became editable before restoration finished');
@@ -59,7 +59,7 @@ window.canvasTestsDone = (async () => {
   await test('switch state file without leaking sections', async () => {
     const calls = []; window.fetch = async (url) => { calls.push(url); return json(envelope(String(url).includes('-a.') ? 'A' : 'B', 20)); };
     draw('review-switch-a.json'); await until(() => api); await wait(30);
-    draw('review-switch-b.json'); await wait(250);
+    draw('review-switch-b.json'); await wait(DC.settleMs + 100);
     check(calls.some((url) => String(url).includes('-b.')), 'B was never fetched');
     check(api.section('review').title === 'B', 'A state leaked into B');
     api.patchSection('review', { title: 'edited B' }); await wait(DC.saveDebounceMs + 50);
@@ -75,9 +75,9 @@ window.canvasTestsDone = (async () => {
     check(Number.isFinite(saved.updatedAt), 'saved revision missing');
   });
   await test('fit wide content after delayed restoration', async () => {
-    window.fetch = async () => { await wait(350); return new Response('', { status: 404 }); };
+    window.fetch = async () => { await wait(DC.settleMs * 2); return new Response('', { status: 404 }); };
     draw('review-fit.json', E(DCSection, { id: 'review', title: 'Wide' }, E(DCArtboard, { id: 'wide', width: 10000, height: 500 })));
-    await until(() => host.querySelector('[data-dc-row]')); await wait(200);
+    await until(() => host.querySelector('[data-dc-row]')); await wait(DC.settleMs + 50);
     const world = host.querySelector('[data-dc-world]');
     const scale = new DOMMatrix(getComputedStyle(world).transform).a;
     check(scale < 0.5, 'wide row remained at scale ' + scale);
@@ -90,17 +90,17 @@ window.canvasTestsDone = (async () => {
         E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
       E(CanvasFlows, { key: 'f', flows }),
     ]);
-    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(300);
+    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(CF.remeasureMs + 60);
     return { flow, render };
   }
   await test('connector label and dashed style refresh', async () => {
-    const { flow, render } = await flowFixture(); render([{ ...flow, label: 'BBBB', dashed: true }]); await wait(350);
+    const { flow, render } = await flowFixture(); render([{ ...flow, label: 'BBBB', dashed: true }]); await wait(CF.remeasureMs + 110);
     const layer = host.querySelector('.dc-flows');
     check(layer.textContent === 'BBBB', 'old label retained');
     check(layer.querySelector('path').style.strokeDasharray !== '', 'dash style not updated');
   });
   await test('removing all flows clears connector layer', async () => {
-    const { render } = await flowFixture(); render([]); await wait(350);
+    const { render } = await flowFixture(); render([]); await wait(CF.remeasureMs + 110);
     check(!host.querySelector('.dc-flows'), 'removed arrows remain visible');
   });
   await test('Google Fonts preserves Arabic and final Latin face', async () => {
@@ -149,7 +149,7 @@ window.canvasTestsDone = (async () => {
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
     // One slot mounts per DC.mountGapMs pass, so a full budget needs time.
     await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
-    await wait(400);
+    await wait(DC.movingMs + DC.settleMs + 30);
     const live = host.querySelectorAll('.dc-card iframe').length;
     check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
@@ -191,7 +191,7 @@ window.canvasTestsDone = (async () => {
         E(DCArtboard, { id: 'a', width: 600, height: 400 }),
         E(DCArtboard, { id: 'b', width: 600, height: 400 })));
     await until(() => host.querySelector('[data-dc-row]'));
-    await wait(400);
+    await wait(DC.movingMs + DC.settleMs + 30);
     const world = host.querySelector('[data-dc-world]');
     const boxes = [...host.querySelectorAll('[data-dc-slot],[data-dc-section],[data-dc-row]')];
     check(boxes.length >= 3, 'fixture did not render');
@@ -225,7 +225,7 @@ window.canvasTestsDone = (async () => {
       { style: { position: 'fixed', top: 0, left: 0, width: Math.min(900, innerWidth), height: Math.min(700, innerHeight) } });
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
     await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
-    await wait(600);
+    await wait(DC.rescueMs + 100);
     // DC.movingMs must outlast DC.settleMs. If it does not, the moving flag
     // clears before the LOD pass is armed to run, dcLodRun's guard never fires,
     // and slots mount and drop between two notches — the cards blink.
@@ -336,8 +336,8 @@ window.canvasTestsDone = (async () => {
     at('pointermove', r.left + 300, r.top, document);
     check(dcMoving() && vp.classList.contains('dc-moving'), 'the reorder drag did not set the flag');
     at('pointerup', r.left + 300, r.top, document);
-    // keepMoving arms the flag for DC.movingMs, which outlasts the 180 ms drop
-    // slide. An iframe that mounts under the cards mid-slide would drop frames.
+    // keepMoving arms the flag for DC.movingMs, which outlasts the DC.dropMs
+    // drop slide. An iframe that mounts mid-slide would drop frames.
     check(dcMoving() && vp.classList.contains('dc-moving'), 'the drop cleared the flag before the slide ran');
     await wait(DC.movingMs + 60);
     check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the slide');
@@ -367,7 +367,7 @@ window.canvasTestsDone = (async () => {
     // the 400 px viewport plus the 600 px margin. The browser window is wider,
     // so b3 and b4 are inside the window and its margin.
     await until(() => host.querySelectorAll('.dc-card iframe').length >= 1);
-    await wait(600);
+    await wait(DC.rescueMs + 100);
     const live = [...host.querySelectorAll('[data-dc-slot]')].filter((s) => s.querySelector('iframe')).map((s) => s.dataset.dcSlot);
     check(innerWidth > 1100, 'window too narrow for this check');
     check(live.sort().join(',') === 'b0,b1,b2', 'live set: ' + live.join(','));
@@ -545,11 +545,11 @@ window.canvasTestsDone = (async () => {
         E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
       E(CanvasFlows, { key: 'f', flows }),
     ]);
-    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(300);
+    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(CF.remeasureMs + 60);
     const Real = window.MutationObserver; let built = 0;
     window.MutationObserver = class extends Real { constructor(cb) { super(cb); built++; } };
     try {
-      render([{ ...flow, label: 'BBBB' }]); await wait(350);
+      render([{ ...flow, label: 'BBBB' }]); await wait(CF.remeasureMs + 110);
       check(host.querySelector('.dc-flows').textContent === 'BBBB', 'the label did not refresh');
       check(built === 0, built + ' flow observers built again for a label change');
     } finally { window.MutationObserver = Real; }
@@ -574,7 +574,7 @@ window.canvasTestsDone = (async () => {
     await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
     await wait(DC.rescueMs + 400);
     const before = DC.renders;
-    bump(); await wait(150);
+    bump(); await wait(DC.settleMs);
     check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';

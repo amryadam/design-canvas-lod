@@ -20,6 +20,9 @@ const DC = {
   dotSize: 26,          // fatoora's flow map: screen px, the same at every zoom
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
+  dropMs: 180,          // the slot reorder slide. The CSS transition on
+                        // [data-dc-slot] and the timer that commits the new
+                        // order both read it, so they cannot drift apart
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
@@ -55,7 +58,7 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   s.textContent = `
 .dc-editable{cursor:text;outline:none;white-space:nowrap;border-radius:3px;padding:0 2px;margin:0 -2px}
 .dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}
-[data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}
+[data-dc-slot]{transition:transform ${DC.dropMs}ms cubic-bezier(.2,.7,.3,1)}
 [data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}
 /* A page is a window: a header with the name and the page options, then the
    screen inset in the body. The chrome is world px, so it grows and shrinks
@@ -122,7 +125,15 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 }
 
 // The zoomed-out snapshots are gone; drop the cache they left in the browser.
-if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
+// One delete for each browser. The flag makes every later load skip the call.
+if (typeof indexedDB !== 'undefined') {
+  try {
+    if (!localStorage.getItem('dc-snapshots-dropped')) {
+      indexedDB.deleteDatabase('dc-snapshots');
+      localStorage.setItem('dc-snapshots-dropped', '1');
+    }
+  } catch {}
+}
 
 const DCCtx = React.createContext(null);
 // True only in an iframe. The host messages go out to window.parent, so a
@@ -224,7 +235,9 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
+// bench telemetry only; the pass does not read it. The call also arms the pass,
+// because a new zoom changes which slots are near the viewport centre.
+function dcLodNoteScale(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
@@ -445,34 +458,6 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     return () => { clearTimeout(t); window.removeEventListener('pagehide', write); };
   }, [ready, state.sections, state.updatedAt, lsKey, stateFile]);
 
-  const registry = {}, sectionMeta = {}, sectionOrder = [];
-  dcFlatten(children).forEach((sec) => {
-    if (!sec || sec.type !== DCSection) return;
-    const sid = sec.props.id ?? sec.props.title;
-    if (!sid) return;
-    sectionOrder.push(sid);
-    const persisted = state.sections[sid] || {};
-    const abs = [];
-    dcFlatten(sec.props.children).forEach((ab) => {
-      if (!ab || ab.type !== DCArtboard) return;
-      const aid = ab.props.id ?? ab.props.label;
-      if (aid) abs.push([aid, ab]);
-    });
-    const srcKey = abs.map(([k]) => k).join('\x1f');
-    const hidden = persisted.srcKey === srcKey ? (persisted.hidden || []) : [];
-    const srcIds = [];
-    abs.forEach(([aid, ab]) => {
-      if (hidden.includes(aid)) return;
-      registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
-      srcIds.push(aid);
-    });
-    const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
-    sectionMeta[sid] = {
-      title: persisted.title ?? sec.props.title, subtitle: sec.props.subtitle,
-      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))], srcKey,
-    };
-  });
-
   // patchSection keeps one identity for the life of the canvas, so the per-slot
   // callbacks built on it survive a state change. Only `state` and `section`
   // move, and only the components that read them re-render.
@@ -597,7 +582,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // First paint writes at once, so the chrome is never wrong before a gesture.
     if (lastInv.current === null) onSettle();
     else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
-    dcSetZoom(scale);
+    dcLodNoteScale(scale);
     dcMarkMoving();
     // With the pill up, test the cached content boxes with arithmetic only.
     // The count is small: the sections, the slots and the notes.
@@ -750,7 +735,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav, .dc-flows, .dc-backto');
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-flows, .dc-backto');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
       stopTween();
@@ -849,7 +834,7 @@ const DC_AXES = [
   { key: 'lang', of: (v) => (v.lang || 'en'), label: (k) => k.toUpperCase() },
   { key: 'state', of: (v) => (v.state || ''), label: (k) => k || 'Main' },
 ];
-function dcSize(props, chosen) {
+function dcVariant(props, chosen) {
   const { variants, width = 260, height = 480, href } = props;
   if (!variants || !variants.length) return { width, height, href, variants: null, idx: -1, cur: null, axes: [] };
   const rootIdx = Math.max(0, variants.findIndex((s) => s.primary));
@@ -876,7 +861,7 @@ function dcSize(props, chosen) {
 // The page actions, called from the window header.
 function dcActions(patchSection, sid, srcKey) {
   return {
-    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
+    pickVariant: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
     move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
     rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
     reorder: (next) => patchSection && patchSection(sid, { order: next }),
@@ -916,6 +901,21 @@ function DCSizeChips({ size, onSize, style }) {
   );
 }
 
+// The separator for a joined key. No file name, no label and no id carries it.
+const DC_KEY_SEP = '\x1f';
+
+// One answer for "which slots does this section show, in what order". `ids` is
+// the ordered artboard id list. The persisted hidden list counts only while the
+// source key holds: a canvas that gained or lost a page must not hide the wrong
+// slot, so a changed key drops the whole list.
+function dcResolveSlots(ids, persisted) {
+  const srcKey = ids.join(DC_KEY_SEP);
+  const hidden = persisted.srcKey === srcKey ? (persisted.hidden || []) : [];
+  const srcIds = ids.filter((k) => !hidden.includes(k));
+  const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
+  return { srcKey, hidden, srcIds, slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))] };
+}
+
 function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
@@ -924,45 +924,44 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   const rest = all.filter((c) => !(c && c.type === DCArtboard));
   const sec = (ctx && sid && ctx.section(sid)) || {};
   const allIds = artboards.map((a) => a.props.id ?? a.props.label).filter(Boolean);
-  const srcKey = allIds.join('\x1f');
-  const hidden = sec.srcKey === srcKey ? (sec.hidden || []) : [];
-  const srcOrder = allIds.filter((k) => !hidden.includes(k));
-  const order = React.useMemo(() => {
-    const kept = (sec.order || []).filter((k) => srcOrder.includes(k));
-    return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
-  }, [sec.order, srcOrder.join('|')]);
+  // `order` is a prop of every slot, so it must keep its identity while the
+  // answer holds. The deps are what the resolver reads, and nothing else.
+  const idsKey = allIds.join('|');
+  const { srcKey, slotIds: order } = React.useMemo(
+    () => dcResolveSlots(allIds, sec),
+    [sec.order, sec.hidden, sec.srcKey, idsKey]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
-  // dcSize reads these props only, together with the variant the section chose.
-  // One mark for each slot thus says when to build its size again. `byId` is a
+  // dcVariant reads these props only, together with the variant the section chose.
+  // One mark for each slot thus says when to resolve it again. `byId` is a
   // fresh object in each render and cannot be a dependency; the marks can.
   // The mark is a tuple, and two marks are compared by identity, one field at a
   // time. A string of the same fields costs a JSON.stringify for each slot in
   // each render, and the render runs on every keystroke in a title.
-  const sizeMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
+  const variantMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
   const sameMark = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
-  // One size object for each slot. A slot keeps the same object until its own
-  // mark changes. Without the cache, a variant switch on one slot would give a
-  // new size object to every slot. Each frame would then fail its shallow
+  // One resolved variant for each slot. A slot keeps the same object until its
+  // own mark changes. Without the cache, a variant switch on one slot would
+  // give a new object to every slot. Each frame would then fail its shallow
   // compare and render again, which is what the memo has to stop.
-  const sizeCache = React.useRef(new Map());
+  const variantCache = React.useRef(new Map());
   // Rebuilt in every render; each slot keeps its object while its mark holds.
-  const sizes = {};
+  const variantOf = {};
   order.forEach((k) => {
-    const cache = sizeCache.current, mark = sizeMark(k), hit = cache.get(k);
-    sizes[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
-    cache.set(k, { mark, size: sizes[k] });
+    const cache = variantCache.current, mark = variantMark(k), hit = cache.get(k);
+    variantOf[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcVariant(byId[k].props, (sec.variant || {})[k]);
+    cache.set(k, { mark, size: variantOf[k] });
   });
-  // A removed slot must not hold its size in the cache for the life of the page.
-  for (const k of [...sizeCache.current.keys()]) if (!(k in sizes)) sizeCache.current.delete(k);
+  // A removed slot must not hold its variant in the cache for the life of the page.
+  for (const k of [...variantCache.current.keys()]) if (!(k in variantOf)) variantCache.current.delete(k);
   // One set for the whole section, not one scan of the arrows for each slot.
   const arrowsMovedSet = React.useMemo(() => {
     const s = new Set();
     Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
     return s;
   }, [sec.arrows]);
-  // The box depends on the sizes, but `sizes` is a new object in each render.
-  // This key changes only when a slot's box changes.
-  const marksKey = order.map((k) => k + ':' + sizes[k].width + 'x' + sizes[k].height).join('|');
+  // The box depends on the resolved variants, but `variantOf` is a new object in
+  // each render. This key changes only when a slot's box changes.
+  const marksKey = order.map((k) => k + ':' + variantOf[k].width + 'x' + variantOf[k].height).join('|');
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -981,7 +980,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     order.forEach((k) => {
       const p = placed[k], a = byId[k];
       if (!p || !a) return;
-      const s = sizes[k];
+      const s = variantOf[k];
       if (!s) return;
       // The window grows around the screen: left and up by the chrome, right
       // and down by the padding. The screen itself keeps the authored spot.
@@ -1027,7 +1026,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           // would fail the memo for each slot. Send the props object, which
           // does not change.
           <DCArtboardFrame key={k} sectionId={sid} artboardProps={byId[k].props} order={order}
-            size={sizes[k]} actions={actions}
+            size={variantOf[k]} actions={actions}
             // freeBox.origin is a new object after each position patch. As an
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
@@ -1121,10 +1120,9 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   return onCancel;
 }
 
-// Flow identity shared with canvas-page.jsx (CanvasFlows): endpoints and
-// label, joined with a separator no file name or label carries. Arrow-side
-// overrides in the section state are keyed by it.
-const DC_KEY_SEP = '\x1f';
+// Flow identity shared with canvas-page.jsx (CanvasFlows): the endpoints and the
+// label, joined with DC_KEY_SEP. Arrow-side overrides in the section state are
+// keyed by it.
 const dcFlowKey = (f) => [f.from, f.to, f.label || ''].join(DC_KEY_SEP);
 const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP); return { from, to, label }; };
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
@@ -1140,9 +1138,9 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
+  // `size` is required: DCSection resolves it once for each slot and caches it.
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
-  size = size || dcSize(artboardProps);
   const { width, height, href } = size;
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
@@ -1217,13 +1215,13 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         if (cancelled) { home(); return; }
         const finalSlot = liveOrder.indexOf(id);
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
-        // The slots slide for 180 ms, then the new order is committed. The
+        // The slots slide for DC.dropMs, then the new order is committed. The
         // timer is held, so an unmount in that window cannot patch the state.
         dropT.current = setTimeout(() => {
           dropT.current = 0;
           home();
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
-        }, 180);
+        }, DC.dropMs);
       },
     });
   };
@@ -1249,7 +1247,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
             <DCEditable value={label} onChange={(v) => actions.rename(id, v)} onClick={(e) => e.stopPropagation()} />
           </div>
           <div className="dc-bar" onPointerDown={(e) => e.stopPropagation()}>
-            <DCSizeChips size={size} onSize={(file) => actions.size(id, file)} />
+            <DCSizeChips size={size} onSize={(file) => actions.pickVariant(id, file)} />
             {size.axes.length > 0 && <hr />}
             <div className="dc-btns">
               <div ref={menuRef} style={{ position: 'relative' }}>
@@ -1310,10 +1308,24 @@ function DCPostIt({ children, width = 320, rotate = -1 }) {
   );
 }
 
-// Renders nothing; lets a host mount this file purely to load the globals.
-function DCLib() { return null; }
-
 // A top-level const does not land on window, so the names a host page or a
-// tool needs are published here. DC, dcLod and dcArtboardSvg are read by
-// perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl, dcExportName });
+// tool needs are published here. This list is the contract. Each name says
+// which file reads it, so a rename cannot break a reader in silence.
+Object.assign(window, {
+  // Host pages (sample/index.html, sample/all-options.html) and the fixtures
+  // in tests/regressions.js build a canvas from these components.
+  DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx,
+  // canvas-page.jsx drags the arrow ends with dcDragSession, keys the arrow
+  // state with dcFlowKey and patches it with dcMapPatch.
+  dcDragSession, dcFlowKey, dcMapPatch,
+  // tests/regressions.js reads dcMoving to check the moving flag, and
+  // dcExportName to check the export file name.
+  dcMoving, dcExportName,
+  // perf/bench.js reads DC.renders, DC.liveBudget and dcLod.scale.
+  // tests/regressions.js reads DC for its waits and its budget checks.
+  DC, dcLod,
+  // tests/regressions.js rasterizes a fixture with these.
+  dcArtboardSvg, dcSvgUrl,
+  // tests/regressions.js calls the export inliners on their own.
+  dcFontCss, dcInlineCss, dcInlineDoc,
+});
