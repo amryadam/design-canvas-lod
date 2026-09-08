@@ -184,16 +184,22 @@ window.canvasTestsDone = (async () => {
   });
   await test('a forced re-measure ranks the same slots live as the held boxes', async () => {
     window.fetch = async () => new Response('', { status: 404 });
+    // A restored view and a viewport of a known size. The fit runs from an
+    // animation frame, and this headless harness does not always give one, so
+    // the scale and the box would otherwise both be a guess. The slots must
+    // also sit inside their own canvas box: `visible` is what separates the
+    // ranking of one layout from another, and a canvas pushed below the
+    // window by the results pane makes every slot off-screen and equal.
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
     // Small boards, so the whole row is inside the mount margin at scale 1.
-    // The fit runs from an animation frame, and this headless harness does not
-    // always give one. This test must measure the ranking, not the fit.
     const count = DC.liveBudget + 6;
     const boards = [];
     for (let i = 0; i < count; i++) {
       boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 100, height: 80 },
         E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 100, height: 80 })));
     }
-    draw('review-rank-stable.json', E(DCSection, { id: 'review', title: 'Stable' }, boards));
+    draw('review-rank-stable.json', E(DCSection, { id: 'review', title: 'Stable' }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: 1200, height: 800 } });
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
     await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
     await wait(400);
@@ -217,14 +223,44 @@ window.canvasTestsDone = (async () => {
     // flake; a loop of passes has no clock in it at all.
     await until(() => !dcMoving());
     const settle = () => { for (let i = 0; i < count + 2; i++) dcLodRun(); };
+    // This pass holds every box at the scale the world has now.
+    settle();
+    // Now change the scale. A pan alone leaves the scale term untested,
+    // because a box held and rebuilt at one scale gives the same answer with a
+    // wrong term. The camera keeps the same world element through a zoom, so
+    // it puts no generation up and the held boxes stay: the next pass rebuilds
+    // boxes of the old scale at the new one, which is what the term is for.
+    // ctrlKey with a fractional delta takes the pinch branch, which zooms far
+    // enough in one event to move every slot.
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    const scale0 = scaleOf();
+    vp.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaX: 0, deltaY: 100.5, deltaMode: 0, clientX: 200, clientY: 200, bubbles: true, cancelable: true }));
+    await until(() => scaleOf() < scale0 * 0.9);
+    await until(() => !dcMoving());
+    check(Math.abs(scaleOf() - 1) > 0.05, 'fixture: the zoom must leave a scale other than 1');
     settle();
     const before = ranked();
-    check(before.split(',').length === DC.liveBudget, 'the pan did not settle to a full budget: ' + before);
+    check(before.split(',').length === DC.liveBudget, 'the zoom did not settle to a full budget: ' + before);
     dcLodInvalidate();
     settle();
     const after = ranked();
     check(after.split(',').length === DC.liveBudget, 'the re-measured pass did not settle to a full budget: ' + after);
     check(before === after, 'ranking changed on a forced re-measure: ' + before + ' -> ' + after);
+    // A re-measure cannot judge the scale term on its own. The measure divides
+    // by the scale and the reconstruction multiplies by it, so an error in the
+    // term cancels and both answers agree while both are wrong. Rank the same
+    // layout once more with no camera: that path reads each slot's rect from
+    // the DOM and reconstructs nothing, so it is the only answer that does not
+    // share the arithmetic under test.
+    const camera = Object.getOwnPropertyDescriptor(dcLod, 'world');
+    let direct;
+    try {
+      Object.defineProperty(dcLod, 'world', { configurable: true, get: () => null, set: () => {} });
+      settle();
+      direct = ranked();
+    } finally { Object.defineProperty(dcLod, 'world', camera); }
+    check(direct.split(',').length === DC.liveBudget, 'the measured pass did not settle to a full budget: ' + direct);
+    check(before === direct, 'the held boxes ranked a different set from the DOM: ' + before + ' -> ' + direct);
     // The registry's answer must also reach the screen. React commits the
     // mounts after the passes, so wait for the exact set: a wait for the count
     // alone would read the set from before the pan and pass on nothing.
