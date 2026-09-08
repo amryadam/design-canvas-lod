@@ -218,9 +218,13 @@ const cfFlowKeyParts = (key) => { const [from, to, label] = key.split(CF_KEY_SEP
 // the ends of that page back. The engine only carries the rows (DCSection
 // slotMenu); it does not know what a flow is.
 
-// Does any arrow end that was moved meet slot `k`?
-const cfArrowsMoved = (sec, k) => Object.entries((sec && sec.arrows) || {})
-  .some(([key, o]) => { const { from, to } = cfFlowKeyParts(key); return (o.fs && from === k) || (o.ts && to === k); });
+// Every slot that a moved arrow end meets. One pass over the overrides, not
+// one scan of them for each slot.
+const cfArrowsMovedSet = (arrows) => {
+  const s = new Set();
+  Object.entries(arrows || {}).forEach(([key, o]) => { const { from, to } = cfFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
+  return s;
+};
 
 // Drop the moved sides that meet slot `k`. Only the end that meets this page:
 // the far page keeps its side.
@@ -236,10 +240,21 @@ const cfResetArrows = (patchSection, sid, k) => patchSection && patchSection(sid
 });
 
 // The rows this page gives to each window's menu. A slot with nothing to reset
-// gets no row, so its frame keeps the same props and does not render again.
-const cfSlotMenu = (patchSection, sid) => (k, sec) => (cfArrowsMoved(sec, k)
-  ? [{ label: 'Reset arrow sides', onClick: () => cfResetArrows(patchSection, sid, k) }]
-  : null);
+// gets no row at all, so its frame keeps the same props.
+// The section calls this again after every patch, and most patches do not touch
+// the arrows. The cache thus holds against the identity of sec.arrows: it makes
+// the moved set once for each arrow change, and it gives a slot the same row
+// array while that change holds. The frame's shallow compare then holds too.
+const cfSlotMenu = (patchSection, sid) => {
+  let cache = null;
+  return (k, sec) => {
+    const arrows = (sec && sec.arrows) || null;
+    if (!cache || cache.arrows !== arrows) cache = { arrows, moved: cfArrowsMovedSet(arrows), rows: new Map() };
+    if (!cache.moved.has(k)) return null;
+    if (!cache.rows.has(k)) cache.rows.set(k, [{ label: 'Reset arrow sides', onClick: () => cfResetArrows(patchSection, sid, k) }]);
+    return cache.rows.get(k);
+  };
+};
 
 // Side of `box` nearest to world point p, measured to the side as a segment
 // (not the whole edge line), so a pointer above a narrow page reads as top.
@@ -486,10 +501,12 @@ function cpVariants(onPage) {
 const CanvasPageSection = ({ section, ...rest }) => {
   const ctx = React.useContext(DCCtx);
   const patchSection = ctx && ctx.patchSection;
-  // One identity for the life of the canvas. DCSection caches the rows against
-  // it, so a page re-render must not give it a new callback.
-  const slotMenu = React.useMemo(() => cfSlotMenu(patchSection, section), [patchSection, section]);
-  return <DCSection id={section} slotMenu={slotMenu} {...rest} />;
+  // The id DCSection itself resolves, so the patches land on the same section.
+  const sid = section ?? rest.title;
+  // One identity for the life of the canvas, and the row cache lives in it. A
+  // page re-render must not give the section a new callback.
+  const slotMenu = React.useMemo(() => cfSlotMenu(patchSection, sid), [patchSection, sid]);
+  return <DCSection {...rest} id={sid} slotMenu={slotMenu} />;
 };
 
 // `data` is the canvas.json content. A host that already holds it passes it in

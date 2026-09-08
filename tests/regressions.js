@@ -605,6 +605,35 @@ window.canvasTestsDone = (async () => {
     kebab.click(); await wait(30);
     check(!row(), 'the reset row is still offered');
   });
+  await test('a moved arrow side costs no frame renders on a patch', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    localStorage.setItem(key('review-arrowcost.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [cfFlowKey(flow)]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrowcost.json' }));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 400);
+    // A patch that leaves the arrows alone. The page holds the menu rows of the
+    // moved slot, so no frame may render again.
+    const title = host.querySelector('.dc-sectionhead .dc-editable');
+    const before = DC.renders;
+    title.textContent = 'Renamed';
+    title.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await wait(DC.settleMs);
+    const grew = DC.renders - before;
+    await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrowcost.json')));
+    check(saved.sections.p1.title === 'Renamed', 'the section title patch never ran');
+    check(grew === 0, grew + ' frames rendered again for a patch that kept the arrows');
+  });
   await test('dcView holds the scale the world and the drag use', async () => {
     const { at } = await dragFixture('review-viewscale.json');
     const world = host.querySelector('[data-dc-world]');

@@ -1004,9 +1004,10 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   // A removed slot must not hold its variant in the cache for the life of the page.
   for (const k of [...variantCache.current.keys()]) if (!(k in variantOf)) variantCache.current.delete(k);
   // The extra ⋯ menu rows the page adds, one list for each slot that has any.
-  // The rows are new objects, so a slot with no rows must stay at undefined:
-  // the frame's shallow compare then holds for every slot the page did not
-  // touch. One pass for the whole section, not one call for each frame.
+  // One call for each slot, in the section, not one in each frame. A slot with
+  // no rows stays at undefined, and the page gives a slot with rows the same
+  // array while its own state holds, so the frame's shallow compare holds for
+  // every slot the page did not touch. The memo here only skips the calls.
   const slotMenuRows = React.useMemo(() => {
     const out = {};
     if (slotMenu) order.forEach((k) => { const rows = slotMenu(k, sec); if (rows && rows.length) out[k] = rows; });
@@ -1308,9 +1309,9 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
                   <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                     {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
                     {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
-                    {(menuRows || []).map((r) => (
-                      <button key={r.label} className={r.danger ? 'dc-danger' : undefined}
-                        onClick={() => { setMenuOpen(false); r.onClick(); }}>{r.label}</button>
+                    {(menuRows || []).map((r, i) => (
+                      <button key={r.label + i} className={r.danger ? 'dc-danger' : undefined}
+                        onClick={() => { setMenuOpen(false); r.onClick && r.onClick(); }}>{r.label}</button>
                     ))}
                     {href && <button onClick={() => { setMenuOpen(false); save('png'); }}>Download PNG</button>}
                     {href && <button onClick={() => { setMenuOpen(false); save('html'); }}>Download HTML</button>}
