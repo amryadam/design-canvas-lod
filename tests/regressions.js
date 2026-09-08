@@ -332,6 +332,11 @@ window.canvasTestsDone = (async () => {
     check(live.includes('b0'), 'the nearest slot to the viewport centre is not live: ' + live.join(','));
     check(!live.includes('b5'), 'a slot far from the viewport is live because it is near the window: ' + live.join(','));
   });
+  await test('a hanging state read gives up after DC.stateTimeoutMs', async () => {
+    window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
+    draw('review-hang.json'); await wait(DC.stateTimeoutMs + 300);
+    check(!!api, 'the canvas stayed blank past DC.stateTimeoutMs');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

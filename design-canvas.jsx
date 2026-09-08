@@ -35,6 +35,7 @@ const DC = {
                         // the view: nothing in the world's layout reads the zoom
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
+  stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -394,7 +395,7 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   React.useEffect(() => {
     let off = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), DC.stateTimeoutMs);
     const valid = (s) => s && s.sections && typeof s.sections === 'object' && !Array.isArray(s.sections);
     const revision = (s) => Number.isFinite(s?.updatedAt) ? s.updatedAt : 0;
     fetch('./' + stateFile, { signal: controller.signal })
