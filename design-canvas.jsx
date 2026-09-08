@@ -181,7 +181,9 @@ function dcMarkMoving() {
 // gives the same number, but it forces a layout.
 // The object is module-level, so two viewports on one page would share one
 // transform. This repository renders one viewport only. dcLod and the moving
-// flag are global for the same reason.
+// flag stay correct with more than one viewport. dcView is the first state
+// that is per viewport in fact and module-level in code, so the engine is
+// single-viewport until dcView moves into DCViewport.
 const dcView = { x: 0, y: 0, scale: 1 };
 
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
@@ -966,6 +968,9 @@ function dcResolveSlots(ids, persisted) {
 // `slotMenu(slotId, sec)` gives the page a say in each window's ⋯ menu. It
 // returns [{ label, onClick, danger }], or nothing for a slot with no extra
 // row. canvas-page.jsx adds "Reset arrow sides" through it.
+// Return the same array for a slot while its rows do not change: the frame
+// memo compares the array by identity, and a new array on each call
+// re-renders that slot on every patch.
 function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions, slotMenu }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;

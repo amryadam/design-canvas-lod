@@ -502,7 +502,7 @@ const CanvasPageSection = ({ section, ...rest }) => {
   const ctx = React.useContext(DCCtx);
   const patchSection = ctx && ctx.patchSection;
   // The id DCSection itself resolves, so the patches land on the same section.
-  const sid = section ?? rest.title;
+  const sid = section ?? rest.id ?? rest.title;
   // One identity for the life of the canvas, and the row cache lives in it. A
   // page re-render must not give the section a new callback.
   const slotMenu = React.useMemo(() => cfSlotMenu(patchSection, sid), [patchSection, sid]);
