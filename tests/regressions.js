@@ -159,7 +159,7 @@ window.canvasTestsDone = (async () => {
       E(DCSection, { id: 'review', title: 'Anchor' }, E(DCArtboard, { id: 'a', width: 600, height: 4000 })),
       { style: { position: 'fixed', top: 0, left: 0, width: w, height: h } });
     await until(() => host.querySelector('[data-dc-slot]'));
-    await wait(DC.rescueMs + 200);
+    await wait(DC.rescueMs + 200); // past the first fit, the rescue and the 300 ms transform write
     const world = host.querySelector('[data-dc-world]');
     const slot = host.querySelector('[data-dc-slot]');
     const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
@@ -328,9 +328,8 @@ window.canvasTestsDone = (async () => {
     await until(() => host.querySelectorAll('.dc-card iframe').length >= 1);
     await wait(600);
     const live = [...host.querySelectorAll('[data-dc-slot]')].filter((s) => s.querySelector('iframe')).map((s) => s.dataset.dcSlot);
-    // Slot b0 sits at x 60 in the viewport; it is the nearest to (200, 200) and must be live.
-    check(live.includes('b0'), 'the nearest slot to the viewport centre is not live: ' + live.join(','));
-    check(!live.includes('b5'), 'a slot far from the viewport is live because it is near the window: ' + live.join(','));
+    check(innerWidth > 1100, 'window too narrow for this check');
+    check(live.sort().join(',') === 'b0,b1,b2', 'live set: ' + live.join(','));
   });
   await test('a hanging state read gives up after DC.stateTimeoutMs', async () => {
     window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
@@ -347,6 +346,7 @@ window.canvasTestsDone = (async () => {
       check(calls.length === 1, 'first write did not run');
       window.dispatchEvent(new Event('pagehide')); await wait(50);
       check(calls.length === 2, 'the failed write was marked saved and not retried');
+      check(calls[1] === calls[0], 'retry sent different JSON');
     } finally { delete window.omelette; }
   });
   await test('a host write that ran is not sent again on pagehide', async () => {
