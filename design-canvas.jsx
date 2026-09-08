@@ -787,7 +787,28 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
   }, [sec.order, srcOrder.join('|')]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
-  const sizeOf = (k) => dcSize(byId[k].props, (sec.variant || {})[k]);
+  // dcSize reads these props only, together with the variant the section chose.
+  // One mark for each slot thus says when to build its size again. `byId` is a
+  // fresh object in each render and cannot be a dependency; the marks can.
+  const sizeMark = (k) => {
+    const q = byId[k].props;
+    return JSON.stringify([q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]);
+  };
+  const marks = order.map((k) => k + '\x00' + sizeMark(k)).join('\x1f');
+  // One size object for each slot. A slot keeps the same object until its own
+  // mark changes. Without the cache, a variant switch on one slot would give a
+  // new size object to every slot. Each frame would then fail its shallow
+  // compare and render again, which is what the memo has to stop.
+  const sizeCache = React.useRef(new Map());
+  const sizes = React.useMemo(() => {
+    const cache = sizeCache.current, out = {};
+    order.forEach((k) => {
+      const mark = sizeMark(k), hit = cache.get(k);
+      out[k] = hit && hit.mark === mark ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
+      cache.set(k, { mark, size: out[k] });
+    });
+    return out;
+  }, [marks]);
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -806,7 +827,8 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     order.forEach((k) => {
       const p = placed[k], a = byId[k];
       if (!p || !a) return;
-      const s = sizeOf(k);
+      const s = sizes[k];
+      if (!s) return;
       span(p, s.width || 0, s.height || 0);
     });
     rest.forEach((n) => {
@@ -814,7 +836,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       span(p, p.w || (n.props && n.props.width) || 320, DC.noteReserveH);
     });
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
-  }, [placed, notePositions, order.join('|'), rest.length, sec.variant]);
+  }, [placed, notePositions, order.join('|'), rest.length, sizes]);
 
   // One stable object of actions, keyed by slot id, instead of eight fresh
   // closures per slot per render. Without this React.memo on the frame can
@@ -844,15 +866,6 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
     })),
   }), [patchSection, setFocus, sid, srcKey]);
-
-  // One size object per slot, kept across renders that did not change a
-  // variant. The artboard elements behind byId are made once by the page and
-  // only rebuilt on a reload, which rebuilds `order` too, so they need no dep.
-  const sizes = React.useMemo(() => {
-    const out = {};
-    order.forEach((k) => { out[k] = dcSize(byId[k].props, (sec.variant || {})[k]); });
-    return out;
-  }, [order.join('|'), sec.variant]);
 
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
