@@ -862,7 +862,7 @@ const DC_AXES = [
   { key: 'lang', of: (v) => (v.lang || 'en'), label: (k) => k.toUpperCase() },
   { key: 'state', of: (v) => (v.state || ''), label: (k) => k || 'Main' },
 ];
-function dcSize(props, chosen) {
+function dcVariant(props, chosen) {
   const { variants, width = 260, height = 480, href } = props;
   if (!variants || !variants.length) return { width, height, href, variants: null, idx: -1, cur: null, axes: [] };
   const rootIdx = Math.max(0, variants.findIndex((s) => s.primary));
@@ -889,7 +889,7 @@ function dcSize(props, chosen) {
 // The page actions, called from the window header.
 function dcActions(patchSection, sid, srcKey) {
   return {
-    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
+    pickVariant: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
     move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
     rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
     reorder: (next) => patchSection && patchSection(sid, { order: next }),
@@ -945,37 +945,37 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
   }, [sec.order, srcOrder.join('|')]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
-  // dcSize reads these props only, together with the variant the section chose.
-  // One mark for each slot thus says when to build its size again. `byId` is a
+  // dcVariant reads these props only, together with the variant the section chose.
+  // One mark for each slot thus says when to resolve it again. `byId` is a
   // fresh object in each render and cannot be a dependency; the marks can.
   // The mark is a tuple, and two marks are compared by identity, one field at a
   // time. A string of the same fields costs a JSON.stringify for each slot in
   // each render, and the render runs on every keystroke in a title.
-  const sizeMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
+  const variantMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
   const sameMark = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
-  // One size object for each slot. A slot keeps the same object until its own
-  // mark changes. Without the cache, a variant switch on one slot would give a
-  // new size object to every slot. Each frame would then fail its shallow
+  // One resolved variant for each slot. A slot keeps the same object until its
+  // own mark changes. Without the cache, a variant switch on one slot would
+  // give a new object to every slot. Each frame would then fail its shallow
   // compare and render again, which is what the memo has to stop.
-  const sizeCache = React.useRef(new Map());
+  const variantCache = React.useRef(new Map());
   // Rebuilt in every render; each slot keeps its object while its mark holds.
-  const sizes = {};
+  const variantOf = {};
   order.forEach((k) => {
-    const cache = sizeCache.current, mark = sizeMark(k), hit = cache.get(k);
-    sizes[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
-    cache.set(k, { mark, size: sizes[k] });
+    const cache = variantCache.current, mark = variantMark(k), hit = cache.get(k);
+    variantOf[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcVariant(byId[k].props, (sec.variant || {})[k]);
+    cache.set(k, { mark, size: variantOf[k] });
   });
-  // A removed slot must not hold its size in the cache for the life of the page.
-  for (const k of [...sizeCache.current.keys()]) if (!(k in sizes)) sizeCache.current.delete(k);
+  // A removed slot must not hold its variant in the cache for the life of the page.
+  for (const k of [...variantCache.current.keys()]) if (!(k in variantOf)) variantCache.current.delete(k);
   // One set for the whole section, not one scan of the arrows for each slot.
   const arrowsMovedSet = React.useMemo(() => {
     const s = new Set();
     Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
     return s;
   }, [sec.arrows]);
-  // The box depends on the sizes, but `sizes` is a new object in each render.
-  // This key changes only when a slot's box changes.
-  const marksKey = order.map((k) => k + ':' + sizes[k].width + 'x' + sizes[k].height).join('|');
+  // The box depends on the resolved variants, but `variantOf` is a new object in
+  // each render. This key changes only when a slot's box changes.
+  const marksKey = order.map((k) => k + ':' + variantOf[k].width + 'x' + variantOf[k].height).join('|');
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -994,7 +994,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     order.forEach((k) => {
       const p = placed[k], a = byId[k];
       if (!p || !a) return;
-      const s = sizes[k];
+      const s = variantOf[k];
       if (!s) return;
       // The window grows around the screen: left and up by the chrome, right
       // and down by the padding. The screen itself keeps the authored spot.
@@ -1040,7 +1040,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           // would fail the memo for each slot. Send the props object, which
           // does not change.
           <DCArtboardFrame key={k} sectionId={sid} artboardProps={byId[k].props} order={order}
-            size={sizes[k]} actions={actions}
+            size={variantOf[k]} actions={actions}
             // freeBox.origin is a new object after each position patch. As an
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
@@ -1262,7 +1262,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
             <DCEditable value={label} onChange={(v) => actions.rename(id, v)} onClick={(e) => e.stopPropagation()} />
           </div>
           <div className="dc-bar" onPointerDown={(e) => e.stopPropagation()}>
-            <DCSizeChips size={size} onSize={(file) => actions.size(id, file)} />
+            <DCSizeChips size={size} onSize={(file) => actions.pickVariant(id, file)} />
             {size.axes.length > 0 && <hr />}
             <div className="dc-btns">
               <div ref={menuRef} style={{ position: 'relative' }}>
