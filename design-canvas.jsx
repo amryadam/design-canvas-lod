@@ -1,6 +1,7 @@
-// design-canvas.jsx — pan/zoom canvas: sections, artboards (reorder / rename /
-// delete / focus), post-its. Ported from the fatoora project with performance
-// work for heavy artboards (full-page iframes):
+// design-canvas.jsx — pan/zoom canvas: sections, artboards as windows (reorder
+// / rename / delete, every option in the window header), post-its. Ported from the
+// fatoora project with performance work for heavy artboards (full-page
+// iframes):
 //   • DCLazyFrame mounts an iframe for a slot that obeys two conditions. The
 //     slot must be near the viewport. The slot must also be one of the
 //     DC.liveBudget slots nearest to the viewport centre. Nearness is
@@ -40,11 +41,9 @@ const DC = {
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
-  rail: 320,            // px the focus modal's options rail holds. It never
-                        // scales: only the screen beside it re-fits
-  railMinW: 1020,       // shell width under which the rail always folds
-  railKeep: 0.8,        // the rail may not cost more than 20 % of the screen
-                        // scale. A wide screen in a small window thus folds it
+  winHead: 64,          // the window header: name, chips, buttons. World px,
+  winPad: 36,           // as is the padding around the screen, so the chrome
+  winBody: '#eae7e1',   // grows and shrinks with the card
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 
@@ -56,84 +55,58 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}
 [data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}
 [data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}
-[data-dc-slot].dc-dragging .dc-card{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}
-.dc-card{isolation:isolate;contain:layout paint;transition:box-shadow .18s ease,transform .18s ease}
-[data-dc-slot]:hover:not(.dc-dragging) .dc-card{transform:translateY(-3px);box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)!important}
+/* A page is a window: a header with the name and the page options, then the
+   screen inset in the body. The chrome is world px, so it grows and shrinks
+   with the card, as the flow labels do. */
+[data-dc-slot].dc-dragging .dc-win{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}
+.dc-win{position:relative;background:#fff;border-radius:18px;overflow:hidden;transition:box-shadow .18s ease,transform .18s ease;box-shadow:0 1px 3px rgba(40,32,22,.08),0 12px 30px -14px rgba(40,32,22,.35)}
+[data-dc-slot]:hover:not(.dc-dragging) .dc-win{transform:translateY(-3px);box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)}
+.dc-winhead{display:flex;align-items:center;gap:14px;padding:0 22px;cursor:grab;user-select:none;border-bottom:1px solid rgba(40,32,22,.07)}
+.dc-winhead:active{cursor:grabbing}
+.dc-dot{flex:0 0 12px;height:12px;border-radius:6px;background:#cfc9bf;transition:background .18s}
+[data-dc-slot]:has([data-dc-live="1"]) .dc-dot{background:#12a594}
+.dc-wintitle{flex:1 1 auto;min-width:0;display:flex;align-items:center;overflow:hidden}
+.dc-wintitle .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%;font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1e1b16;line-height:1.2}
+.dc-wintitle .dc-editable:focus{overflow:visible;text-overflow:clip}
+.dc-card{isolation:isolate;contain:layout paint}
 .dc-card *{scrollbar-width:none}
 .dc-card *::-webkit-scrollbar{display:none}
 .dc-card iframe{display:block;border:0;background:#fff}
 .dc-moving .dc-card iframe{pointer-events:none}
+/* Ctrl (or ⌘) held: the whole page is a grip. The screen iframe stops taking
+   the pointer, so a Ctrl+click on it reaches the slot (see onSlotDownCapture). */
+.dc-grab [data-dc-slot]{cursor:grab}
+.dc-grab .dc-card iframe{pointer-events:none}
 .dc-shield{position:absolute;inset:0;cursor:pointer}
-.dc-header{position:absolute;bottom:100%;left:-4px;margin-bottom:calc(4px * var(--dc-hz,1));z-index:2;display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;container-type:inline-size}
-.dc-labelrow{display:flex;align-items:center;gap:4px;height:24px;flex:1 1 auto;min-width:0}
-.dc-grip{flex:0 0 auto;cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;transition:background .12s,opacity .12s}
-.dc-grip:hover{background:rgba(0,0,0,.08)}
-.dc-grip:active{cursor:grabbing}
-.dc-labeltext{flex:1 1 auto;min-width:0;cursor:pointer;border-radius:4px;padding:3px 6px;display:flex;align-items:center;transition:background .12s;overflow:hidden}
-@container (max-width: 110px){.dc-labeltext{display:none}.dc-grip{opacity:0}[data-dc-slot]:hover .dc-grip{opacity:1}}
-.dc-labeltext:hover{background:rgba(0,0,0,.05)}
-.dc-labeltext .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.dc-labeltext .dc-editable:focus{overflow:visible;text-overflow:clip}
-.dc-chips{flex:1 0 100%;order:2;display:flex;flex-wrap:wrap;gap:4px;margin-left:24px}
-.dc-sizes{flex:0 0 auto;display:inline-flex;gap:2px;padding:2px;background:rgba(0,0,0,.05);border-radius:6px}
-.dc-size{border:0;padding:4px 7px;border-radius:4px;background:transparent;font:500 10.5px/1 inherit;font-family:inherit;color:rgba(60,50,40,.7);cursor:pointer;transition:background .12s,color .12s}
+/* One bar at the right of the header: the variant chips, then the actions.
+   It is always visible; nothing in it waits for a hover. */
+.dc-bar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:4px;border-radius:11px;background:rgba(40,32,22,.05);box-shadow:inset 0 0 0 1px rgba(40,32,22,.05)}
+.dc-bar hr{flex:0 0 1px;width:1px;height:20px;margin:0 2px;border:0;background:rgba(40,32,22,.12)}
+.dc-chips{flex:0 0 auto;display:flex;gap:6px}
+.dc-sizes{flex:0 0 auto;display:inline-flex;gap:2px;padding:2px;background:#fff;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
+.dc-size{border:0;padding:6px 10px;border-radius:6px;background:transparent;font:600 12px/1 inherit;font-family:inherit;color:rgba(60,50,40,.65);cursor:pointer;letter-spacing:.02em;transition:background .12s,color .12s}
 .dc-size:hover{color:#2a251f}
-.dc-size.dc-on{background:#fff;color:#2a251f;box-shadow:0 1px 2px rgba(0,0,0,.12)}
-@container (max-width: 200px){.dc-chips{display:none}[data-dc-slot]:hover .dc-chips{display:flex}}
-.dc-focus .dc-chips{flex:0 0 auto;order:0;margin-left:12px}
-.dc-focus .dc-sizes{background:rgba(255,255,255,.12)}
-.dc-focus .dc-size{color:rgba(255,255,255,.7)}
-.dc-focus .dc-size:hover{color:#fff}
-.dc-focus .dc-size.dc-on{background:#fff;color:#2a251f}
-.dc-btns{flex:0 0 auto;margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}
-[data-dc-slot]:hover .dc-btns,.dc-btns:has(.dc-menu){opacity:1}
-.dc-expand,.dc-kebab{width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center;font:inherit;transition:background .12s,color .12s}
-.dc-expand:hover,.dc-kebab:hover{background:rgba(0,0,0,.06);color:#2a251f}
+.dc-size.dc-on{background:#12a594;color:#fff}
+.dc-btns{flex:0 0 auto;display:flex;gap:2px;align-items:center}
 [data-dc-slot]:has(.dc-menu){z-index:10}
-.dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:4px;min-width:160px;z-index:10}
-.dc-menu button{display:block;width:100%;padding:7px 10px;border:0;background:transparent;border-radius:5px;font-family:inherit;font-size:13px;font-weight:500;line-height:1.2;color:#29261b;cursor:pointer;text-align:left;transition:background .12s;white-space:nowrap}
+.dc-kebab,.dc-openbtn{width:28px;height:28px;border-radius:7px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.65);display:flex;align-items:center;justify-content:center;font:inherit;transition:background .12s,color .12s}
+.dc-kebab:hover,.dc-openbtn:hover{background:#fff;color:#1e1b16;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
+.dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:5px;min-width:180px;z-index:10}
+.dc-menu button{display:block;width:100%;padding:9px 12px;border:0;background:transparent;border-radius:6px;font-family:inherit;font-size:14px;font-weight:500;line-height:1.2;color:#29261b;cursor:pointer;text-align:left;transition:background .12s;white-space:nowrap}
 .dc-menu button:hover{background:rgba(0,0,0,.05)}
-.dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:4px 2px}
+.dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:5px 3px}
 .dc-menu .dc-danger{color:#c96442}
 .dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}
-/* The header (label, chips, buttons) holds screen size down to 25% zoom, then
-   shrinks with the world so it never grows over the neighbouring cards. */
-[data-dc-slot]{--dc-hz:min(var(--dc-inv-zoom,1),4)}
-.dc-header{width:calc((100% + 4px) / var(--dc-hz,1));transform:scale(var(--dc-hz,1));transform-origin:bottom left}
 /* The section head follows the same rule, and by transform, not by zoom: a
    transform never reflows, so the head keeps a fixed world box and the world's
    layout stays free of the zoom. It grows from its bottom edge, upwards into
    the section gap, so a title never covers its own cards. */
 .dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),4));transform-origin:bottom left}
-/* Shown only when no section is on screen; the focus overlay (z 100) covers it. */
+/* Shown only when no section is on screen. */
 .dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
 .dc-backto:hover{background:#faf8f5}
 @keyframes dc-backto-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 .dc-placeholder{width:100%;height:100%;background:repeating-linear-gradient(135deg,#f6f4f0 0 12px,#eeece7 12px 24px);display:flex;align-items:center;justify-content:center;color:#9a958c;font:500 14px ui-monospace,Menlo,monospace}
-/* The focus modal: one shell that holds the screen and the page options. The
-   rail keeps DC.rail px at every window size; only the screen re-fits. */
-.dc-shell{position:absolute;top:64px;left:40px;right:40px;bottom:40px;display:flex;background:#232019;border-radius:14px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06)}
-.dc-shell-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
-.dc-shell-head{flex:0 0 56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.08)}
-.dc-shell-body{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px 40px;background:rgba(0,0,0,.18)}
-.dc-rail{box-sizing:border-box;width:320px;flex:0 0 320px;border-left:1px solid rgba(255,255,255,.08);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:18px;transition:margin-right .18s ease}
-.dc-shell.dc-rail-off .dc-rail{margin-right:-320px}
-.dc-rail h4{margin:0;font:600 10.5px/1 inherit;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.45)}
-.dc-rail .dc-chips{margin-left:0}
-.dc-rail .dc-editable{display:block;background:rgba(255,255,255,.07);border-radius:7px;padding:8px 10px;margin:0;color:#fff;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis}
-.dc-rail .dc-editable:focus{background:#fff;color:#29261b;box-shadow:none}
-.dc-grp{display:flex;flex-direction:column;gap:8px}
-.dc-axis{display:flex;align-items:center;gap:8px}
-.dc-axis>span{width:62px;flex:0 0 62px;font:400 11px/1 inherit;color:rgba(255,255,255,.45)}
-.dc-row{display:flex;width:100%;align-items:center;gap:8px;border:0;background:transparent;color:#fff;font:500 13px/1.2 inherit;padding:8px 10px;border-radius:7px;cursor:pointer;text-align:left;transition:background .12s}
-.dc-row:hover{background:rgba(255,255,255,.08)}
-.dc-row.dc-danger{color:#c96442}
-.dc-row.dc-danger:hover{background:rgba(201,100,66,.14)}
-.dc-opt{border:0;border-radius:7px;background:rgba(255,255,255,.1);color:#fff;font:600 12px/1 inherit;padding:8px 11px;cursor:pointer;transition:background .12s,color .12s}
-.dc-opt:hover{background:rgba(255,255,255,.2)}
-.dc-opt.dc-on{background:#fff;color:#2a251f}
-.dc-meta{margin-top:auto;padding-top:12px;font:400 11px/1.6 inherit;color:rgba(255,255,255,.4)}
-.dc-meta b{display:block;font:500 11px/1.6 ui-monospace,Menlo,monospace;color:rgba(255,255,255,.6)}
 `;
   document.head.appendChild(s);
 }
@@ -191,9 +164,12 @@ function dcSlotDistance(r, v) {
 }
 
 // One pass over every slot. The DC.liveBudget slots that are nearest to the
-// viewport centre, and are inside their margin, become live. All other slots
-// show their placeholder. A live slot counts as DC.budgetHysteresis px nearer
-// than it is. The slot in last place thus stays stable from pass to pass.
+// viewport centre, and are inside their margin, become live. Visible slots
+// rank ahead of off-screen preloads. All other slots show their placeholder.
+// Near, visible and the centre are measured against the slot's own viewport
+// box, not the window: a canvas in a panel must rank what its user sees.
+// A live slot counts as DC.budgetHysteresis px nearer than it is. The slot in
+// last place thus stays stable from pass to pass.
 // The mount of an iframe is the one expensive step, because a full document
 // parses and lays out. Only one slot mounts in each pass. The other slots wait
 // for the next pass. A drop is cheap, and it has no such limit.
@@ -213,9 +189,12 @@ function dcLodRun() {
     const r = s.box.getBoundingClientRect();
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > v.left - m && r.left < v.left + v.width + m && r.bottom > v.top - m && r.top < v.top + v.height + m;
-    all.push({ s, near, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
+    const visible = r.right > v.left && r.left < v.left + v.width && r.bottom > v.top && r.top < v.top + v.height;
+    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
   });
-  const ranked = all.filter((e) => e.near).sort((a, b) => a.d - b.d);
+  // Hysteresis stabilizes peers, but must not let off-screen live frames keep
+  // the entire budget while visible slots remain placeholders indefinitely.
+  const ranked = all.filter((e) => e.near).sort((a, b) => Number(b.visible) - Number(a.visible) || a.d - b.d);
   const winners = new Set(ranked.slice(0, DC.liveBudget).map((e) => e.s));
   // Drop first, so a mount never takes the page over the budget for a frame.
   all.forEach(({ s }) => { if (s.live && !winners.has(s)) { s.live = false; s.set(false); } });
@@ -386,7 +365,7 @@ function DesignCanvas({ stateFile = DC_STATE_FILE, ...props }) {
 }
 
 function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }) {
-  const [state, setState] = React.useState({ sections: {}, focus: null, updatedAt: 0 });
+  const [state, setState] = React.useState({ sections: {}, updatedAt: 0 });
   const [ready, setReady] = React.useState(false);
   const savedSections = React.useRef(null);
   const fileWrites = React.useRef(Promise.resolve());
@@ -409,7 +388,7 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
         if (off) return;
         const sections = valid(saved) ? saved.sections : {};
         savedSections.current = sections;
-        setState({ sections, focus: null, updatedAt: revision(saved) });
+        setState({ sections, updatedAt: revision(saved) });
       })
       .catch(() => {})
       .finally(() => { clearTimeout(timeout); if (!off) setReady(true); });
@@ -465,35 +444,31 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     };
   });
 
-  // patchSection and setFocus keep one identity for the life of the canvas, so
-  // the per-slot callbacks built on them survive a state change. Only `state`
-  // and `section` move, and only the components that read them re-render.
+  // patchSection keeps one identity for the life of the canvas, so the per-slot
+  // callbacks built on it survive a state change. Only `state` and `section`
+  // move, and only the components that read them re-render.
   const patchSection = React.useCallback((id, p) => setState((s) => ({
     ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
     sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
   })), []);
-  const setFocus = React.useCallback((slotId) => setState((s) => ({ ...s, focus: slotId })), []);
   const api = React.useMemo(() => ({
     state,
     section: (id) => state.sections[id] || {},
     patchSection,
-    setFocus,
-  }), [state, patchSection, setFocus]);
+  }), [state, patchSection]);
 
+  // Empty deps: the listener is registered once per canvas, not once per state
+  // change. The escape key had a listener here as well; it closed the focus
+  // overlay, and the window header replaced that overlay.
   React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') setFocus(null); };
     const onPd = (e) => { const ae = document.activeElement; if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur(); };
-    document.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onPd, true);
-    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onPd, true); };
-  }, [setFocus]);
+    return () => document.removeEventListener('pointerdown', onPd, true);
+  }, []);
 
   return (
     <DCCtx.Provider value={api}>
       <DCViewport minScale={minScale} maxScale={maxScale} style={style}>{ready && children}</DCViewport>
-      {state.focus && registry[state.focus] && (
-        <DCFocusOverlay entry={registry[state.focus]} sectionMeta={sectionMeta} sectionOrder={sectionOrder} />
-      )}
     </DCCtx.Provider>
   );
 }
@@ -538,9 +513,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
-  // Only .dc-header reads --dc-inv-zoom now, and it is position:absolute, so it
-  // adds nothing to any ancestor height or intrinsic width. The world's layout
-  // is thus the same at every zoom, and this write cannot move a card.
+  // Only .dc-sectionhead reads --dc-inv-zoom now, and it reads it through a
+  // transform, which never reflows. The world's layout is thus the same at
+  // every zoom, and this write cannot move a card.
   // It used to. The world padding, the section gaps and the .dc-sectionhead
   // zoom were all in screen units, so the settled write re-laid out the world
   // and stepped the content by 33 px for one wheel notch. A slow wheel roll
@@ -761,7 +736,18 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     vp.addEventListener('pointermove', onPointerMove);
     vp.addEventListener('pointerup', onPointerUp);
     vp.addEventListener('pointercancel', onPointerUp);
+    // Ctrl (or ⌘ on a Mac) held turns every page into a grip. Keys inside a
+    // screen iframe do not reach this window, so the class also follows the
+    // modifier on pointer events over the viewport, and blur clears it.
+    const setGrab = (on) => vp.classList.toggle('dc-grab', !!on);
+    const onKey = (e) => setGrab(e.ctrlKey || e.metaKey);
+    const onBlur = () => setGrab(false);
+    const onCtx = (e) => { if (e.ctrlKey && e.target.closest('[data-dc-slot]')) e.preventDefault(); };
+    window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey); window.addEventListener('blur', onBlur);
+    vp.addEventListener('pointermove', onKey); vp.addEventListener('contextmenu', onCtx);
     return () => {
+      window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); window.removeEventListener('blur', onBlur);
+      vp.removeEventListener('pointermove', onKey); vp.removeEventListener('contextmenu', onCtx);
       window.removeEventListener('message', onHostMsg);
       vp.removeEventListener('wheel', onWheel);
       vp.removeEventListener('gesturestart', onGestureStart);
@@ -830,14 +816,13 @@ function dcSize(props, chosen) {
   return { width: cur.w, height: cur.h, href: cur.href ?? href, variants, idx, cur, axes };
 }
 
-// The page actions. Both the card menu and the focus modal's rail call these.
-function dcActions(patchSection, setFocus, sid, srcKey) {
+// The page actions, called from the window header.
+function dcActions(patchSection, sid, srcKey) {
   return {
     size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
     move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
     rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
     reorder: (next) => patchSection && patchSection(sid, { order: next }),
-    focus: (k) => setFocus && setFocus(`${sid}/${k}`),
     resetPosition: (k) => patchSection && patchSection(sid, (x) => {
       const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
     }),
@@ -934,7 +919,10 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       if (!p || !a) return;
       const s = sizes[k];
       if (!s) return;
-      span(p, s.width || 0, s.height || 0);
+      // The window grows around the screen: left and up by the chrome, right
+      // and down by the padding. The screen itself keeps the authored spot.
+      span({ x: p.x - DC.winPad, y: p.y - DC.winHead - DC.winPad },
+        (s.width || 0) + DC.winPad * 2, (s.height || 0) + DC.winHead + DC.winPad * 2);
     });
     rest.forEach((n) => {
       const p = noteAt(n);
@@ -945,12 +933,11 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
 
   // One stable object of actions. Each action takes the slot id. Without it,
   // each slot would get eight new closures in each render, and the memo on the
-  // frame could never hit. The focus modal builds the same set, so a page has
-  // one behaviour whether you use the card menu or the options rail.
-  const patchSection = ctx && ctx.patchSection, setFocus = ctx && ctx.setFocus;
+  // frame could never hit.
+  const patchSection = ctx && ctx.patchSection;
   const actions = React.useMemo(
-    () => dcActions(patchSection, setFocus, sid, srcKey),
-    [patchSection, setFocus, sid, srcKey]);
+    () => dcActions(patchSection, sid, srcKey),
+    [patchSection, sid, srcKey]);
 
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? '540px' : '80px', position: 'relative' }}>
@@ -997,10 +984,10 @@ function DCArtboard() { return null; }
 //           `margin` px of it. It drops when the slot leaves the budget, or
 //           goes more than DC.unmountMargin px away.
 //   placeholder — the striped card. Each slot that is not live shows it.
-// `eager` makes the iframe live at all times. The focus overlay uses it, and
-// the budget does not apply to it. The registry does one pass for all slots
-// together, DC.settleMs after the last zoom or pan tick. A pinch thus does not
-// mount and drop iframes many times.
+// `eager` makes the iframe live at all times, outside the budget. No slot in
+// the canvas uses it; a host that embeds one screen on its own can. The
+// registry does one pass for all slots together, DC.settleMs after the last
+// zoom or pan tick. A pinch thus does not mount and drop iframes many times.
 function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href }) {
   const ref = React.useRef(null);
   const [live, setLive] = React.useState(eager);
@@ -1016,9 +1003,9 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   const on = eager || live;
   // Shield: iframes swallow wheel/pinch, so a transparent layer sits over the
   // screen and lets the canvas zoom/pan. A click opens the screen's own file
-  // (where it can be edited); the ⋯ menu opens it in a new tab.
+  // (where it can be edited); the ↗ button in the header opens it in a new tab.
   return (
-    <div ref={ref} style={{ width, height, position: 'relative' }}>
+    <div ref={ref} data-dc-live={on ? '1' : '0'} style={{ width, height, position: 'relative' }}>
       {on ? <iframe src={src} title={title} loading="lazy" style={{ width, height }} />
         : <div className="dc-placeholder">{title}</div>}
       {!eager && <div className="dc-shield" title="Open to edit" onClick={() => { if (href) location.href = href; }} />}
@@ -1108,8 +1095,8 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   // Cancel first: a cancelled drag commits nothing and arms no drop timer.
   React.useEffect(() => () => { cancelDrag.current && cancelDrag.current(); clearTimeout(dropT.current); }, []);
 
-  // Free placement: the grip moves the card anywhere in the section, including
-  // left of and above the origin. The live drag is a transform (React never
+  // Free placement: the header moves the window anywhere in the section,
+  // including left of and above the origin. The live drag is a transform (React never
   // writes one on the slot), the drop commits a snapped position to the section
   // state and the section box grows to hold it.
   const onMoveDown = (e) => {
@@ -1174,48 +1161,63 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     });
   };
 
+  // Ctrl+left click (⌘ on a Mac) anywhere on the page moves it, as the header
+  // does. Capture phase, so the title, the chips and the menu do not stop it.
+  const onSlotDownCapture = (e) => { if (e.button === 0 && (e.ctrlKey || e.metaKey)) onGripDown(e); };
+
+  const fileName = String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_');
+  const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
+    .catch((err) => console.error('[design-canvas] export failed:', err));
   return (
-    <div ref={ref} data-dc-slot={id} style={position
-      ? { position: 'absolute', left: position.x - originX, top: position.y - originY }
+    <div ref={ref} data-dc-slot={id} onPointerDownCapture={onSlotDownCapture} style={position
+      ? { position: 'absolute', left: position.x - originX - DC.winPad, top: position.y - originY - DC.winHead - DC.winPad }
       : { position: 'relative', flexShrink: 0 }}>
-      <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
-        <div className="dc-labelrow">
-          <div className="dc-grip" onPointerDown={onGripDown} title={position ? 'Drag to move' : 'Drag to reorder'}>
-            <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6.5" r="1.1"/><circle cx="7" cy="6.5" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+      <div className="dc-win" style={{ width: width + DC.winPad * 2 }}>
+        {/* The whole header drags the card. The name, the chips and the
+            buttons stop the gesture, so a click on them still reads. */}
+        <div className="dc-winhead" data-noncommentable="" onPointerDown={onGripDown}
+          style={{ height: DC.winHead }} title={position ? 'Drag to move' : 'Drag to reorder'}>
+          <span className="dc-dot" title="Green while the screen is live" />
+          <div className="dc-wintitle" onPointerDown={(e) => e.stopPropagation()}>
+            <DCEditable value={label} onChange={(v) => actions.rename(id, v)} onClick={(e) => e.stopPropagation()} />
           </div>
-          <div className="dc-labeltext" onClick={() => actions.focus(id)} title="Click to focus">
-            <DCEditable value={label} onChange={(v) => actions.rename(id, v)} onClick={(e) => e.stopPropagation()} style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
-          </div>
-        </div>
-        <DCSizeChips size={size} onSize={(file) => actions.size(id, file)} />
-        <div className="dc-btns">
-          <div ref={menuRef} style={{ position: 'relative' }}>
-            <button className="dc-kebab" title="More" onClick={() => setMenuOpen((o) => !o)}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="2.5" cy="6" r="1.1"/><circle cx="6" cy="6" r="1.1"/><circle cx="9.5" cy="6" r="1.1"/></svg>
-            </button>
-            {menuOpen && (
-              <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
-                {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
-                {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
-                {arrowsMoved && <button onClick={() => { setMenuOpen(false); actions.resetArrows(id); }}>Reset arrow sides</button>}
-                {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'png').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download PNG</button>}
-                {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'html').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download HTML</button>}
-                {href && <hr />}
-                <button className="dc-danger" onClick={() => { if (confirming) { setMenuOpen(false); actions.remove(id); } else setConfirming(true); }}>
-                  {confirming ? 'Click again to delete' : 'Delete'}
+          <div className="dc-bar" onPointerDown={(e) => e.stopPropagation()}>
+            <DCSizeChips size={size} onSize={(file) => actions.size(id, file)} />
+            {size.axes.length > 0 && <hr />}
+            <div className="dc-btns">
+              <div ref={menuRef} style={{ position: 'relative' }}>
+                <button className="dc-kebab" title="More" onClick={() => setMenuOpen((o) => !o)}>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="currentColor"><circle cx="2.5" cy="6" r="1.1"/><circle cx="6" cy="6" r="1.1"/><circle cx="9.5" cy="6" r="1.1"/></svg>
                 </button>
+                {menuOpen && (
+                  <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
+                    {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
+                    {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
+                    {arrowsMoved && <button onClick={() => { setMenuOpen(false); actions.resetArrows(id); }}>Reset arrow sides</button>}
+                    {href && <button onClick={() => { setMenuOpen(false); save('png'); }}>Download PNG</button>}
+                    {href && <button onClick={() => { setMenuOpen(false); save('html'); }}>Download HTML</button>}
+                    {href && <hr />}
+                    <button className="dc-danger" onClick={() => { if (confirming) { setMenuOpen(false); actions.remove(id); } else setConfirming(true); }}>
+                      {confirming ? 'Click again to delete' : 'Delete'}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+              {href && (
+                <button className="dc-openbtn" title={'Open: ' + (label || id)} onClick={() => window.open(href, '_blank')}>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 2.5H2.5v11h11v-4"/><path d="M9.5 2.5h4v4M13.5 2.5L8 8"/></svg>
+                </button>
+              )}
+            </div>
           </div>
-          <button className="dc-expand" onClick={() => actions.focus(id)} title="Focus">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5"/></svg>
-          </button>
         </div>
-      </div>
-      {/* content-visibility goes on the card, not the slot: its paint containment
-          would clip the label header that hangs above the slot box. */}
-      <div className="dc-card" style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px`, ...style }}>
-        {children || <div className="dc-placeholder">{id}</div>}
+        {/* content-visibility goes on the screen, not the window: its paint
+            containment would clip the menu that opens under the header. */}
+        <div className="dc-winbody" style={{ padding: DC.winPad, background: DC.winBody }}>
+          <div className="dc-card" style={{ borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px`, ...style }}>
+            {children || <div className="dc-placeholder">{id}</div>}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1232,180 +1234,6 @@ function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
       onBlur={(e) => onChange && onChange(e.currentTarget.textContent)}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
       style={style}>{value}</T>
-  );
-}
-
-function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
-  const ctx = React.useContext(DCCtx);
-  const { sectionId, artboard } = entry;
-  const sec = ctx.section(sectionId);
-  const meta = sectionMeta[sectionId];
-  const peers = meta.slotIds;
-  const aid = artboard.props.id ?? artboard.props.label;
-  const idx = peers.indexOf(aid);
-  const secIdx = sectionOrder.indexOf(sectionId);
-  const actions = React.useMemo(
-    () => dcActions(ctx.patchSection, ctx.setFocus, sectionId, meta.srcKey),
-    [ctx.patchSection, ctx.setFocus, sectionId, meta.srcKey]);
-  const go = (d) => { const n = peers[(idx + d + peers.length) % peers.length]; if (n) ctx.setFocus(`${sectionId}/${n}`); };
-  const goSection = (d) => {
-    const n = sectionOrder.length;
-    for (let i = 1; i < n; i++) {
-      const ns = sectionOrder[(((secIdx + d * i) % n) + n) % n];
-      const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
-      if (first) { ctx.setFocus(`${ns}/${first}`); return; }
-    }
-  };
-  React.useEffect(() => {
-    const k = (e) => {
-      if (e.target && e.target.isContentEditable) return;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
-      if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); goSection(-1); }
-      if (e.key === 'ArrowDown') { e.preventDefault(); goSection(1); }
-    };
-    document.addEventListener('keydown', k);
-    return () => document.removeEventListener('keydown', k);
-  });
-  const size = dcSize(artboard.props, (sec.variant || {})[aid]);
-  const { width, height, href } = size;
-  const children = typeof artboard.props.children === 'function' ? artboard.props.children(size.cur, size) : artboard.props.children;
-  const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
-  React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
-
-  // The rail holds DC.rail px whatever the window does; only the screen
-  // re-fits. Two conditions fold it: a shell under DC.railMinW, and a rail
-  // that costs more than 20 % of the screen scale (a wide screen in a small
-  // window). The numbers come from the shell, not from the screen box: that
-  // box moves while the rail slides, and a rule that read it would judder.
-  const shellW = Math.max(320, vp.w - 80), shellH = Math.max(240, vp.h - 104);
-  const boxH = Math.max(80, shellH - 156); // head 56, body padding 56, dots 44
-  const fitTo = (w) => Math.max(0.1, Math.min(w / width, boxH / height, 2));
-  const sOpen = fitTo(shellW - DC.rail - 80), sShut = fitTo(shellW - 80);
-  const auto = shellW >= DC.railMinW && sOpen >= DC.railKeep * sShut;
-  // A click on Options wins, until the rule changes its mind.
-  const [pin, setPin] = React.useState(null);
-  const lastAuto = React.useRef(auto);
-  React.useEffect(() => { if (auto !== lastAuto.current) { lastAuto.current = auto; setPin(null); } }, [auto]);
-  const railOpen = pin === null ? auto : pin;
-  const scale = railOpen ? sOpen : sShut;
-
-  const [ddOpen, setDd] = React.useState(false);
-  const [confirming, setConfirming] = React.useState(false);
-  React.useEffect(() => setConfirming(false), [aid]);
-  const label = (sec.labels || {})[aid] ?? artboard.props.label;
-  const moved = !!(sec.positions && sec.positions[aid]);
-  const arrowsMoved = Object.entries(sec.arrows || {}).some(([key, o]) => {
-    const { from, to } = dcFlowKeyParts(key); return (from === aid && o.fs) || (to === aid && o.ts);
-  });
-  const fileName = String(label || aid || 'artboard').replace(/[^\w\s.-]+/g, '_');
-  const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
-    .catch((err) => console.error('[design-canvas] export failed:', err));
-  const AXIS = { size: 'Size', lang: 'Language', state: 'State' };
-  const Arrow = ({ dir, onClick }) => (
-    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
-      style={{ position: 'absolute', top: '50%', [dir]: 14, transform: 'translateY(-50%)', border: 'none', background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.9)', width: 44, height: 44, borderRadius: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'} /></svg>
-    </button>
-  );
-  // Focused content: prefer a fresh eager iframe of the screen (children may be lazy).
-  const content = href ? <DCLazyFrame src={href} title={aid} width={width} height={height} eager /> : children;
-  return ReactDOM.createPortal(
-    <div className="dc-focus" onClick={() => ctx.setFocus(null)} onWheel={(e) => e.preventDefault()}
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(24,20,16,.6)', backdropFilter: 'blur(14px)', fontFamily: DC.font, color: '#fff' }}>
-      <div className={'dc-shell' + (railOpen ? '' : ' dc-rail-off')} onClick={(e) => e.stopPropagation()}>
-        <div className="dc-shell-main">
-          <div className="dc-shell-head">
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setDd((o) => !o)} style={{ border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, textAlign: 'left', fontFamily: 'inherit' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: -0.3 }}>{meta.title}</span>
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ opacity: .7 }}><path d="M2 4l3.5 3.5L9 4"/></svg>
-                </span>
-              </button>
-              {ddOpen && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#2a251f', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', padding: 4, minWidth: 200, zIndex: 10 }}>
-                  {sectionOrder.filter((sid) => sectionMeta[sid].slotIds.length).map((sid) => (
-                    <button key={sid} onClick={() => { setDd(false); const f = sectionMeta[sid].slotIds[0]; if (f) ctx.setFocus(`${sid}/${f}`); }}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent', color: '#fff', padding: '8px 12px', borderRadius: 5, fontSize: 14, fontWeight: sid === sectionId ? 600 : 400, fontFamily: 'inherit' }}>
-                      {sectionMeta[sid].title}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,.45)', fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
-            <button className={'dc-opt' + (railOpen ? ' dc-on' : '')} onClick={() => setPin(!railOpen)}
-              title={railOpen ? 'Hide the page options' : 'Show the page options'}>Options</button>
-            <button onClick={() => ctx.setFocus(null)} style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,.7)', width: 32, height: 32, borderRadius: 16, fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
-          </div>
-          <div className="dc-shell-body">
-            <div style={{ width: width * scale, height: height * scale, position: 'relative' }}>
-              <div style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left', background: '#fff', borderRadius: 2, overflow: 'hidden', boxShadow: '0 20px 80px rgba(0,0,0,.4)' }}>
-                {content}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {peers.map((pid, i) => (
-                <button key={pid} onClick={() => ctx.setFocus(`${sectionId}/${pid}`)} title={pid}
-                  style={{ border: 'none', padding: 0, cursor: 'pointer', width: 6, height: 6, borderRadius: 3, background: i === idx ? '#fff' : 'rgba(255,255,255,.3)' }} />
-              ))}
-            </div>
-            <Arrow dir="left" onClick={() => go(-1)} />
-            <Arrow dir="right" onClick={() => go(1)} />
-          </div>
-        </div>
-        <div className="dc-rail">
-          <div className="dc-grp">
-            <h4>Page</h4>
-            <DCEditable value={label} onChange={(v) => actions.rename(aid, v)} />
-          </div>
-          {size.axes.length > 0 && (
-            <div className="dc-grp">
-              <h4>Variant</h4>
-              {size.axes.map((ax) => (
-                <div key={ax.key} className="dc-axis">
-                  <span>{AXIS[ax.key] || ax.key}</span>
-                  <div className="dc-sizes">
-                    {ax.chips.map((c) => (
-                      <button key={c.value} className={'dc-size' + (c.value === ax.on ? ' dc-on' : '')} title={c.file}
-                        onClick={() => actions.size(aid, c.file)}>{c.label}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {(moved || arrowsMoved) && (
-            <div className="dc-grp">
-              <h4>Layout</h4>
-              {moved && <button className="dc-row" onClick={() => actions.resetPosition(aid)}>Reset position</button>}
-              {arrowsMoved && <button className="dc-row" onClick={() => actions.resetArrows(aid)}>Reset arrow sides</button>}
-            </div>
-          )}
-          {href && (
-            <div className="dc-grp">
-              <h4>Export</h4>
-              <button className="dc-row" onClick={() => window.open(href, '_blank')}>Open screen</button>
-              <button className="dc-row" onClick={() => save('png')}>Download PNG</button>
-              <button className="dc-row" onClick={() => save('html')}>Download HTML</button>
-            </div>
-          )}
-          <div className="dc-grp">
-            <button className="dc-row dc-danger"
-              onClick={() => { if (!confirming) return setConfirming(true); actions.remove(aid); ctx.setFocus(null); }}>
-              {confirming ? 'Click again to delete' : 'Delete page'}
-            </button>
-          </div>
-          <div className="dc-meta">
-            {href && <b>{href.split('/').pop()}</b>}
-            {width} × {height}{size.variants ? ` · ${size.variants.length} variants` : ''}
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 

@@ -26,9 +26,10 @@ const CF = {
   strokeW: 'max(calc(2px * min(var(--dc-inv-zoom, 1), 2)), calc(1px * var(--dc-inv-zoom, 1)))',
   // Dashes are in world units too, so they scale with the zoom to stay 5/6 screen px.
   dashW: 'calc(5px * var(--dc-inv-zoom, 1)) calc(6px * var(--dc-inv-zoom, 1))',
-  // Pill size is in world units: 12.5px at 100% zoom, and it grows and shrinks
-  // with the pages from there.
-  pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
+  // Pill size is in world units: 18px at 100% zoom, and it grows and shrinks
+  // with the pages from there. Pages are 1440 world px wide with a 22px window
+  // title, so a smaller pill vanishes at the zoom that fits one page on screen.
+  pill: { font: '600 18px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 // Outward normals of the source and target sides; unknown sides read as r → l.
@@ -189,7 +190,7 @@ function cfArrow(p, angle) {
 const CF_LABEL_T = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74];
 function cfPlaceLabels(paths) {
   const placed = [];
-  const pill = (p, t) => { const c = p.at(t); const w = p.label.length * 7.2 + 24, h = 28; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
+  const pill = (p, t) => { const c = p.at(t); const w = p.label.length * 10.4 + 34, h = 36; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
   const overlaps = (r) => placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
   for (const p of paths) {
     if (!p.label) continue;
@@ -379,7 +380,7 @@ function CanvasFlows({ flows: authored, section }) {
           position: 'absolute', left: p.mid.x, top: p.mid.y, transform: 'translate(-50%, -50%)',
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
-          borderRadius: 999, padding: '5px 11px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
+          borderRadius: 999, padding: '8px 16px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
           pointerEvents: 'auto', transition: 'opacity .15s, color .15s, border-color .15s',
         }}>{p.label}</div>
       ))}
