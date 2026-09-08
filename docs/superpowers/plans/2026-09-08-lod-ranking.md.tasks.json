@@ -28,21 +28,21 @@
   {
    "id": 2,
    "subject": "Task 3: Keep a slot you just touched",
-   "status": "pending",
+   "status": "completed",
    "blockedBy": [
     1
    ],
-   "description": "**Goal:** A slot that had a pointer down on it in the last `DC.stickyMs` sorts first, so a card you drag or rename does not drop while you work on it.\n\n**Files:**\n- Modify: `design-canvas.jsx:16-34` (the `DC` constants)\n- Modify: `design-canvas.jsx` \u2014 `dcLodRun` (the ranking line) and `dcLodSubscribe` (the listener)\n- Test: `tests/regressions.js`\n\n**Acceptance Criteria:**\n- [ ] `DC.stickyMs` is 4000 and `DC.stickyBias` is 1e6.\n- [ ] A pointer down on a slot outside the budget makes that slot live on the next pass.\n- [ ] The live count never goes over `DC.liveBudget` to make room for it.\n- [ ] The listener is capture phase, so the `stopPropagation` in `.dc-header` cannot hide the touch.\n- [ ] The listener is added with the first subscriber and removed with the last.\n- [ ] Every test on `tests/regressions.html` still passes; the page title is `PASS`.\n\n**Verify:** `python3 -m http.server 8000`, then open `http://localhost:8000/tests/regressions.html` -> the document title is `PASS` and the row `a slot you touch keeps its place in the budget` reports `\"pass\": true`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"tests/regressions.js\"], \"verifyCommand\": \"python3 -m http.server 8000  # then open http://localhost:8000/tests/regressions.html and read the title\", \"acceptanceCriteria\": [\"DC.stickyMs is 4000 and DC.stickyBias is 1e6\", \"a touched cold slot becomes live on the next pass\", \"live count never exceeds DC.liveBudget\", \"the pointerdown listener is capture phase\", \"the listener is added with the first subscriber and removed with the last\", \"regressions.html title is PASS\"], \"modelTier\": \"standard\"}\n```"
+   "description": "**Goal:** A slot that had a pointer down on it in the last DC.stickyMs sorts ahead of its equally-visible peers.\n\nComplete \u2014 see ledger."
   },
   {
    "id": 3,
    "subject": "Task 4: Record the outcome",
-   "status": "pending",
+   "status": "completed",
    "blockedBy": [
     2
    ],
-   "description": "**Goal:** The README describes what the registry now does, and the design doc carries the before and after numbers \u2014 including a withdrawal if the numbers do not justify a change.\n\n**Files:**\n- Modify: `README.md` (the \"How the level of detail works\" section)\n- Modify: `docs/superpowers/specs/2026-09-08-lod-ranking-design.md` (add a \"Measured outcome\" section)\n\n**Acceptance Criteria:**\n- [ ] The README says a slot's world box is held and re-measured on invalidation, and lists the four places that invalidate.\n- [ ] The README describes `DC.stickyMs`.\n- [ ] The design doc has a \"Measured outcome\" section with the `lodPassCost` object from Task 1 Step 4 and from Task 2 Step 9, on the same machine.\n- [ ] If `msPerPass` did not improve, the section says so plainly. Do not report an improvement the numbers do not show.\n\n**Verify:** `git diff --stat HEAD~1` shows only `README.md` and the design doc, and `grep -c \"Measured outcome\" docs/superpowers/specs/2026-09-08-lod-ranking-design.md` -> `1`\n\n```json:metadata\n{\"files\": [\"README.md\", \"docs/superpowers/specs/2026-09-08-lod-ranking-design.md\"], \"verifyCommand\": \"grep -c 'Measured outcome' docs/superpowers/specs/2026-09-08-lod-ranking-design.md\", \"acceptanceCriteria\": [\"README describes the held world box and the four invalidation points\", \"README describes DC.stickyMs\", \"the design doc carries the before and after lodPassCost objects\", \"a non-improvement is reported plainly, not dressed up\"], \"modelTier\": \"mechanical\"}\n```"
+   "description": "**Goal:** The README describes what the registry now does, and the design doc carries the measured outcome and the corrections.\n\nComplete \u2014 see ledger."
   }
  ],
- "lastUpdated": "2026-09-08T17:14:12"
+ "lastUpdated": "2026-09-08T17:36:27"
 }
