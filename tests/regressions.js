@@ -62,7 +62,7 @@ window.canvasTestsDone = (async () => {
     draw('review-switch-b.json'); await wait(250);
     check(calls.some((url) => String(url).includes('-b.')), 'B was never fetched');
     check(api.section('review').title === 'B', 'A state leaked into B');
-    api.patchSection('review', { title: 'edited B' }); await wait(450);
+    api.patchSection('review', { title: 'edited B' }); await wait(DC.saveDebounceMs + 50);
     check(JSON.parse(localStorage.getItem(key('review-switch-b.json'))).sections.review.title === 'edited B', 'B edit not saved');
   });
   await test('navigation before debounce retains browser edits', async () => {
@@ -336,6 +336,30 @@ window.canvasTestsDone = (async () => {
     window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
     draw('review-hang.json'); await wait(DC.stateTimeoutMs + 300);
     check(!!api, 'the canvas stayed blank past DC.stateTimeoutMs');
+  });
+  await test('a failed host write is retried on pagehide', async () => {
+    const calls = [];
+    window.omelette = { writeFile: async (file, json) => { calls.push(json); throw new Error('disk'); } };
+    try {
+      window.fetch = async () => json(envelope('file', 10));
+      draw('review-writefail.json'); await until(() => api);
+      api.patchSection('review', { title: 'edited' }); await wait(DC.saveDebounceMs + 100);
+      check(calls.length === 1, 'first write did not run');
+      window.dispatchEvent(new Event('pagehide')); await wait(50);
+      check(calls.length === 2, 'the failed write was marked saved and not retried');
+    } finally { delete window.omelette; }
+  });
+  await test('a host write that ran is not sent again on pagehide', async () => {
+    const calls = [];
+    window.omelette = { writeFile: async (file, json) => { calls.push(json); } };
+    try {
+      window.fetch = async () => json(envelope('file', 10));
+      draw('review-writeonce.json'); await until(() => api);
+      api.patchSection('review', { title: 'edited' }); await wait(DC.saveDebounceMs + 100);
+      check(calls.length === 1, 'first write did not run');
+      window.dispatchEvent(new Event('pagehide')); await wait(50);
+      check(calls.length === 1, 'the saved sections were written a second time');
+    } finally { delete window.omelette; }
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

@@ -36,6 +36,7 @@ const DC = {
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
   stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
+  saveDebounceMs: 400,   // wait after the last edit before the state file is written
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -420,13 +421,18 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     const json = JSON.stringify({ sections: state.sections, updatedAt: state.updatedAt });
     // Save locally immediately, including when navigation beats the file debounce.
     try { localStorage.setItem(lsKey, json); } catch {}
+    // Mark the sections saved only after the host writes them. A failed write
+    // thus stays pending, and the next write chance sends it again.
     const write = () => {
       clearTimeout(t);
       if (savedSections.current === state.sections) return;
-      savedSections.current = state.sections;
-      fileWrites.current = fileWrites.current.then(() => window.omelette?.writeFile(stateFile, json)).catch(() => {});
+      const mine = state.sections;
+      fileWrites.current = fileWrites.current
+        .then(() => window.omelette?.writeFile(stateFile, json))
+        .then(() => { savedSections.current = mine; },
+          (err) => { console.warn('[design-canvas] state file write failed; the browser copy holds the edits', err); });
     };
-    const t = setTimeout(write, 400);
+    const t = setTimeout(write, DC.saveDebounceMs);
     window.addEventListener('pagehide', write);
     return () => { clearTimeout(t); window.removeEventListener('pagehide', write); };
   }, [ready, state.sections, state.updatedAt, lsKey, stateFile]);
