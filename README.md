@@ -60,8 +60,9 @@ screens are placeholders.
   `await dcBench.all()`. It reports frame times through a pinch, the number of
   `--dc-inv-zoom` writes in a gesture, the live iframe count at five zoom
   levels, the level-of-detail pass cost (`lodPassCost`: the slot rects the
-  pass reads, and its time), the arrow re-route cost, and the render count
-  for one state patch. **`all()` writes to saved state.** It drags a card and
+  pass reads, its time, and how many of the passes ranked at all, because a
+  pass refuses to run while the world moves), the arrow re-route cost, and the
+  render count for one state patch. **`all()` writes to saved state.** It drags a card and
   it clicks variant chips, and the canvas keeps both. To undo, delete the
   page's `dc-state:` entry from localStorage and reload.
 

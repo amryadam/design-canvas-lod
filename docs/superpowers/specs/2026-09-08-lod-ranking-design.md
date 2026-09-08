@@ -84,7 +84,10 @@ that moment with a stale mark.
 
 `dcBench.lodPassCost()` on the sample: `slotRectsPerPass` went from 10 before
 this work to 0 after. That is the number the change was made for, and it is
-exact.
+exact. The instrument now reports `rankedPasses` beside it, and the last run
+gives `{"slots":10,"passes":40,"rankedPasses":40,"msPerPass":0,
+"slotRectsPerPass":0}`. All 40 passes reached the ranking loop, so the zero is
+a pass that read no slot rect and not a pass that never ran.
 
 `msPerPass` is not measurable with the tools used. The workspace harness ran
 Chrome with `--virtual-time-budget`, which distorts `performance.now`, and it
