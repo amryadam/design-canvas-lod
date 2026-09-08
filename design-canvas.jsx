@@ -126,17 +126,19 @@ function dcMarkMoving(vp) {
 // that fire per frame.
 // `world` is the transformed element the slots sit in, and `gen` is the
 // measurement generation. DCViewport writes both through dcSetCamera on every
-// flushed frame. `scale` drives no decision in the app: dcLodRun ranks slots by
+// flushed frame, and gives the world back through dcClearCamera when it goes
+// away. `world` is thus null, and not a dead element, between one canvas and
+// the next. `scale` drives no decision in the app: dcLodRun ranks slots by
 // distance and budget only. The field is kept because perf/bench.js reads it to
 // know where the view is.
 const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 0, io: null };
 
 // A slot's box inside the world does not move when the world pans or zooms.
-// The world carries transform-origin 0 0, and since the anchor fix only
-// .dc-header reads --dc-inv-zoom, and it is position:absolute — so the world
-// layout is the same at every zoom. Each entry therefore holds its world box
-// and the generation it was measured in, and one pass turns the held boxes
-// into screen space with one rect read of the world itself.
+// The world carries transform-origin 0 0. Since the anchor fix, only
+// .dc-header reads --dc-inv-zoom, and it is position:absolute. The world
+// layout is thus the same at every zoom. Each entry therefore holds its
+// world box and the generation it was measured in, and one pass turns the
+// held boxes into screen space with one rect read of the world itself.
 // Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
 // slightly wrong ranking until the next real one, never a wrong render.
 function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
@@ -161,21 +163,38 @@ function dcLodRun() {
   // full iframe. Do not measure the slots during the gesture. Wait until the
   // world stops. dcLodSchedule then runs this pass again.
   if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
-  const world = dcLod.world; if (!world) return;
+  // The registry lives longer than one canvas. There is thus no world to
+  // measure against before the first flushed frame, and again after the
+  // viewport goes away. A detached world is the same case: its rect is all
+  // zeros, so every box that it makes is wrong.
+  // With no world the pass measures each slot itself, as it did before the
+  // held boxes. This costs one rect for each slot, but only in that short
+  // window. It also keeps the budget correct at all times: an absent camera
+  // can never leave the canvas with no live iframes.
+  const cam = dcLod.world;
+  const world = cam && cam.isConnected && cam.offsetWidth ? cam : null;
   // One rect read for the whole pass. The scale comes from the same read, so
   // it cannot fall out of step with the DOM the way a stored copy can.
-  const wr = world.getBoundingClientRect();
-  const scale = world.offsetWidth ? wr.width / world.offsetWidth : dcLod.scale;
+  const wr = world ? world.getBoundingClientRect() : null;
+  const scale = world ? wr.width / world.offsetWidth : 1;
   const all = [];
   dcLod.subs.forEach((s) => {
-    if (s.gen !== dcLod.gen) {
+    let r;
+    if (!world) {
+      // Do not hold this box. There is no world to make it relative to, so
+      // the first pass with a world must measure the slot again.
       const b = s.box.getBoundingClientRect();
-      s.wx = (b.left - wr.left) / scale; s.wy = (b.top - wr.top) / scale;
-      s.ww = b.width / scale; s.wh = b.height / scale;
-      s.gen = dcLod.gen;
+      r = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    } else {
+      if (s.gen !== dcLod.gen) {
+        const b = s.box.getBoundingClientRect();
+        s.wx = (b.left - wr.left) / scale; s.wy = (b.top - wr.top) / scale;
+        s.ww = b.width / scale; s.wh = b.height / scale;
+        s.gen = dcLod.gen;
+      }
+      const left = wr.left + s.wx * scale, top = wr.top + s.wy * scale;
+      r = { left, top, right: left + s.ww * scale, bottom: top + s.wh * scale };
     }
-    const left = wr.left + s.wx * scale, top = wr.top + s.wy * scale;
-    const r = { left, top, right: left + s.ww * scale, bottom: top + s.wh * scale };
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
     all.push({ s, near, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
@@ -193,7 +212,24 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-function dcSetCamera(world, scale) { dcLod.world = world; dcLod.scale = scale; dcLodSchedule(); }
+// The camera is the world element that the held boxes are relative to. Only
+// DCViewport writes it, and only for the world that it owns.
+function dcSetCamera(world, scale) {
+  // A different world element means a different canvas. Its slots have not
+  // been measured against it, so a stale generation would wrongly let them
+  // keep their old boxes. Bump the generation to make those boxes invalid.
+  if (dcLod.world !== world) dcLod.gen++;
+  dcLod.world = world; dcLod.scale = scale; dcLodSchedule();
+}
+// The viewport calls this when it goes away. The registry must not keep a
+// world that has left the page, because the held boxes are relative to that
+// world only. The generation goes up with it, so no box can live on into a
+// different world. The element is compared first: a canvas that goes away
+// late must not clear the camera of a canvas that came after it.
+function dcClearCamera(world) {
+  if (dcLod.world !== world) return;
+  dcLod.world = null; dcLod.gen++;
+}
 // entry is { box, margin, live, set } — the slot element to measure, the px of
 // screen space that lets it mount, whether it is live now, and the setter that
 // mounts or drops it. dcLodRun adds the held world box and its generation.
@@ -591,6 +627,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   }, [apply, stopTween, minScale, maxScale]);
 
   React.useLayoutEffect(() => {
+    // Hold the world element now. React can detach the ref before this
+    // cleanup runs, and the cleanup must know which world it gives back.
+    const world = worldRef.current;
     const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
     try {
       const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
@@ -603,9 +642,12 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // The pill timer and the Back to content tween live as long as the
     // viewport, so they are stopped here and not in the fit effect, which
     // re-runs whenever the content or the scale bounds change.
+    // The LOD registry is module state, so it also outlives this viewport.
+    // Give the world back, or the next canvas ranks against a dead one.
     return () => {
       clearTimeout(lostT.current); clearTimeout(invT.current);
       if (tween.current) cancelAnimationFrame(tween.current);
+      dcClearCamera(world);
       window.removeEventListener('pagehide', flush); flush();
     };
   }, []);
@@ -1088,6 +1130,10 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         setTimeout(() => {
           for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
+          // The reorder lands here, 180ms after drop — past the settle that
+          // finish()'s own invalidation already spent. Measure again, or the
+          // registry keeps ranking the pre-reorder boxes.
+          dcLodInvalidate();
           vp && vp.classList.remove('dc-moving');
           requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
         }, 180);

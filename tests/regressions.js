@@ -177,6 +177,74 @@ window.canvasTestsDone = (async () => {
     check(held === 0, 'a settled pass measured ' + held + ' slots');
     check(fresh === count, 'an invalidated pass measured ' + fresh + ' of ' + count);
   });
+  await test('a forced re-measure ranks the same slots live as the held boxes', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // Small boards, so the whole row is inside the mount margin at scale 1.
+    // The fit runs from an animation frame, and this headless harness does not
+    // always give one. This test must measure the ranking, not the fit.
+    const count = DC.liveBudget + 6;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 100, height: 80 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 100, height: 80 })));
+    }
+    draw('review-rank-stable.json', E(DCSection, { id: 'review', title: 'Stable' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(400);
+    const liveSet = () => new Set([...host.querySelectorAll('[data-dc-slot]')]
+      .filter((el) => el.querySelector('.dc-card iframe')).map((el) => el.dataset.dcSlot));
+    // Pan the row, so the held boxes and a fresh measurement would disagree if
+    // the arithmetic in dcLodRun were wrong: the world moves under a still camera.
+    const vp = host.querySelector('.design-canvas');
+    vp.dispatchEvent(new WheelEvent('wheel', { deltaX: 900, deltaY: 0, deltaMode: 0, clientX: 200, clientY: 200, bubbles: true, cancelable: true }));
+    await wait(DC.settleMs + 400);
+    const before = liveSet();
+    check(before.size === DC.liveBudget, 'the pan did not settle to a full budget: ' + before.size);
+    dcLodInvalidate();
+    await wait(DC.settleMs + 400);
+    const after = liveSet();
+    check(after.size === DC.liveBudget, 'the re-measured pass did not settle to a full budget: ' + after.size);
+    const beforeList = [...before].sort().join(','), afterList = [...after].sort().join(',');
+    check(beforeList === afterList, 'ranking changed on a forced re-measure: ' + beforeList + ' -> ' + afterList);
+  });
+  await test('a canvas that goes away leaves a registry that still ranks', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // The registry is module state, so it outlives each canvas. A first canvas
+    // mounts, sets the camera, and then goes away.
+    draw('review-gone.json', E(DCSection, { id: 'review', title: 'Gone' },
+      E(DCArtboard, { id: 'g0', width: 100, height: 80 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'g0', width: 100, height: 80 }))));
+    await until(() => host.querySelectorAll('.dc-card iframe').length === 1);
+    for (let i = 0; i < 100 && dcLod.world === null; i++) await wait(20);
+    check(dcLod.world !== null, 'the first canvas never set a camera');
+    root.unmount(); host.replaceChildren(); root = ReactDOM.createRoot(host);
+    check(dcLod.world === null, 'the registry kept the world of the canvas that went away');
+
+    // A second canvas, with the camera held away for the whole of its life. A
+    // real canvas is in this state from its first slot to its first flushed
+    // frame. The budget must still fill: a pass with no world measures each
+    // slot itself. Without that fallback no iframe mounts at all.
+    const camera = Object.getOwnPropertyDescriptor(dcLod, 'world');
+    Object.defineProperty(dcLod, 'world', { configurable: true, get: () => null, set: () => {} });
+    // Small boards, so the whole row is inside the mount margin at scale 1.
+    // The fit runs from an animation frame, and this headless harness does not
+    // always give one. This test must measure the registry, not the fit.
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'c' + i, id: 'c' + i, width: 100, height: 80 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'c' + i, width: 100, height: 80 })));
+    }
+    try {
+      draw('review-nocamera.json', E(DCSection, { id: 'review', title: 'No camera' }, boards));
+      await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+      await until(() => host.querySelectorAll('.dc-card iframe').length === DC.liveBudget);
+    } finally { Object.defineProperty(dcLod, 'world', { ...camera, value: null }); }
+    const live = host.querySelectorAll('.dc-card iframe').length;
+    check(live === DC.liveBudget, 'a canvas with no camera mounted ' + live + ' of ' + DC.liveBudget);
+    check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
+  });
   await test('the settled --dc-inv-zoom write holds the zoom anchor', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     // A viewport of a known size, so the anchor is the slot below its middle
