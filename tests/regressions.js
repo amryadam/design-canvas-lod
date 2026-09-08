@@ -135,10 +135,15 @@ window.canvasTestsDone = (async () => {
   await test('live iframes stay inside the budget', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     const count = DC.liveBudget + 4;
+    // The window chrome is part of the slot box, and the budget counts the
+    // slots nearest the view. Size the screen so the window keeps the 300x200
+    // box this check was written for; a bigger box would push the eighth slot
+    // out of the margin and the budget would never fill.
+    const w = 300 - DC.winPad * 2, h = 200 - DC.winHead - DC.winPad * 2;
     const boards = [];
     for (let i = 0; i < count; i++) {
-      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
-        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: w, height: h },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: w, height: h })));
     }
     draw('review-budget.json', E(DCSection, { id: 'review', title: 'Budget' }, boards));
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
@@ -243,6 +248,41 @@ window.canvasTestsDone = (async () => {
     }
     mo.disconnect();
     check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
+  });
+  await test('settled visible slots reclaim the budget from off-screen live slots', async () => {
+    // Controlled post-zoom screen rects: 1000-world-px boards at 5% zoom.
+    // There are exactly budget visible boards, so none should stay a placeholder.
+    // Previously live boards sit just below the screen, inside unmountMargin.
+    const entries = [], changes = [];
+    const add = (id, top, live) => {
+      const left = innerWidth / 2;
+      const s = { id, live, margin: 600,
+        box: { getBoundingClientRect: () => ({ left, top, right: left + 50, bottom: top + 50 }) },
+        set(value) { changes.push({ id, value }); } };
+      entries.push(s); dcLod.subs.add(s);
+    };
+    // Finish the previous test's moving window before asking for settled passes.
+    await wait(DC.movingMs + DC.settleMs + 50);
+    check(dcLod.subs.size === 0, 'previous fixture retained LOD subscriptions');
+    try {
+      for (let i = 0; i < DC.liveBudget; i++) add('old-' + i, innerHeight + 10, true);
+      for (let i = 0; i < DC.liveBudget; i++) add('visible-' + i, innerHeight - 100, false);
+      for (let pass = 0; pass < 100; pass++) {
+        const start = changes.length;
+        dcLodRun();
+        check(entries.filter((s) => s.live).length <= DC.liveBudget, 'budget exceeded during recovery');
+        check(changes.slice(start).filter((c) => c.value).length <= 1, 'recovery bypassed staggered mounts');
+      }
+      const visibleLive = entries.filter((s) => s.id.startsWith('visible-') && s.live).length;
+      check(visibleLive === DC.liveBudget,
+        visibleLive + '/' + DC.liveBudget + ' visible slots live after 100 settled passes; off-screen slots retained the budget');
+      const settledChanges = changes.length;
+      for (let pass = 0; pass < 10; pass++) dcLodRun();
+      check(changes.length === settledChanges, 'idle LOD churn after recovery');
+    } finally {
+      entries.forEach((s) => dcLod.subs.delete(s));
+      clearTimeout(dcLod.timer);
+    }
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

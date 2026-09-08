@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>design-canvas-lod · every option</title>
+<!--
+  One window with every option in its bar: three variant axes (size, language,
+  state), a moved page and a moved arrow side, so the ⋯ menu shows every row.
+  The section state is seeded in the browser before the canvas reads it.
+  http://localhost:8000/sample/all-options.html
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+<body style="margin:0"><div id="root"></div>
+<script>
+  // Seed: a moved page and an arrow whose side was dragged. Both rows in the
+  // ⋯ menu appear only when the page carries that state.
+  const FILE = '.design-canvas.all-options.state.json';
+  const KEY = 'dc-state:' + location.pathname + ':' + FILE;
+  localStorage.setItem(KEY, JSON.stringify({
+    updatedAt: Date.now(),
+    sections: { demo: {
+      positions: { Invoices: { x: 0, y: 0 } },
+      arrows: { ['Invoices\x1fInvoiceView\x1f']: { fs: 'r' } },
+    } },
+  }));
+</script>
+<script type="text/babel" src="../design-canvas.jsx"></script>
+<script type="text/babel">
+  // One page, three axes. Each variant points at a real file in this folder,
+  // so the frame shows a screen whatever the chips choose.
+  const V = [
+    { file: 'Invoices.dc.html',       href: './Invoices.dc.html',       w: 1440, h: 1100, chip: '1440', lang: 'en', state: '', primary: true },
+    { file: 'InvoiceView.dc.html',    href: './InvoiceView.dc.html',    w: 2560, h: 1440, chip: '2K',  lang: 'en', state: '' },
+    { file: 'ZatcaDonePhone.dc.html', href: './ZatcaDonePhone.dc.html', w: 390,  h: 844,  chip: '390', lang: 'en', state: '' },
+    { file: 'ZatcaCode.dc.html',      href: './ZatcaCode.dc.html',      w: 1440, h: 900,  chip: '1440', lang: 'ar', state: '' },
+    { file: 'ZatcaFailed.dc.html',    href: './ZatcaFailed.dc.html',    w: 1440, h: 900,  chip: '1440', lang: 'en', state: 'Stopped' },
+  ];
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <DesignCanvas stateFile=".design-canvas.all-options.state.json">
+      <DCSection id="demo" title="Every option" subtitle="one window · three axes · every menu row">
+        <DCArtboard id="Invoices" label="04 Invoices · every option" variants={V}>
+          {(cur, size) => <DCLazyFrame src={size.href} title="Invoices" width={size.width} height={size.height} href={size.href} />}
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+</script>
