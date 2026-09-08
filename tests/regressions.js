@@ -244,12 +244,21 @@ window.canvasTestsDone = (async () => {
     mo.disconnect();
     check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
   });
-  async function dragFixture(name) {
+  // A section with `positions` places the cards freely and the grip moves one.
+  // A section without it lays them out in a row and the grip reorders them,
+  // which is the keepMoving path.
+  async function dragFixture(name, positions = { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } }) {
     window.fetch = async () => new Response('', { status: 404 });
-    draw(name, E(DCSection, { id: 'review', positions: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } } },
-      E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })));
-    await until(() => host.querySelector('[data-dc-slot] .dc-grip'));
+    draw(name, [
+      E(Probe, { key: 'p' }),
+      E(DCSection, { key: 's', id: 'review', ...(positions ? { positions } : {}) },
+        E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
+    ]);
+    await until(() => api && host.querySelector('[data-dc-slot] .dc-grip'));
+    // The first fit and its DC.rescueMs nudge both arm the moving flag. Wait
+    // for it to clear, or a check cannot tell a drag's flag from theirs.
     await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
     const vp = host.querySelector('.design-canvas');
     const grip = host.querySelector('[data-dc-slot="A"] .dc-grip');
     const r = grip.getBoundingClientRect();
@@ -265,6 +274,9 @@ window.canvasTestsDone = (async () => {
     await wait(50);
     check(!dcMoving(), 'dcMoving() stayed true after the pointer was lost');
     check(!vp.classList.contains('dc-moving'), '.dc-moving stayed on after the pointer was lost');
+    // The pointer went away; the user never dropped the card. A cancelled drag
+    // must put the card back and write no position to the section state.
+    check(!(api.section('review').positions || {}).A, 'the cancelled drag committed a move');
   });
   await test('a pan timer does not strip .dc-moving from a running drag', async () => {
     const { vp, r, at } = await dragFixture('review-pandrag.json');
@@ -277,6 +289,18 @@ window.canvasTestsDone = (async () => {
     at('pointerup', r.left + 60, r.top + 60, document);
     await wait(DC.movingMs + 60);
     check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the drop');
+  });
+  await test('a grip reorder holds the flag over its drop animation', async () => {
+    const { vp, r, at } = await dragFixture('review-reorder.json', null);
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 300, r.top, document);
+    check(dcMoving() && vp.classList.contains('dc-moving'), 'the reorder drag did not set the flag');
+    at('pointerup', r.left + 300, r.top, document);
+    // keepMoving arms the flag for DC.movingMs, which outlasts the 180 ms drop
+    // slide. An iframe that mounts under the cards mid-slide would drop frames.
+    check(dcMoving() && vp.classList.contains('dc-moving'), 'the drop cleared the flag before the slide ran');
+    await wait(DC.movingMs + 60);
+    check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the slide');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

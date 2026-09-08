@@ -146,13 +146,24 @@ const DCCtx = React.createContext(null);
 // The .dc-moving class drives CSS only (live iframes lose pointer events).
 // dcSyncMoving is the one writer of that class: it copies dcMoving() onto every
 // viewport, so the class can never disagree with the flag.
+// The flag is global on purpose. A gesture in one viewport freezes the LOD
+// registry for the whole page, so every viewport gets the same answer.
+// dcSyncedOn holds the state already written. A pan calls dcSyncMoving in each
+// flushed frame, and the answer only changes twice per gesture, so the cache
+// keeps the querySelectorAll off the pan and zoom path.
 let dcMovingTimer = 0;
 let dcDragDepth = 0;
+let dcSyncedOn = null;
 const dcMoving = () => dcMovingTimer !== 0 || dcDragDepth > 0;
 function dcSyncMoving() {
   const on = dcMoving();
+  if (on === dcSyncedOn) return;
+  dcSyncedOn = on;
   document.querySelectorAll('.design-canvas').forEach((vp) => vp.classList.toggle('dc-moving', on));
 }
+// A viewport that mounts during a gesture carries no class yet. This drops the
+// cache, so the next sync writes to it as well.
+function dcSyncMovingForce() { dcSyncedOn = null; dcSyncMoving(); }
 function dcMarkMoving() {
   clearTimeout(dcMovingTimer);
   dcMovingTimer = setTimeout(() => { dcMovingTimer = 0; dcSyncMoving(); dcLodSchedule(); }, DC.movingMs);
@@ -612,6 +623,8 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       }
     } catch {}
     window.addEventListener('pagehide', flush);
+    // This viewport may have mounted during a gesture in another one.
+    dcSyncMovingForce();
     // The pill timer and the Back to content tween live as long as the
     // viewport, so they are stopped here and not in the fit effect, which
     // re-runs whenever the content or the scale bounds change.
@@ -695,8 +708,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       stopTween();
       vp.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
-      // Arm the removal timer with the class, so a click with no move still
-      // clears dc-moving; dcLodRun freezes the whole LOD registry while it is set.
+      // Arm the flag here, so a click with no move still clears it after
+      // DC.movingMs; dcLodRun freezes the whole LOD registry while it is set.
+      // dcMarkMoving owns the timer and dcSyncMoving owns the class.
       vp.style.cursor = 'grabbing'; dcMarkMoving();
     };
     const onPointerMove = (e) => {
@@ -1061,6 +1075,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   const ref = React.useRef(null);
   const menuRef = React.useRef(null);
   const cancelDrag = React.useRef(null);
+  const dropT = React.useRef(0);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
@@ -1071,7 +1086,8 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     return () => document.removeEventListener('pointerdown', off, true);
   }, [menuOpen]);
 
-  React.useEffect(() => () => { cancelDrag.current && cancelDrag.current(); }, []);
+  // Cancel first: a cancelled drag commits nothing and arms no drop timer.
+  React.useEffect(() => () => { cancelDrag.current && cancelDrag.current(); clearTimeout(dropT.current); }, []);
 
   // Free placement: the grip moves the card anywhere in the section, including
   // left of and above the origin. The live drag is a transform (React never
@@ -1082,10 +1098,13 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     let dx = 0, dy = 0;
     cancelDrag.current = dcDragSession(e, me, {
       move: (wx, wy) => { dx = wx; dy = wy; me.style.transform = `translate(${dx}px, ${dy}px)`; },
-      up: () => {
+      up: (scale, cancelled) => {
         cancelDrag.current = null;
         me.style.transition = 'none'; me.style.transform = '';
         requestAnimationFrame(() => { me.style.transition = ''; });
+        // A lost pointer, a window blur or an unmount cancels the drag. The
+        // card goes home and the section state keeps the old position.
+        if (cancelled) return;
         if (Math.hypot(dx, dy) < 4) return;
         const snap = (v) => Math.round(v / 10) * 10;
         actions.move(id, { x: snap(position.x + dx), y: snap(position.y + dy) });
@@ -1113,14 +1132,24 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         for (let i = 0; i < slotXs.length; i++) { const d = Math.abs(slotXs[i] - cur); if (d < best) { best = d; nearest = i; } }
         if (liveOrder.indexOf(id) !== nearest) { liveOrder = order.filter((k) => k !== id); liveOrder.splice(nearest, 0, id); layout(scale); }
       },
-      up: (scale) => {
+      up: (scale, cancelled) => {
         cancelDrag.current = null;
+        // Put every slot back where the layout wants it, with no animation.
+        const home = () => {
+          for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+          requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
+        };
+        // A lost pointer, a window blur or an unmount cancels the drag. The
+        // slots go home at once and the section state keeps the old order.
+        if (cancelled) { home(); return; }
         const finalSlot = liveOrder.indexOf(id);
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
-        setTimeout(() => {
-          for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+        // The slots slide for 180 ms, then the new order is committed. The
+        // timer is held, so an unmount in that window cannot patch the state.
+        dropT.current = setTimeout(() => {
+          dropT.current = 0;
+          home();
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
-          requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
         }, 180);
       },
     });
