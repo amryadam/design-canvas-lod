@@ -77,6 +77,33 @@ and it can leave the budget while you are still working on it.
 first. It wins the budget, not the margin: a slot more than `DC.unmountMargin`
 px away still drops.
 
+## Measured outcome
+
+`dcBench.lodPassCost()` on the sample: `slotRectsPerPass` went from 10 before
+this work to 0 after. That is the number the change was made for, and it is
+exact.
+
+`msPerPass` is not measurable with the tools used. The workspace harness ran
+Chrome with `--virtual-time-budget`, which distorts `performance.now`, and it
+reads 0. Do not read this as an improvement. The millisecond cost of a pass
+was never measured.
+
+The regression suite grew from 14 tests to 32, all passing under
+`node tests/run.mjs`.
+
+### Corrections
+
+1. The plan's original claim that a headless run had "one known pre-existing
+   failure" was wrong. Both failures came from the virtual-time harness built
+   for this work. Under main's real-time runner (`tests/run.mjs`), both pass.
+2. An interim conclusion that this work had introduced a flake in `live
+   iframes stay inside the budget` was wrong. That test fails 4 of 6 runs on
+   pristine pre-change code. The cause is the first-load fit's animation
+   frame not being delivered under virtual time.
+3. This plan and another session rewrote `dcLodRun` at the same time. The
+   designs combined: main's viewport-box ranking and visible-first sort were
+   kept, with the slot rect sourced from the held box.
+
 ## Not doing
 
 **Stepped distance bands.** tldraw steps its zoom-derived scale up to the next

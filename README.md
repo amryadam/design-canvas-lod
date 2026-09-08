@@ -59,25 +59,52 @@ screens are placeholders.
   sample, then paste the full file into the DevTools console and run
   `await dcBench.all()`. It reports frame times through a pinch, the number of
   `--dc-inv-zoom` writes in a gesture, the live iframe count at five zoom
-  levels, the arrow re-route cost, and the render count for one state patch.
-  **`all()` writes to saved state.** It drags a card and it clicks variant
-  chips, and the canvas keeps both. To undo, delete the page's `dc-state:`
-  entry from localStorage and reload.
+  levels, the level-of-detail pass cost (`lodPassCost`: the slot rects the
+  pass reads, and its time), the arrow re-route cost, and the render count
+  for one state patch. **`all()` writes to saved state.** It drags a card and
+  it clicks variant chips, and the canvas keeps both. To undo, delete the
+  page's `dc-state:` entry from localStorage and reload.
 
 ## How the level of detail works
 
 Nothing to run and no files to add. A slot is a live iframe while two
-conditions are true: it is one of the `DC.liveBudget` (8) slots nearest to the
-middle of the view, and it is inside `margin` px of the view. All other slots
-show a striped placeholder with the name of the screen. Zoom has no part in the
-decision.
+conditions are true: it is one of the `DC.liveBudget` (8) winners of the
+budget, and it is inside `margin` px of its own canvas's viewport box. All
+other slots show a striped placeholder with the name of the screen. Zoom has
+no part in the decision.
 
 One registry serves all the slots. A single pass runs `DC.settleMs` after the
-last zoom or pan tick. The pass puts the slots in order of their distance from
-the middle of the view. It mounts a maximum of one iframe in each pass, because
-two mounts in one frame make that frame long. A live slot counts as
-`DC.budgetHysteresis` px nearer than it is. The slot in last place thus stays
-stable while you pan.
+last zoom or pan tick. The pass ranks the slots first by whether they are on
+screen, then by distance from their canvas's viewport box: a visible slot
+always outranks one that is off-screen. A live slot also counts
+`DC.budgetHysteresis` px nearer than it is, which keeps the slot in last
+place stable while you pan — but the visible rule comes first, and that is
+what stops an off-screen live frame holding the budget while a slot the user
+can see waits as a placeholder. The pass mounts a maximum of one iframe,
+`DC.mountGapMs` apart from the next, because two mounts in one frame make
+that frame long.
+
+**The pass reads one rect, not one per slot.** A slot's box inside the world
+does not move when the world pans or zooms, so each slot holds its own box in
+world coordinates, and the pass turns it into a screen box by arithmetic on a
+single rect read of the world element. This is safe because only
+`.dc-sectionhead` reads `--dc-inv-zoom`, and it reads it through a transform,
+which never reflows the world's layout.
+
+A held box goes stale when a slot mounts, a slot unmounts, a card drag ends,
+a reorder commits, the world resizes, or the camera changes. The camera is
+the world element the held boxes are relative to. `DCViewport` gives the
+camera back when it unmounts, so the registry never ranks against a dead one.
+A slot the camera's world does not contain — another canvas's slot, or any
+slot while no camera is set — is measured from the DOM every pass instead of
+held.
+
+The touch mark: a pointer down on a slot keeps its place in the budget for
+`DC.stickyMs` (4 s), so a card you drag, rename or open the ⋯ menu on does not
+drop while you work on it. The mark biases the distance only. It never
+outranks a visible slot, because a slot that has left the screen must still
+give its place up. A pointer down inside a live iframe never reaches the
+page, so the mark covers the grip, the header and the ⋯ menu only.
 
 One condition is outside the budget:
 
