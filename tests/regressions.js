@@ -132,6 +132,23 @@ window.canvasTestsDone = (async () => {
     check(calls.includes('/styles/red.png'), 'CSS URL resolved against wrong base');
     check(xhtml.includes('data:image/png'), 'HTML export still depends on external background');
   });
+  await test('live iframes stay inside the budget', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+    }
+    draw('review-budget.json', E(DCSection, { id: 'review', title: 'Budget' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // One slot mounts per DC.mountGapMs pass, so a full budget needs time.
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(400);
+    const live = host.querySelectorAll('.dc-card iframe').length;
+    check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
+    check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
