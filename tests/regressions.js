@@ -122,15 +122,32 @@ window.canvasTestsDone = (async () => {
       return new Response('', { status: 404 });
     };
     const html = '<html><head><link rel="stylesheet" href="/styles/main.css"></head><body></body></html>';
-    // Same path as Download PNG: inline the document, wrap it in a
-    // foreignObject, and rasterize that.
+    // Download PNG's own wrapper, at its own 2x scale, so this check fails if
+    // the export path changes under it.
     const xhtml = await dcInlineDoc(html, location.href);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><foreignObject width="100" height="100">${xhtml}</foreignObject></svg>`;
-    const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); await image.decode();
+    const image = new Image(); image.src = dcSvgUrl(dcArtboardSvg(xhtml, 100, 100, 2)); await image.decode();
+    check(image.naturalWidth === 200, 'export SVG did not rasterize at 2x, got ' + image.naturalWidth);
     ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
     check(pixel[0] > 240 && pixel[1] < 20, 'background rasterized white instead of red');
     check(calls.includes('/styles/red.png'), 'CSS URL resolved against wrong base');
     check(xhtml.includes('data:image/png'), 'HTML export still depends on external background');
+  });
+  await test('live iframes stay inside the budget', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+    }
+    draw('review-budget.json', E(DCSection, { id: 'review', title: 'Budget' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // One slot mounts per DC.mountGapMs pass, so a full budget needs time.
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(400);
+    const live = host.querySelectorAll('.dc-card iframe').length;
+    check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
+    check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

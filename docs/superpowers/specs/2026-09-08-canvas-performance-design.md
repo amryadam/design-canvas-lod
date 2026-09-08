@@ -47,6 +47,19 @@ mounts the whole page at once.
 a *live budget* — at most `DC.liveBudget` iframes, the ones nearest the viewport
 centre. Slots outside the budget show the existing striped placeholder.
 
+**Added during implementation: the registry stops while the world moves.** A pan
+or a pinch changes the ranking in each frame, and a drop removes a full iframe.
+The first build measured every slot inside the gesture and dropped several of
+them mid-pinch. The pass thus makes no decision while the canvas is in its
+moving state, and `dcLodSchedule` runs it again when the world stops. The
+registry is one module-level object shared by every canvas on the page, so the
+freeze is document-wide, in the same way as the budget itself.
+
+The moving state is module state (`dcMovingTimer`, `dcDragDepth`), not a DOM
+class read back with `querySelector`. An early build read the class, and a
+`.dc-moving` class left behind by a gesture that did not finish stopped the
+registry for the life of the page (`fd0eaf0`).
+
 ### F2 — Writing `--dc-inv-zoom` every frame invalidates the whole tree
 
 Per zoom frame, with a forced layout each time:
@@ -92,9 +105,18 @@ drag fires the `MutationObserver` 44 times and every one of them would schedule
 a re-route (~1.1 per frame), each also arming a 240 ms follow-up measure. The
 cost grows with slots × flows.
 
-**Decision:** while a slot carries `.dc-dragging`, reuse the previous pass's
-geometry, re-measure only the dragged slot, and re-route only the flows that
-touch it. The drop clears the class, so the next pass is a full measure.
+**Decision (withdrawn on measurement):** the plan was to reuse the previous
+pass's geometry while a slot carries `.dc-dragging`, and to re-route only the
+flows that touch it.
+
+**Correction, 2026-09-08.** The 1.1 re-routes per frame above were inferred
+from the MutationObserver batch count. They were never measured. Measured
+directly, a 40-frame drag fires 44 observer batches but makes only **2
+`cfMeasure` calls**, and costs 4 ms in total. `schedule()` cancels the pending
+`requestAnimationFrame` and pushes the 240 ms timer on each mutation. A
+continuous drag thus coalesces to one measure when it stops, and one after the
+drop. The existing debounce already does the work of the fast path, so Task 6
+is withdrawn and `canvas-page.jsx` keeps its current routing.
 
 ### F5 — The background grid (withdrawn)
 

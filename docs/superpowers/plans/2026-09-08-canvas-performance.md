@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers-extended-cc:subagent-driven-development (recommended) or superpowers-extended-cc:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the zoomed-out snapshot pictures and land the five measured performance fixes plus the arrow regression, so a pinch-zoom over a full page drops no frames.
+**Goal:** Remove the zoomed-out snapshot pictures and land the measured performance fixes plus the arrow regression, so a pinch-zoom over a full page drops no frames. Tasks 6 and 7 were withdrawn during the work; three fixes and the arrow regression landed.
 
-**Architecture:** Six local changes to two files. The level-of-detail system stops choosing between a picture and an iframe and instead bounds how many iframes are live at once. The zoom-compensation custom property moves off the per-frame path. React state patches stop re-rendering every artboard frame. Flow re-routing gets a drag fast path. Two bugs found while profiling are fixed alongside.
+**Architecture:** Local changes to two files. The level-of-detail system stops choosing between a picture and an iframe and instead bounds how many iframes are live at once. The zoom-compensation custom property moves off the per-frame path. React state patches stop re-rendering every artboard frame. Two bugs found while profiling are fixed alongside. Flow re-routing was to get a drag fast path; measurement showed the existing debounce already does that work, so Task 6 is withdrawn and `canvas-page.jsx` is unchanged.
 
 **Tech Stack:** Plain React 18 UMD + Babel standalone, no build step, no package manager, no test runner. Files are served statically and transpiled in the browser. Verification is browser-driven measurement through `perf/bench.js`.
 
@@ -36,7 +36,7 @@
 |---|---|---|
 | `perf/bench.js` | **New.** Measurement harness. Defines `window.dcBench` with one method per measured claim. Never loaded by the app; pasted into the page. | 2 |
 | `design-canvas.jsx` | The canvas: LOD registry, viewport transform, sections, artboard frames, export. Carries five of the six changes. | 1, 3, 4, 5, 7 |
-| `canvas-page.jsx` | Page layout and `CanvasFlows` arrow routing. Carries the world lookup fix and the drag fast path. | 1, 6 |
+| `canvas-page.jsx` | Page layout and `CanvasFlows` arrow routing. Carries the world lookup fix. The Task 6 drag fast path was withdrawn, so nothing else changed here. | 1 |
 | `README.md` | Drops the "How snapshots work" section and the LOD sentence. | 4 |
 | `docs/superpowers/plans/2026-09-08-canvas-performance.md.tasks.json` | Task state for resume. | — |
 
@@ -946,7 +946,7 @@ git commit -m "Bound live iframes instead of snapshotting"
 
 **Acceptance Criteria:**
 - [ ] `dcBench.patchCost().framesRenderedPerPatch` is **at most 2** on the sample (was 10, one per slot)
-- [ ] `dcBench.patchCost().variantSwitchMs` is at most 60 % of the Task 2 baseline
+- [x] `dcBench.patchCost().framesRenderedPerPatch` falls against the Task 2 baseline (the Task 2 correction rules out `variantSwitchMs`: it is frame-quantised noise)
 - [ ] Renaming a page's label, dragging a page, resetting a position, switching a variant, deleting a page and focusing a page all still work
 - [ ] Reordering by dragging a grip in a non-free section still works
 - [ ] The `DC.renders` counter goes up by 1 for every artboard frame render
@@ -1125,7 +1125,14 @@ git commit -m "Re-render only the artboards a patch changed"
 
 ---
 
-### Task 6: Re-route only the arrows a drag moves
+### Task 6: Re-route only the arrows a drag moves — WITHDRAWN
+
+> Measurement in Task 2 removed the reason for this task. A 40-frame drag fires
+> 44 MutationObserver batches but makes only **2 `cfMeasure` calls**, for 4 ms
+> in total, because `schedule()` cancels the pending frame and pushes the 240 ms
+> timer on each mutation. The existing debounce already coalesces the drag. Do
+> not implement this. `canvas-page.jsx` is unchanged by this plan except for the
+> Task 1 world lookup. The steps below are kept only as the record of the idea.
 
 **Goal:** Dragging a page re-routes the arrows that touch it, instead of every arrow on the page, every frame.
 
@@ -1487,8 +1494,55 @@ git commit -m "Retry the first-load fit until a row exists"
 
 ---
 
+## Outcomes
+
+This section is the record the task list points to. There is no separate ledger
+file.
+
+**Measured on 2026-09-08, after the review fixes.** Headless Chrome 152,
+viewport 1280 × 813, DPR 1, `--headless=new`, sample page, 10 slots, 12 flows.
+This is not the machine that took the Task 2 baseline (1066 × 666, DPR 3,
+~144 Hz), so compare the counts, not the milliseconds. Headless runs at a
+locked 60 Hz, which puts `zoomFrames.median` at the 16.7 ms vsync period by
+construction; the frame-time criteria of Tasks 3 and 4 thus cannot be judged
+here, and they stay unverified.
+
+| Measure | Criterion | Before | After | Result |
+|---|---|---|---|---|
+| `invWrites.invWrites` | 1–3 for 90 ticks | 90 | **1** | pass |
+| `liveByZoom` live, worst case | at most `DC.liveBudget` (8) | 10 at 0.05 zoom | **8** | pass |
+| `patchCost.framesRenderedPerPatch` | at most 2 | 10 | **1** | pass |
+| `dragFlowCost.cfCalls` | control; Task 6 withdrawn | 2 | **2** | unchanged, as expected |
+| `img.dc-thumb` count | 0 at every zoom | — | **0** | pass |
+| `tests/regressions.html` | all checks pass | 11 of 11 | **12 of 12** | pass |
+| `zoomFrames.median` / `over16` | no worse than baseline | — | not comparable | not verified |
+
+**Task 5 did not meet its criterion until the review fixes.** Measured at the
+merge commit `d5b7f8b`, `framesRenderedPerPatch` was still **10**, one render
+for each slot, against a criterion of at most 2. The `React.memo` on
+`DCArtboardFrame` never hit. The cause was the `sizes` map: a variant patch
+rebuilt the map, and thus a new size object for every slot, so each frame
+failed its shallow compare. A per-slot cache of the size object brought the
+count to **1**. The plan and the task list had recorded Task 5 as complete on
+the strength of the code change alone, because no post-change measurement was
+taken.
+
+**Withdrawn during the work:**
+
+- **Task 6 (arrow re-route on drag)** — `dragFlowCost` shows 2 `cfMeasure`
+  calls for a 40-frame drag, not the 44 the spec inferred. The existing
+  debounce already coalesces the drag. `canvas-page.jsx` is unchanged.
+- **Task 7 (first-load fit race)** — fixed before the plan was written by
+  `dev`'s `acbba3e`, and covered by the regression suite.
+
+**How to repeat this.** Serve the repo, then run the harness against the sample.
+`perf/bench.js` is documented in `README.md`. `all()` writes to saved state, so
+use a throwaway browser profile, or clear the page's `dc-state:` entry after.
+
+---
+
 ## Final check
 
-- [ ] Run `await dcBench.all()` one last time and compare against the Task 2 baseline. Expect: `invWrites` 1–3 (was 90), `liveByZoom` all at or under 8, `zoomFrames.over16` 0, `flowCost` unchanged, `dragFlowCost.cfMs` under 40 % of baseline, `patchCost.framesRenderedPerPatch` at most 2.
+- [x] Run `await dcBench.all()` one last time and compare against the Task 2 baseline. Expect: `invWrites` 1–3 (was 90), `liveByZoom` all at or under 8, `zoomFrames.over16` 0, `flowCost` unchanged, `patchCost.framesRenderedPerPatch` at most 2. `dragFlowCost.cfMs` is a control only: Task 6 is withdrawn, so it must stay at its baseline, not fall.
 - [ ] `git log --oneline -8` shows one commit per task, no unrelated files staged.
 - [ ] `git status --short` shows no leftover working-tree changes beyond the `.perf-traces` deletions this plan inherited.
