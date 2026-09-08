@@ -35,6 +35,9 @@ const DC = {
                         // also delays the mount of an iframe. It does not move
                         // the view: nothing in the world's layout reads the zoom
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
+  rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
+  stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
+  saveDebounceMs: 400,   // wait after the last edit before the state file is written
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -112,26 +115,34 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
 
 const DCCtx = React.createContext(null);
-// Shared "is the world moving" flag. The .dc-moving class drives CSS only:
-// live iframes lose pointer events while the world moves. The module keeps its
-// own answer in dcMovingTimer and dcDragDepth, and dcMoving() reads those.
-// A class left behind by a drag that did not finish thus cannot stop the LOD
-// registry for the life of the page.
-// Two sources set the flag: a pan or a zoom arms dcMarkMoving, which clears
-// itself after DC.movingMs; a card drag holds dcDragDepth for the length of the
-// gesture.
+// Shared "is the world moving" flag. Two sources set it: a pan or a zoom arms
+// dcMarkMoving, which clears itself after DC.movingMs; a card drag holds
+// dcDragDepth for the length of the gesture. dcMoving() reads both.
+// The .dc-moving class drives CSS only (live iframes lose pointer events).
+// dcSyncMoving is the one writer of that class: it copies dcMoving() onto every
+// viewport, so the class can never disagree with the flag.
+// The flag is global on purpose. A gesture in one viewport freezes the LOD
+// registry for the whole page, so every viewport gets the same answer.
+// dcSyncedOn holds the state already written. A pan calls dcSyncMoving in each
+// flushed frame, and the answer only changes twice per gesture, so the cache
+// keeps the querySelectorAll off the pan and zoom path.
 let dcMovingTimer = 0;
 let dcDragDepth = 0;
+let dcSyncedOn = null;
 const dcMoving = () => dcMovingTimer !== 0 || dcDragDepth > 0;
-function dcMarkMoving(vp) {
-  if (!vp) return;
-  if (!vp.classList.contains('dc-moving')) vp.classList.add('dc-moving');
+function dcSyncMoving() {
+  const on = dcMoving();
+  if (on === dcSyncedOn) return;
+  dcSyncedOn = on;
+  document.querySelectorAll('.design-canvas').forEach((vp) => vp.classList.toggle('dc-moving', on));
+}
+// A viewport that mounts during a gesture carries no class yet. This drops the
+// cache, so the next sync writes to it as well.
+function dcSyncMovingForce() { dcSyncedOn = null; dcSyncMoving(); }
+function dcMarkMoving() {
   clearTimeout(dcMovingTimer);
-  dcMovingTimer = setTimeout(() => {
-    dcMovingTimer = 0;
-    vp.classList.remove('dc-moving');
-    dcLodSchedule();
-  }, DC.movingMs);
+  dcMovingTimer = setTimeout(() => { dcMovingTimer = 0; dcSyncMoving(); dcLodSchedule(); }, DC.movingMs);
+  dcSyncMoving();
 }
 
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
@@ -143,8 +154,10 @@ function dcMarkMoving(vp) {
 const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
-function dcSlotDistance(r) {
-  const cx = innerWidth / 2, cy = innerHeight / 2;
+// `v` is the slot's own viewport box, not the window: a canvas in a panel must
+// rank the slots that its user sees.
+function dcSlotDistance(r, v) {
+  const cx = v.left + v.width / 2, cy = v.top + v.height / 2;
   const dx = Math.max(r.left - cx, 0, cx - r.right);
   const dy = Math.max(r.top - cy, 0, cy - r.bottom);
   return Math.hypot(dx, dy);
@@ -152,9 +165,11 @@ function dcSlotDistance(r) {
 
 // One pass over every slot. The DC.liveBudget slots that are nearest to the
 // viewport centre, and are inside their margin, become live. Visible slots
-// rank ahead of off-screen preloads. All other slots
-// show their placeholder. A live slot counts as DC.budgetHysteresis px nearer
-// than it is. The slot in last place thus stays stable from pass to pass.
+// rank ahead of off-screen preloads. All other slots show their placeholder.
+// Near, visible and the centre are measured against the slot's own viewport
+// box, not the window: a canvas in a panel must rank what its user sees.
+// A live slot counts as DC.budgetHysteresis px nearer than it is. The slot in
+// last place thus stays stable from pass to pass.
 // The mount of an iframe is the one expensive step, because a full document
 // parses and lays out. Only one slot mounts in each pass. The other slots wait
 // for the next pass. A drop is cheap, and it has no such limit.
@@ -164,12 +179,18 @@ function dcLodRun() {
   // world stops. dcLodSchedule then runs this pass again.
   if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
   const all = [];
+  // One rect per viewport, not one per slot: all the slots of a canvas share
+  // its box.
+  const vpRects = new Map();
   dcLod.subs.forEach((s) => {
+    const vp = s.vp;
+    let v = vpRects.get(vp);
+    if (!v) { v = vp ? vp.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight }; vpRects.set(vp, v); }
     const r = s.box.getBoundingClientRect();
     const m = s.live ? DC.unmountMargin : s.margin;
-    const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
-    const visible = r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
-    all.push({ s, near, visible, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
+    const near = r.right > v.left - m && r.left < v.left + v.width + m && r.bottom > v.top - m && r.top < v.top + v.height + m;
+    const visible = r.right > v.left && r.left < v.left + v.width && r.bottom > v.top && r.top < v.top + v.height;
+    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
   });
   // Hysteresis stabilizes peers, but must not let off-screen live frames keep
   // the entire budget while visible slots remain placeholders indefinitely.
@@ -187,9 +208,9 @@ function dcLodRun() {
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
 function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
-// entry is { box, margin, live, set } — the slot element to measure, the px of
-// screen space that lets it mount, whether it is live now, and the setter that
-// mounts or drops it.
+// entry is { box, vp, margin, live, set } — the slot element to measure, the
+// viewport it lives in, the px of screen space that lets it mount, whether it
+// is live now, and the setter that mounts or drops it.
 function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
     dcLod.poll = setInterval(dcLodRun, 500);
@@ -354,7 +375,7 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   React.useEffect(() => {
     let off = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), DC.stateTimeoutMs);
     const valid = (s) => s && s.sections && typeof s.sections === 'object' && !Array.isArray(s.sections);
     const revision = (s) => Number.isFinite(s?.updatedAt) ? s.updatedAt : 0;
     fetch('./' + stateFile, { signal: controller.signal })
@@ -379,13 +400,18 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     const json = JSON.stringify({ sections: state.sections, updatedAt: state.updatedAt });
     // Save locally immediately, including when navigation beats the file debounce.
     try { localStorage.setItem(lsKey, json); } catch {}
+    // Mark the sections saved only after the host writes them. A failed write
+    // thus stays pending, and the next write chance sends it again.
     const write = () => {
       clearTimeout(t);
       if (savedSections.current === state.sections) return;
-      savedSections.current = state.sections;
-      fileWrites.current = fileWrites.current.then(() => window.omelette?.writeFile(stateFile, json)).catch(() => {});
+      const mine = state.sections;
+      fileWrites.current = fileWrites.current
+        .then(() => window.omelette?.writeFile(stateFile, json))
+        .then(() => { savedSections.current = mine; },
+          (err) => { console.warn('[design-canvas] state file write failed; the browser copy holds the edits', err); });
     };
-    const t = setTimeout(write, 400);
+    const t = setTimeout(write, DC.saveDebounceMs);
     window.addEventListener('pagehide', write);
     return () => { clearTimeout(t); window.removeEventListener('pagehide', write); };
   }, [ready, state.sections, state.updatedAt, lsKey, stateFile]);
@@ -431,6 +457,9 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     patchSection,
   }), [state, patchSection]);
 
+  // Empty deps: the listener is registered once per canvas, not once per state
+  // change. The escape key had a listener here as well; it closed the focus
+  // overlay, and the window header replaced that overlay.
   React.useEffect(() => {
     const onPd = (e) => { const ae = document.activeElement; if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur(); };
     document.addEventListener('pointerdown', onPd, true);
@@ -520,7 +549,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       lastPostedScale.current = scale;
       window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
     }
-    dcMarkMoving(vpRef.current);
+    dcMarkMoving();
     if (lostRef.current) checkLost();
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
@@ -584,6 +613,8 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       }
     } catch {}
     window.addEventListener('pagehide', flush);
+    // This viewport may have mounted during a gesture in another one.
+    dcSyncMovingForce();
     // The pill timer and the Back to content tween live as long as the
     // viewport, so they are stopped here and not in the fit effect, which
     // re-runs whenever the content or the scale bounds change.
@@ -608,13 +639,15 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       tf.current = { x: 0, y: 0, scale: s }; apply(true);
     });
     const rescue = setTimeout(() => {
+      // A restored view is the user's choice, even one with nothing on screen.
+      if (restoredView.current) return;
       const slots = worldRef.current.querySelectorAll('[data-dc-slot]');
       if (!slots.length) return;
-      const vw = window.innerWidth, vh = window.innerHeight;
-      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > 0 && r.left < vw && r.bottom > 0 && r.top < vh) return; }
+      const v = vpRef.current.getBoundingClientRect();
+      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > v.left && r.left < v.right && r.bottom > v.top && r.top < v.bottom) return; }
       const r = slots[0].getBoundingClientRect(); const t = tf.current;
-      t.x += 60 - r.left; t.y += 100 - r.top; apply(true);
-    }, 500);
+      t.x += v.left + 60 - r.left; t.y += v.top + 100 - r.top; apply(true);
+    }, DC.rescueMs);
     return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
   }, [hasContent, apply, minScale, maxScale]);
 
@@ -667,9 +700,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       stopTween();
       vp.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
-      // Arm the removal timer with the class, so a click with no move still
-      // clears dc-moving; dcLodRun freezes the whole LOD registry while it is set.
-      vp.style.cursor = 'grabbing'; dcMarkMoving(vp);
+      // Arm the flag here, so a click with no move still clears it after
+      // DC.movingMs; dcLodRun freezes the whole LOD registry while it is set.
+      // dcMarkMoving owns the timer and dcSyncMoving owns the class.
+      vp.style.cursor = 'grabbing'; dcMarkMoving();
     };
     const onPointerMove = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -861,6 +895,8 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       out[k] = hit && hit.mark === mark ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
       cache.set(k, { mark, size: out[k] });
     });
+    // A removed slot must not hold its size in the cache for the life of the page.
+    for (const k of [...cache.keys()]) if (!(k in out)) cache.delete(k);
     return out;
   }, [marks]);
   // Persisted moves override the authored positions.
@@ -960,7 +996,7 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const off = dcLodSubscribe({ box, margin, live: false, set: setLive });
+    const off = dcLodSubscribe({ box, vp: box.closest('.design-canvas'), margin, live: false, set: setLive });
     dcLodSchedule();
     return off;
   }, [eager, margin]);
@@ -977,39 +1013,47 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   );
 }
 
-// One pointer drag on a slot: marks the slot and viewport as moving, reports
-// pointer deltas in world px (screen px ÷ zoom), and cleans up on release or
-// cancel. `me` sets the scale (its screen width over its layout width) and
-// gets the dragging class. `move` also receives the pointer's world position,
-// measured against `me`'s current rect so a zoom mid-drag does not go stale.
-// `keepMoving` leaves the viewport's moving flag for the caller to clear.
+// One pointer drag on a slot. Reports pointer deltas in world px (screen px ÷
+// zoom) and cleans up on release, cancel, lost capture or a window blur, so a
+// pointer released outside the window cannot hold dcDragDepth for ever.
+// `keepMoving` keeps the moving flag armed for DC.movingMs after the drop, so
+// the drop animation runs with iframes still inert.
 // Returns a cancel function for unmounts.
 function dcDragSession(e, me, { move, up, keepMoving }) {
   e.preventDefault(); e.stopPropagation();
   const sx = e.clientX, sy = e.clientY;
-  const scaleOf = () => me.getBoundingClientRect().width / me.offsetWidth || 1;
-  const scale = scaleOf();
+  // One rect and one offsetWidth per event: both are reads, so they share one
+  // forced layout.
+  const measure = () => { const r = me.getBoundingClientRect(); return { r, z: r.width / me.offsetWidth || 1 }; };
+  const scale = measure().z;
   me.classList.add('dc-dragging');
-  const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
-  dcDragDepth++;
+  try { me.setPointerCapture(e.pointerId); } catch {}
+  dcDragDepth++; dcSyncMoving();
   const onMove = (ev) => {
-    const r = me.getBoundingClientRect(), z = scaleOf();
+    const { r, z } = measure();
     move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
   };
   let done = false;
   const finish = (cancelled) => {
     if (done) return; done = true;
-    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onCancel);
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onCancel);
+    me.removeEventListener('lostpointercapture', onCancel);
+    window.removeEventListener('blur', onCancel);
+    try { me.releasePointerCapture(e.pointerId); } catch {}
     me.classList.remove('dc-dragging');
-    // The drag is over here even when keepMoving leaves the class on for the
-    // drop animation, so the registry is released at the same point.
     dcDragDepth = Math.max(0, dcDragDepth - 1);
+    if (keepMoving) dcMarkMoving(); else dcSyncMoving();
     dcLodSchedule();
-    if (!keepMoving && vp) vp.classList.remove('dc-moving');
-    up(scale, vp, cancelled);
+    up(scale, cancelled);
   };
   const onUp = () => finish(false), onCancel = () => finish(true);
-  document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onCancel);
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onCancel);
+  me.addEventListener('lostpointercapture', onCancel);
+  window.addEventListener('blur', onCancel);
   return onCancel;
 }
 
@@ -1036,6 +1080,8 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
   const menuRef = React.useRef(null);
+  const cancelDrag = React.useRef(null);
+  const dropT = React.useRef(0);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
@@ -1046,18 +1092,25 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     return () => document.removeEventListener('pointerdown', off, true);
   }, [menuOpen]);
 
-  // Free placement: the header moves the window anywhere in the section, including
-  // left of and above the origin. The live drag is a transform (React never
+  // Cancel first: a cancelled drag commits nothing and arms no drop timer.
+  React.useEffect(() => () => { cancelDrag.current && cancelDrag.current(); clearTimeout(dropT.current); }, []);
+
+  // Free placement: the header moves the window anywhere in the section,
+  // including left of and above the origin. The live drag is a transform (React never
   // writes one on the slot), the drop commits a snapped position to the section
   // state and the section box grows to hold it.
   const onMoveDown = (e) => {
     const me = ref.current;
     let dx = 0, dy = 0;
-    dcDragSession(e, me, {
+    cancelDrag.current = dcDragSession(e, me, {
       move: (wx, wy) => { dx = wx; dy = wy; me.style.transform = `translate(${dx}px, ${dy}px)`; },
-      up: () => {
+      up: (scale, cancelled) => {
+        cancelDrag.current = null;
         me.style.transition = 'none'; me.style.transform = '';
         requestAnimationFrame(() => { me.style.transition = ''; });
+        // A lost pointer, a window blur or an unmount cancels the drag. The
+        // card goes home and the section state keeps the old position.
+        if (cancelled) return;
         if (Math.hypot(dx, dy) < 4) return;
         const snap = (v) => Math.round(v / 10) * 10;
         actions.move(id, { x: snap(position.x + dx), y: snap(position.y + dy) });
@@ -1076,7 +1129,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     const layout = (scale) => {
       for (const h of homes) { if (h.id === id) continue; h.el.style.transform = `translateX(${(slotXs[liveOrder.indexOf(h.id)] - h.x) / scale}px)`; }
     };
-    dcDragSession(e, me, {
+    cancelDrag.current = dcDragSession(e, me, {
       keepMoving: true,
       move: (wx, wy, scale) => {
         me.style.transform = `translateX(${wx}px)`;
@@ -1085,14 +1138,24 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         for (let i = 0; i < slotXs.length; i++) { const d = Math.abs(slotXs[i] - cur); if (d < best) { best = d; nearest = i; } }
         if (liveOrder.indexOf(id) !== nearest) { liveOrder = order.filter((k) => k !== id); liveOrder.splice(nearest, 0, id); layout(scale); }
       },
-      up: (scale, vp) => {
+      up: (scale, cancelled) => {
+        cancelDrag.current = null;
+        // Put every slot back where the layout wants it, with no animation.
+        const home = () => {
+          for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+          requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
+        };
+        // A lost pointer, a window blur or an unmount cancels the drag. The
+        // slots go home at once and the section state keeps the old order.
+        if (cancelled) { home(); return; }
         const finalSlot = liveOrder.indexOf(id);
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
-        setTimeout(() => {
-          for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+        // The slots slide for 180 ms, then the new order is committed. The
+        // timer is held, so an unmount in that window cannot patch the state.
+        dropT.current = setTimeout(() => {
+          dropT.current = 0;
+          home();
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
-          vp && vp.classList.remove('dc-moving');
-          requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
         }, 180);
       },
     });
@@ -1186,4 +1249,4 @@ function DCLib() { return null; }
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. DC, dcLod and dcArtboardSvg are read by
 // perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcArtboardSvg, dcSvgUrl });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl });

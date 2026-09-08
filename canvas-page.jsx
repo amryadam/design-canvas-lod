@@ -71,7 +71,8 @@ function cfSeg(a, c1, c2, b) {
 
 const cfInside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
 // Number of sample points that fall inside an obstacle; 0 means the curve is
-// clear. Every candidate is sampled at the same density so counts compare.
+// clear. cfRoute samples every candidate at CF_SAMPLES * 4, so the counts
+// compare. CF_SAMPLES is only the default density.
 const CF_SAMPLES = 24;
 function cfHits(curve, obstacles, n = CF_SAMPLES) {
   let hits = 0;
@@ -163,7 +164,7 @@ function cfPath(a, fs, b, ts, obstacles) {
 function cfRoute(a, fs, b, ts, obstacles) {
   const plain = cfCurve(a, fs, b, ts);
   if (!obstacles.length) return plain;
-  let best = plain, bestHits = cfHits(plain, obstacles);
+  let best = plain, bestHits = cfHits(plain, obstacles, CF_SAMPLES * 4);
   if (!bestHits) return plain;
   const consider = (c) => { const h = cfHits(c, obstacles, CF_SAMPLES * 4); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
   for (const m of [0.6, 0.35, 0.2, 1.6, 2.4]) if (consider(cfCurve(a, fs, b, ts, m))) return best;
@@ -271,6 +272,8 @@ function CanvasFlows({ flows: authored, section }) {
   const [paths, setPaths] = React.useState([]);
   const [hover, setHover] = React.useState(null);
   const dragging = React.useRef(false);
+  // A zero-size probe in the tree, so the layer finds the world it is inside.
+  const probe = React.useRef(null);
   // Arrow sides dragged on the canvas are saved in the section state
   // (sec.arrows[flow key] = { fs, ts }) and win over canvas.json.
   const ctx = React.useContext(DCCtx);
@@ -300,9 +303,9 @@ function CanvasFlows({ flows: authored, section }) {
   React.useEffect(() => () => { clearTimeout(hoverTimer.current); cancelDrag.current && cancelDrag.current(); }, []);
 
   React.useEffect(() => {
-    // The world is the transformed layer, not whatever sits first under the
-    // viewport: the grid layer is a sibling in front of it.
-    const el = document.querySelector('[data-dc-world]');
+    // The world is the transformed layer that holds this layer, not the first
+    // one in the document: a page can hold more than one canvas.
+    const el = probe.current && probe.current.closest('[data-dc-world]');
     if (el) setWorld(el);
   }, []);
 
@@ -346,8 +349,8 @@ function CanvasFlows({ flows: authored, section }) {
     };
   }, [world, flows]);
 
-  if (!world || !paths.length) return null;
-  return ReactDOM.createPortal(
+  if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
+  return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
     <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {paths.map((p, i) => {
@@ -383,7 +386,7 @@ function CanvasFlows({ flows: authored, section }) {
       ))}
     </div>,
     world,
-  );
+  )}</>;
 }
 
 // ---- Page ------------------------------------------------------------------
@@ -499,3 +502,6 @@ function CanvasPage({ page, stateFile }) {
 
 window.CanvasPage = CanvasPage;
 window.CanvasFlows = CanvasFlows;
+window.cfRoute = cfRoute;
+window.cfCurve = cfCurve;
+window.cfHits = cfHits;
