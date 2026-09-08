@@ -86,6 +86,11 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
    shrinks with the world so it never grows over the neighbouring cards. */
 [data-dc-slot]{--dc-hz:min(var(--dc-inv-zoom,1),4)}
 .dc-header{width:calc((100% + 4px) / var(--dc-hz,1));transform:scale(var(--dc-hz,1));transform-origin:bottom left}
+/* The section head follows the same rule, and by transform, not by zoom: a
+   transform never reflows, so the head keeps a fixed world box and the world's
+   layout stays free of the zoom. It grows from its bottom edge, upwards into
+   the section gap, so a title never covers its own cards. */
+.dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),4));transform-origin:bottom left}
 /* Shown only when no section is on screen; the focus overlay (z 100) covers it. */
 .dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
 .dc-backto:hover{background:#faf8f5}
