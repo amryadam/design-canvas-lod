@@ -42,6 +42,9 @@
   // Fit through the canvas's own zoom and pan paths, so dcView stays in step
   // with the DOM and the next gesture does not jump.
   const fit = async (fill = 0.9) => {
+    // design-canvas.jsx publishes the view transform. Without that name the
+    // scale below reads as undefined and every number after it is nonsense.
+    if (!window.dcView) throw new Error('window.dcView is missing');
     let box = bbox();
     const cur = window.dcView.scale;
     const target = cur * Math.min((innerWidth * fill) / box.w, (innerHeight * fill) / box.h);

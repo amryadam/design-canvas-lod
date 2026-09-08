@@ -662,6 +662,8 @@ function dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, 
       // layout no longer depends on the zoom at all, so a world point below the
       // pointer stays below the pointer with nothing to cancel.
       t.x = px - (px - t.x) * k; t.y = py - (py - t.y) * k; t.scale = next;
+      // Sync on purpose: dcView.scale must not lag the DOM, because the card
+      // drag and cfMeasure read it. Every scale write ends in apply(true).
       apply(true);
     };
 
@@ -789,6 +791,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
   }, [tfKey, armSettle, onFrame, schedule]);
+  // `sync` writes the transform in this task, not on the next frame. Every
+  // caller that changed the scale passes it, so dcView.scale and the DOM agree
+  // for the next reader (the card drag and cfMeasure both read dcView.scale).
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
