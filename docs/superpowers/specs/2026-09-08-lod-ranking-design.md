@@ -130,6 +130,30 @@ other 13.
    that `position: absolute` is what makes it safe. Neither half was true. The
    reader is `.dc-sectionhead`, and the `transform` is what makes it safe.
 
+## Known follow-ups
+
+Raised by the final review and deliberately not fixed on this branch. None blocks merge.
+
+1. The scale-term oracle is weakened by hysteresis. Its no-camera passes start from the live
+   set the held path just produced, and a live slot counts `DC.budgetHysteresis` (400 px)
+   nearer, so the oracle can only see a reconstruction error large enough to beat 400 px. It
+   does catch the mutant it names. A small systematic error would be pinned into agreement. A
+   stronger form compares the ranked order with the hysteresis term set to zero.
+2. The reorder drop timer invalidates before React commits, from a `setTimeout`. Every other
+   `patchSection` caller is a discrete event handler, so React flushes it in a microtask and no
+   timer can interleave. The drop timer does not get that guarantee: React takes the default
+   lane, and an already-due 500 ms poll could re-stamp the pre-commit layout. The cost is a
+   wrong ranking until the next real invalidation, never a wrong render. The robust form for
+   both is an invalidation in a layout effect keyed on `state.sections`.
+3. The touch mark's retargeting is not exercised by a test. A drag that ends outside its slot
+   relies on the Pointer Events capture rule to retarget the `pointerup` to the captured
+   element. That rule is correct and the code is right, but no test drives a real captured drag
+   that ends off the slot, which is the case the fix exists for.
+4. The section-patch check drives `patchSection` directly instead of clicking a variant chip.
+   It guards the seam, so a future action that bypassed `patchSection` would not be caught.
+5. `lodPassCost` now returns a differently shaped result (`{error: ...}`) while the world moves.
+   Any consumer of `dcBench.all()` output must tolerate that.
+
 ## Not doing
 
 **Stepped distance bands.** tldraw steps its zoom-derived scale up to the next
