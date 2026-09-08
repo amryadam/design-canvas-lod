@@ -411,6 +411,22 @@ window.canvasTestsDone = (async () => {
     check(plainHits > 0, 'fixture: the plain curve must cross the obstacle');
     check(cfHits(routed, obs, 96) < plainHits, 'cfRoute kept the plain curve although a clearer candidate exists');
   });
+  await test('a grown section head stays inside its gap', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-heads.json', [
+      E(DCSection, { key: 'a', id: 'a', title: 'First', subtitle: 'With a subtitle' }, E(DCArtboard, { id: 'a1', width: 300, height: 200 })),
+      E(DCSection, { key: 'b', id: 'b', title: 'Second', subtitle: 'With a subtitle' }, E(DCArtboard, { id: 'b1', width: 300, height: 200 })),
+    ]);
+    await until(() => host.querySelectorAll('.dc-sectionhead').length === 2);
+    await wait(DC.rescueMs + 200);
+    const world = host.querySelector('[data-dc-world]');
+    world.style.setProperty('--dc-inv-zoom', '4'); void world.offsetHeight;
+    const [h1, h2] = host.querySelectorAll('.dc-sectionhead');
+    const row1 = host.querySelector('[data-dc-section="a"] [data-dc-row]');
+    check(h1.getBoundingClientRect().top >= world.getBoundingClientRect().top - 0.5, 'the first head grew above the world top');
+    check(h2.getBoundingClientRect().top >= row1.getBoundingClientRect().bottom - 0.5, 'the second head covers the first section cards');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
