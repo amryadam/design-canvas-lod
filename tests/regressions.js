@@ -199,19 +199,36 @@ window.canvasTestsDone = (async () => {
     await wait(400);
     const liveSet = () => new Set([...host.querySelectorAll('[data-dc-slot]')]
       .filter((el) => el.querySelector('.dc-card iframe')).map((el) => el.dataset.dcSlot));
+    // The registry's own answer, which dcLodRun writes at once. The DOM
+    // follows it one React commit later, so a check on the DOM cannot say
+    // which pass it is reading.
+    const ranked = () => [...dcLod.subs].filter((s) => s.live)
+      .map((s) => s.box.dataset.dcSlot).sort().join(',');
     // Pan the row, so the held boxes and a fresh measurement would disagree if
     // the arithmetic in dcLodRun were wrong: the world moves under a still camera.
     const vp = host.querySelector('.design-canvas');
+    const world = host.querySelector('[data-dc-world]');
+    const worldLeft = world.getBoundingClientRect().left;
     vp.dispatchEvent(new WheelEvent('wheel', { deltaX: 900, deltaY: 0, deltaMode: 0, clientX: 200, clientY: 200, bubbles: true, cancelable: true }));
-    await wait(DC.settleMs + 400);
-    const before = liveSet();
-    check(before.size === DC.liveBudget, 'the pan did not settle to a full budget: ' + before.size);
+    await until(() => Math.abs(world.getBoundingClientRect().left - worldLeft) > 1);
+    // A pass refuses to run while the world moves, so wait for the flag. Then
+    // drive the ranking to its fixed point here. dcLodRun mounts one slot per
+    // pass, and a fixed wait on that chain is what makes a test like this
+    // flake; a loop of passes has no clock in it at all.
+    await until(() => !dcMoving());
+    const settle = () => { for (let i = 0; i < count + 2; i++) dcLodRun(); };
+    settle();
+    const before = ranked();
+    check(before.split(',').length === DC.liveBudget, 'the pan did not settle to a full budget: ' + before);
     dcLodInvalidate();
-    await wait(DC.settleMs + 400);
-    const after = liveSet();
-    check(after.size === DC.liveBudget, 'the re-measured pass did not settle to a full budget: ' + after.size);
-    const beforeList = [...before].sort().join(','), afterList = [...after].sort().join(',');
-    check(beforeList === afterList, 'ranking changed on a forced re-measure: ' + beforeList + ' -> ' + afterList);
+    settle();
+    const after = ranked();
+    check(after.split(',').length === DC.liveBudget, 'the re-measured pass did not settle to a full budget: ' + after);
+    check(before === after, 'ranking changed on a forced re-measure: ' + before + ' -> ' + after);
+    // The registry's answer must also reach the screen. React commits the
+    // mounts after the passes, so wait for the exact set: a wait for the count
+    // alone would read the set from before the pan and pass on nothing.
+    await until(() => [...liveSet()].sort().join(',') === after);
   });
   await test('a canvas that goes away leaves a registry that still ranks', async () => {
     window.fetch = async () => new Response('', { status: 404 });
@@ -249,6 +266,42 @@ window.canvasTestsDone = (async () => {
     const live = host.querySelectorAll('.dc-card iframe').length;
     check(live === DC.liveBudget, 'a canvas with no camera mounted ' + live + ' of ' + DC.liveBudget);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
+  });
+  await test('a slot outside the camera world is measured, not held', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // One canvas owns the camera. A slot of a second canvas is not inside that
+    // world, so it does not move when the camera pans. A camera pan puts no
+    // generation up, so a held box for such a slot would rank it in the wrong
+    // place on every pass after the first one.
+    draw('review-foreign.json', E(DCSection, { id: 'review', title: 'Foreign' },
+      E(DCArtboard, { id: 'f0', width: 40, height: 40 })));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 1);
+    await until(() => dcLod.world !== null);
+    // The first fit and its DC.rescueMs nudge both arm the moving flag, and a
+    // pass refuses to run while it is set.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    check(dcLod.subs.size === 0, 'the fixture canvas subscribed slots of its own');
+    // The box is outside the world, and far to the right of the screen. It is
+    // thus outside its mount margin and must never go live.
+    const far = innerWidth * 3;
+    const box = document.body.appendChild(document.createElement('div'));
+    box.getBoundingClientRect = () => ({ left: far, top: 0, right: far + 50, bottom: 50 });
+    const entry = { live: false, margin: 600, box, set(value) { entry.live = value; } };
+    const world = dcLod.world, before = world.style.transform;
+    try {
+      dcLod.subs.add(entry);
+      dcLodRun();
+      check(!entry.live, 'a slot outside its mount margin went live');
+      // Pan the camera by exactly the offset of the box. A held box would then
+      // land on the screen; a measured one stays where it is.
+      world.style.transform = 'translate3d(' + -far + 'px, 0, 0) ' + before;
+      for (let pass = 0; pass < 4; pass++) dcLodRun();
+      check(!entry.live, 'the pass moved a slot that the camera world does not hold');
+    } finally {
+      dcLod.subs.delete(entry); box.remove();
+      world.style.transform = before; clearTimeout(dcLod.timer);
+    }
   });
   await test('the settled --dc-inv-zoom write holds the zoom anchor', async () => {
     window.fetch = async () => new Response('', { status: 404 });
@@ -346,23 +399,41 @@ window.canvasTestsDone = (async () => {
     check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
   });
   await test('settled visible slots reclaim the budget from off-screen live slots', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    check(dcLod.subs.size === 0, 'previous fixture retained LOD subscriptions');
+    // A live camera, and boxes that the camera's world holds. Without a canvas
+    // this check ranks through the no-world fallback only, and never through
+    // the held world boxes that the pass uses on a real page.
+    // The boards carry no DCLazyFrame, so the canvas subscribes no slot of its
+    // own and the fixture below is the whole registry.
+    const count = DC.liveBudget * 2;
+    const boards = [];
+    for (let i = 0; i < count; i++) boards.push(E(DCArtboard, { key: 'r' + i, id: 'r' + i, width: 40, height: 40 }));
+    draw('review-reclaim.json', E(DCSection, { id: 'review', title: 'Reclaim' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => dcLod.world !== null);
+    // The first fit and its DC.rescueMs nudge both arm the moving flag, and a
+    // pass refuses to run while it is set.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    check(dcLod.subs.size === 0, 'the fixture canvas subscribed slots of its own');
     // Controlled post-zoom screen rects: 1000-world-px boards at 5% zoom.
     // There are exactly budget visible boards, so none should stay a placeholder.
     // Previously live boards sit just below the screen, inside unmountMargin.
+    // The rect gives the four edges and no width or height. near, visible and
+    // the distance ask for the edges only, so the pass must want no more.
+    const els = [...host.querySelectorAll('[data-dc-slot]')];
     const entries = [], changes = [];
-    const add = (id, top, live) => {
+    const add = (id, top, live, el) => {
       const left = innerWidth / 2;
-      const s = { id, live, margin: 600,
-        box: { getBoundingClientRect: () => ({ left, top, right: left + 50, bottom: top + 50 }) },
-        set(value) { changes.push({ id, value }); } };
+      el.getBoundingClientRect = () => ({ left, top, right: left + 50, bottom: top + 50 });
+      const s = { id, live, margin: 600, box: el, set(value) { changes.push({ id, value }); } };
       entries.push(s); dcLod.subs.add(s);
     };
-    // Finish the previous test's moving window before asking for settled passes.
-    await wait(DC.movingMs + DC.settleMs + 50);
-    check(dcLod.subs.size === 0, 'previous fixture retained LOD subscriptions');
     try {
-      for (let i = 0; i < DC.liveBudget; i++) add('old-' + i, innerHeight + 10, true);
-      for (let i = 0; i < DC.liveBudget; i++) add('visible-' + i, innerHeight - 100, false);
+      for (let i = 0; i < DC.liveBudget; i++) add('old-' + i, innerHeight + 10, true, els[i]);
+      for (let i = 0; i < DC.liveBudget; i++) add('visible-' + i, innerHeight - 100, false, els[DC.liveBudget + i]);
+      check(dcLod.world.contains(entries[0].box), 'the fixture boxes are outside the camera world');
       for (let pass = 0; pass < 100; pass++) {
         const start = changes.length;
         dcLodRun();

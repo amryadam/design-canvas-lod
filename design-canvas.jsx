@@ -168,11 +168,12 @@ function dcMarkMoving() {
 const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 0, io: null };
 
 // A slot's box inside the world does not move when the world pans or zooms.
-// The world carries transform-origin 0 0. Since the anchor fix, only
-// .dc-header reads --dc-inv-zoom, and it is position:absolute. The world
-// layout is thus the same at every zoom. Each entry therefore holds its
-// world box and the generation it was measured in, and one pass turns the
-// held boxes into screen space with one rect read of the world itself.
+// The world carries transform-origin 0 0. Only .dc-sectionhead reads
+// --dc-inv-zoom now, and it reads it through a transform, which never
+// reflows. The world layout is thus the same at every zoom. Each entry
+// therefore holds its world box and the generation it was measured in, and
+// one pass turns the held boxes into screen space with one rect read of the
+// world itself.
 // Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
 // slightly wrong ranking until the next real one, never a wrong render.
 function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
@@ -214,6 +215,10 @@ function dcLodRun() {
   const world = cam && cam.isConnected && cam.offsetWidth ? cam : null;
   // One rect read for the whole pass. The scale comes from the same read, so
   // it cannot fall out of step with the DOM the way a stored copy can.
+  // offsetWidth is an integer, so the derived scale carries up to half a pixel
+  // of error at the far edge of a wide world. That error can only change the
+  // order of two slots that sit exactly on the viewport edge in the visible
+  // sort.
   const wr = world ? world.getBoundingClientRect() : null;
   const scale = world ? wr.width / world.offsetWidth : 1;
   const all = [];
@@ -224,17 +229,25 @@ function dcLodRun() {
     const vp = s.vp;
     let v = vpRects.get(vp);
     if (!v) { v = vp ? vp.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight }; vpRects.set(vp, v); }
+    // A held box is an offset inside the camera's world, so it is only valid
+    // for a slot that this world holds. A second canvas has its own world.
+    // Its slots do not move with the camera, and a pan of the camera does not
+    // put the generation up, so a held box for such a slot would be wrong on
+    // every pass after the first one.
+    const held = world && world.contains(s.box);
     let r;
-    if (!world) {
-      // Do not hold this box. There is no world to make it relative to, so
-      // the first pass with a world must measure the slot again.
+    if (!held) {
+      // Do not hold this box. There is no world of this slot's own to make it
+      // relative to, so the next pass must measure the slot again.
       const b = s.box.getBoundingClientRect();
       r = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
     } else {
       if (s.gen !== dcLod.gen) {
         const b = s.box.getBoundingClientRect();
+        // The edges, not width and height: near, visible and the distance ask
+        // for the edges only, so a box that carries no size still ranks.
         s.wx = (b.left - wr.left) / scale; s.wy = (b.top - wr.top) / scale;
-        s.ww = b.width / scale; s.wh = b.height / scale;
+        s.ww = (b.right - b.left) / scale; s.wh = (b.bottom - b.top) / scale;
         s.gen = dcLod.gen;
       }
       const left = wr.left + s.wx * scale, top = wr.top + s.wy * scale;
