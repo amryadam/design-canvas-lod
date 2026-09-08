@@ -49,7 +49,7 @@ window.canvasTestsDone = (async () => {
   });
   await test('editing waits for restoration', async () => {
     let release; window.fetch = () => new Promise((resolve) => { release = () => resolve(json(envelope('loaded', 20))); });
-    draw('review-delay.json'); await until(() => release); await wait(250);
+    draw('review-delay.json'); await until(() => release); await wait(DC.settleMs + 100);
     const exposed = !!host.querySelector('#ready-probe');
     release(); await until(() => api && api.section('review').title === 'loaded');
     check(!exposed, 'canvas became editable before restoration finished');
@@ -59,7 +59,7 @@ window.canvasTestsDone = (async () => {
   await test('switch state file without leaking sections', async () => {
     const calls = []; window.fetch = async (url) => { calls.push(url); return json(envelope(String(url).includes('-a.') ? 'A' : 'B', 20)); };
     draw('review-switch-a.json'); await until(() => api); await wait(30);
-    draw('review-switch-b.json'); await wait(250);
+    draw('review-switch-b.json'); await wait(DC.settleMs + 100);
     check(calls.some((url) => String(url).includes('-b.')), 'B was never fetched');
     check(api.section('review').title === 'B', 'A state leaked into B');
     api.patchSection('review', { title: 'edited B' }); await wait(DC.saveDebounceMs + 50);
@@ -75,9 +75,9 @@ window.canvasTestsDone = (async () => {
     check(Number.isFinite(saved.updatedAt), 'saved revision missing');
   });
   await test('fit wide content after delayed restoration', async () => {
-    window.fetch = async () => { await wait(350); return new Response('', { status: 404 }); };
+    window.fetch = async () => { await wait(DC.settleMs * 2); return new Response('', { status: 404 }); };
     draw('review-fit.json', E(DCSection, { id: 'review', title: 'Wide' }, E(DCArtboard, { id: 'wide', width: 10000, height: 500 })));
-    await until(() => host.querySelector('[data-dc-row]')); await wait(200);
+    await until(() => host.querySelector('[data-dc-row]')); await wait(DC.settleMs + 50);
     const world = host.querySelector('[data-dc-world]');
     const scale = new DOMMatrix(getComputedStyle(world).transform).a;
     check(scale < 0.5, 'wide row remained at scale ' + scale);
@@ -90,17 +90,17 @@ window.canvasTestsDone = (async () => {
         E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
       E(CanvasFlows, { key: 'f', flows }),
     ]);
-    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(300);
+    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(CF.remeasureMs + 60);
     return { flow, render };
   }
   await test('connector label and dashed style refresh', async () => {
-    const { flow, render } = await flowFixture(); render([{ ...flow, label: 'BBBB', dashed: true }]); await wait(350);
+    const { flow, render } = await flowFixture(); render([{ ...flow, label: 'BBBB', dashed: true }]); await wait(CF.remeasureMs + 110);
     const layer = host.querySelector('.dc-flows');
     check(layer.textContent === 'BBBB', 'old label retained');
     check(layer.querySelector('path').style.strokeDasharray !== '', 'dash style not updated');
   });
   await test('removing all flows clears connector layer', async () => {
-    const { render } = await flowFixture(); render([]); await wait(350);
+    const { render } = await flowFixture(); render([]); await wait(CF.remeasureMs + 110);
     check(!host.querySelector('.dc-flows'), 'removed arrows remain visible');
   });
   await test('Google Fonts preserves Arabic and final Latin face', async () => {
@@ -149,7 +149,7 @@ window.canvasTestsDone = (async () => {
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
     // One slot mounts per DC.mountGapMs pass, so a full budget needs time.
     await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
-    await wait(400);
+    await wait(DC.movingMs + DC.settleMs + 30);
     const live = host.querySelectorAll('.dc-card iframe').length;
     check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
@@ -431,7 +431,7 @@ window.canvasTestsDone = (async () => {
         E(DCArtboard, { id: 'a', width: 600, height: 400 }),
         E(DCArtboard, { id: 'b', width: 600, height: 400 })));
     await until(() => host.querySelector('[data-dc-row]'));
-    await wait(400);
+    await wait(DC.movingMs + DC.settleMs + 30);
     const world = host.querySelector('[data-dc-world]');
     const boxes = [...host.querySelectorAll('[data-dc-slot],[data-dc-section],[data-dc-row]')];
     check(boxes.length >= 3, 'fixture did not render');
@@ -473,7 +473,7 @@ window.canvasTestsDone = (async () => {
       { style: { position: 'fixed', top: 0, left: 0, width: Math.min(900, innerWidth), height: Math.min(700, innerHeight) } });
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
     await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
-    await wait(600);
+    await wait(DC.rescueMs + 100);
     // DC.movingMs must outlast DC.settleMs. If it does not, the moving flag
     // clears before the LOD pass is armed to run, dcLodRun's guard never fires,
     // and slots mount and drop between two notches — the cards blink.
@@ -602,8 +602,8 @@ window.canvasTestsDone = (async () => {
     at('pointermove', r.left + 300, r.top, document);
     check(dcMoving() && vp.classList.contains('dc-moving'), 'the reorder drag did not set the flag');
     at('pointerup', r.left + 300, r.top, document);
-    // keepMoving arms the flag for DC.movingMs, which outlasts the 180 ms drop
-    // slide. An iframe that mounts under the cards mid-slide would drop frames.
+    // keepMoving arms the flag for DC.movingMs, which outlasts the DC.dropMs
+    // drop slide. An iframe that mounts mid-slide would drop frames.
     check(dcMoving() && vp.classList.contains('dc-moving'), 'the drop cleared the flag before the slide ran');
     await wait(DC.movingMs + 60);
     check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the slide');
@@ -633,7 +633,7 @@ window.canvasTestsDone = (async () => {
     // the 400 px viewport plus the 600 px margin. The browser window is wider,
     // so b3 and b4 are inside the window and its margin.
     await until(() => host.querySelectorAll('.dc-card iframe').length >= 1);
-    await wait(600);
+    await wait(DC.rescueMs + 100);
     const live = [...host.querySelectorAll('[data-dc-slot]')].filter((s) => s.querySelector('iframe')).map((s) => s.dataset.dcSlot);
     check(innerWidth > 1100, 'window too narrow for this check');
     check(live.sort().join(',') === 'b0,b1,b2', 'live set: ' + live.join(','));
@@ -796,6 +796,227 @@ window.canvasTestsDone = (async () => {
   await test('export names keep non-Latin letters', async () => {
     check(dcExportName('صفحة عربية', 'x') === 'صفحة عربية', 'Arabic label collapsed: ' + dcExportName('صفحة عربية', 'x'));
     check(dcExportName('a/b:c', 'x') === 'a_b_c', 'separators kept');
+  });
+  await test('the lost pill costs no rect reads per frame', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw('review-lostcost.json', E(DCSection, { id: 'review', title: 'Lost' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+    await until(() => host.querySelector('[data-dc-slot]')); await wait(DC.rescueMs + 200);
+    const vp = host.querySelector('.design-canvas');
+    const pan = (dx) => vp.dispatchEvent(new WheelEvent('wheel', { deltaX: dx + 0.001, deltaY: 0.001, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+    pan(6000); await until(() => host.querySelector('.dc-backto'));
+    const orig = Element.prototype.getBoundingClientRect; let reads = 0;
+    Element.prototype.getBoundingClientRect = function () { reads++; return orig.call(this); };
+    try { for (let i = 0; i < 10; i++) { pan(5); await new Promise((r) => requestAnimationFrame(r)); } }
+    finally { Element.prototype.getBoundingClientRect = orig; }
+    check(reads === 0, reads + ' rect reads during 10 frames with the pill up');
+    check(host.querySelector('.dc-backto'), 'the pill went away while still off content');
+    // Pan back over the content. The hide must land in the frame that brings
+    // the content on screen, not DC.settleMs later.
+    pan(-6050.012);
+    await new Promise((r) => requestAnimationFrame(r));
+    await wait(40);
+    check(!host.querySelector('.dc-backto'), 'the pill outlived the frame that brought the content back');
+  });
+  await test('the pill holds while the view sits between two sections', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // A held view: no first fit and no rescue, so the gap keeps its world size.
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-lostgap.json', [
+      E(DCSection, { key: 'a', id: 'a', title: 'First', positions: { a1: { x: 0, y: 0 } } }, E(DCArtboard, { id: 'a1', width: 300, height: 200 })),
+      E(DCSection, { key: 'b', id: 'b', title: 'Second' }, E(DCArtboard, { id: 'b1', width: 300, height: 200 })),
+    ], { style: { position: 'fixed', top: 0, left: 0, width: 600, height: 300 } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 300);
+    const vp = host.querySelector('.design-canvas');
+    const pan = (dx, dy) => vp.dispatchEvent(new WheelEvent('wheel', { deltaX: dx + 0.001, deltaY: dy + 0.001, deltaMode: 0, clientX: 300, clientY: 150, bubbles: true, cancelable: true }));
+    const secs = [...host.querySelectorAll('[data-dc-section]')];
+    const box = vp.getBoundingClientRect();
+    const top = secs[0].getBoundingClientRect().bottom, bottom = secs[1].getBoundingClientRect().top;
+    check(bottom - top > box.height + 40, 'fixture: the gap (' + (bottom - top).toFixed(0) + 'px) is not larger than the view');
+    // Put the view in the middle of the gap. No section is on screen, but one
+    // box around all the content would still cover the view.
+    pan(0, (top + bottom) / 2 - (box.top + box.height / 2));
+    await until(() => host.querySelector('.dc-backto'));
+    pan(0, 5);
+    await new Promise((r) => requestAnimationFrame(r));
+    await wait(40);
+    check(host.querySelector('.dc-backto'), 'the pill hid although both sections are off screen');
+  });
+  await test('an embedded canvas posts the zoom once per settled gesture', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const desc = Object.getOwnPropertyDescriptor(window, 'postMessage');
+    const real = window.postMessage, posts = [];
+    DC.embedded = true;
+    window.postMessage = function (msg, ...rest) {
+      if (msg && msg.type === '__dc_zoom') posts.push(msg.scale);
+      return real.apply(window, [msg, ...rest]);
+    };
+    try {
+      draw('review-embedpost.json', E(DCSection, { id: 'review', title: 'Embed' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+      await until(() => host.querySelector('[data-dc-slot]'));
+      await wait(DC.rescueMs + 300);
+      posts.length = 0;
+      const s0 = dcView.scale;
+      real.call(window, { type: '__dc_set_zoom', scale: s0 / 2 }, '*');
+      await wait(DC.settleMs + 250);
+      check(posts.length === 1, posts.length + ' __dc_zoom posts for one settled zoom');
+      check(Math.abs(posts[0] - s0 / 2) < 1e-6, 'the post carried scale ' + posts[0] + ', not ' + (s0 / 2));
+      // The probe drops the posted scale, so the next settle must post again.
+      real.call(window, { type: '__dc_probe' }, '*');
+      await wait(DC.settleMs + 250);
+      check(posts.length === 2, posts.length + ' __dc_zoom posts after the probe');
+    } finally {
+      delete DC.embedded;
+      if (desc) Object.defineProperty(window, 'postMessage', desc); else delete window.postMessage;
+    }
+  });
+  await test('a top-level canvas posts no zoom to the host', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const posts = [];
+    const onMsg = (e) => { if (e.data && e.data.type === '__dc_zoom') posts.push(e.data.scale); };
+    window.addEventListener('message', onMsg);
+    try {
+      draw('review-zoompost.json', E(DCSection, { id: 'review', title: 'Zoom' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+      await until(() => host.querySelector('[data-dc-slot]')); await wait(DC.rescueMs + 200);
+      const vp = host.querySelector('.design-canvas');
+      for (let i = 0; i < 6; i++) vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -60, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+      await wait(DC.settleMs + 250);
+      check(posts.length === 0, posts.length + ' __dc_zoom posts from a canvas that is not embedded');
+    } finally { window.removeEventListener('message', onMsg); }
+  });
+  await test('the LOD poll pauses when hidden and frees the observer', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw('review-lodpoll.json', E(DCSection, { id: 'review', title: 'Poll' },
+      E(DCArtboard, { id: 'a', width: 300, height: 200 }, E(DCLazyFrame, { src: 'about:blank', title: 'a', width: 300, height: 200 }))));
+    await until(() => dcLod.subs.size > 0);
+    check(dcLod.poll !== 0, 'the poll never started');
+    const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+    try {
+      Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      check(dcLod.poll === 0, 'the poll kept running in a hidden tab');
+    } finally { Object.defineProperty(Document.prototype, 'hidden', desc); }
+    document.dispatchEvent(new Event('visibilitychange'));
+    check(dcLod.poll !== 0, 'the poll did not restart when the tab came back');
+    root.unmount(); root = ReactDOM.createRoot(host);
+    await until(() => dcLod.subs.size === 0);
+    check(dcLod.poll === 0, 'the poll outlived the last slot');
+    check(dcLod.io === null, 'the observer outlived the last slot');
+  });
+  await test('a flow change does not rebuild the flow observers', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { from: 'A', to: 'B', fs: 'r', ts: 'l', label: 'AAAA' };
+    const render = (flows) => draw('review-flowchurn.json', [
+      E(DCSection, { key: 's', id: 'review', positions: { A: { x: 0, y: 0 }, B: { x: 600, y: 0 } } },
+        E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
+      E(CanvasFlows, { key: 'f', flows }),
+    ]);
+    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(CF.remeasureMs + 60);
+    const Real = window.MutationObserver; let built = 0;
+    window.MutationObserver = class extends Real { constructor(cb) { super(cb); built++; } };
+    try {
+      render([{ ...flow, label: 'BBBB' }]); await wait(CF.remeasureMs + 110);
+      check(host.querySelector('.dc-flows').textContent === 'BBBB', 'the label did not refresh');
+      check(built === 0, built + ' flow observers built again for a label change');
+    } finally { window.MutationObserver = Real; }
+  });
+  await test('a CanvasPage re-render keeps the artboard elements', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [],
+    };
+    let bump = null;
+    function Wrap() {
+      const [, setN] = React.useState(0);
+      bump = () => setN((v) => v + 1);
+      return E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-canvaspage.json' });
+    }
+    root.render(E(Wrap));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 400);
+    const before = DC.renders;
+    bump(); await wait(DC.settleMs);
+    check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
+  });
+  await test('the page menu resets a moved arrow side', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    // The state a handle drag writes: the source end of this flow was moved to
+    // the bottom side of page A.
+    const fk = cfFlowKey(flow);
+    localStorage.setItem(key('review-arrows.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [fk]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrows.json' }));
+    await until(() => host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab'));
+    const kebab = host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab');
+    const row = () => [...host.querySelectorAll('[data-dc-slot="A.dc.html"] .dc-menu button')].find((b) => b.textContent === 'Reset arrow sides');
+    kebab.click(); await wait(30);
+    check(!!row(), 'the moved page offers no reset row');
+    row().click(); await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrows.json')));
+    check(!((saved.sections.p1.arrows || {})[fk] || {}).fs, 'the moved side is still saved');
+    kebab.click(); await wait(30);
+    check(!row(), 'the reset row is still offered');
+  });
+  await test('a moved arrow side costs no frame renders on a patch', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    localStorage.setItem(key('review-arrowcost.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [cfFlowKey(flow)]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrowcost.json' }));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 400);
+    // A patch that leaves the arrows alone. The page holds the menu rows of the
+    // moved slot, so no frame may render again.
+    const title = host.querySelector('.dc-sectionhead .dc-editable');
+    const before = DC.renders;
+    title.textContent = 'Renamed';
+    title.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await wait(DC.settleMs);
+    const grew = DC.renders - before;
+    await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrowcost.json')));
+    check(saved.sections.p1.title === 'Renamed', 'the section title patch never ran');
+    check(grew === 0, grew + ' frames rendered again for a patch that kept the arrows');
+  });
+  await test('dcView holds the scale the world and the drag use', async () => {
+    const { at } = await dragFixture('review-viewscale.json');
+    const world = host.querySelector('[data-dc-world]');
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    window.postMessage({ type: '__dc_set_zoom', scale: scaleOf() / 2 }, '*');
+    await wait(DC.settleMs + 250);
+    const shown = scaleOf();
+    check(Math.abs(dcView.scale - shown) < 1e-6, 'dcView.scale is ' + dcView.scale + ', the world shows ' + shown);
+    // The drag reports world px: the screen travel divided by the same scale.
+    // The card is at x 0, and the commit snaps the position to 10 px.
+    const g = host.querySelector('[data-dc-slot="A"] .dc-winhead').getBoundingClientRect();
+    at('pointerdown', g.left + 4, g.top + 4);
+    at('pointermove', g.left + 104, g.top + 4, document);
+    at('pointerup', g.left + 104, g.top + 4, document);
+    await wait(50);
+    const want = 100 / dcView.scale, got = api.section('review').positions.A.x;
+    check(Math.abs(got - want) <= 10, 'the drag moved the card ' + got + ' world px, not ' + want.toFixed(1));
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

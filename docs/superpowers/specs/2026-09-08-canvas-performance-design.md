@@ -208,8 +208,9 @@ is withdrawn and `canvas-page.jsx` keeps its current routing.
 ### F5 — The background grid (withdrawn)
 
 Commits `c7e903c` and `5860a8d` landed during the profiling session and already
-moved the grid out of the transformed world onto a viewport-anchored layer
-driven by `background-position`/`background-size`. No work left.
+moved the grid out of the transformed world. The grid is now one static
+`radial-gradient` layer beside the world, inset in the viewport. The browser
+paints it once. No pan or zoom frame writes to it. No work left.
 
 ### F6 — The hover shadow (withdrawn)
 

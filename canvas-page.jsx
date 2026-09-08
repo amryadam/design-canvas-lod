@@ -30,6 +30,9 @@ const CF = {
   // with the pages from there. Pages are 1440 world px wide with a 22px window
   // title, so a smaller pill vanishes at the zoom that fits one page on screen.
   pill: { font: '600 18px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
+  // Wait before the second measure. A slot slides for DC.dropMs after a drop,
+  // so this must outlast that slide. The arrows then meet the settled boxes.
+  remeasureMs: 240,
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 // Outward normals of the source and target sides; unknown sides read as r → l.
@@ -201,11 +204,58 @@ function cfPlaceLabels(paths) {
   }
 }
 
-// A flow's identity for saved overrides: endpoints and label, not its index
-// (dcFlowKey, design-canvas.jsx, so the engine can read the key back).
-// design-canvas.jsx may still be evaluating when this file runs (the two are
-// imported in parallel), so look the helper up lazily.
-const cfFlowKey = (...a) => window.dcFlowKey(...a);
+// A flow's identity for saved overrides: the endpoints and the label, not the
+// index. This file owns the key, because the engine knows nothing about flows.
+// The separator is a control character: no file name and no label holds one.
+// Saved state holds these keys, so the character must not change.
+const CF_KEY_SEP = '\x1f';
+const cfFlowKey = (f) => [f.from, f.to, f.label || ''].join(CF_KEY_SEP);
+const cfFlowKeyParts = (key) => { const [from, to, label] = key.split(CF_KEY_SEP); return { from, to, label }; };
+
+// ---- The page's rows in the window menu ---------------------------------------
+// A drag moves one end of an arrow to another side of a page. The override is
+// saved in the section state (sec.arrows), so the page offers a row that puts
+// the ends of that page back. The engine only carries the rows (DCSection
+// slotMenu); it does not know what a flow is.
+
+// Every slot that a moved arrow end meets. One pass over the overrides, not
+// one scan of them for each slot.
+const cfArrowsMovedSet = (arrows) => {
+  const s = new Set();
+  Object.entries(arrows || {}).forEach(([key, o]) => { const { from, to } = cfFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
+  return s;
+};
+
+// Drop the moved sides that meet slot `k`. Only the end that meets this page:
+// the far page keeps its side.
+const cfResetArrows = (patchSection, sid, k) => patchSection && patchSection(sid, (x) => {
+  const n = {};
+  Object.entries(x.arrows || {}).forEach(([key, o]) => {
+    const { from, to } = cfFlowKeyParts(key), r = { ...o };
+    if (from === k) delete r.fs;
+    if (to === k) delete r.ts;
+    if (Object.keys(r).length) n[key] = r;
+  });
+  return { arrows: n };
+});
+
+// The rows this page gives to each window's menu. A slot with nothing to reset
+// gets no row at all, so its frame keeps the same props.
+// The section calls this again after every patch, and most patches do not touch
+// the arrows. The cache thus holds against the identity of sec.arrows: it makes
+// the moved set once for each arrow change, and it gives a slot the same row
+// array while that change holds. The frame's shallow compare then holds too.
+const cfSlotMenu = (patchSection, sid) => {
+  let cache = null;
+  return (k, sec) => {
+    const arrows = (sec && sec.arrows) || null;
+    if (!cache || cache.arrows !== arrows) cache = { arrows, moved: cfArrowsMovedSet(arrows), rows: new Map() };
+    if (!cache.moved.has(k)) return null;
+    if (!cache.rows.has(k)) cache.rows.set(k, [{ label: 'Reset arrow sides', onClick: () => cfResetArrows(patchSection, sid, k) }]);
+    return cache.rows.get(k);
+  };
+};
+
 // Side of `box` nearest to world point p, measured to the side as a segment
 // (not the whole edge line), so a pointer above a narrow page reads as top.
 function cfNearestSide(box, p) {
@@ -224,7 +274,9 @@ const cfRound = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(
 
 function cfMeasure(world, flows) {
   const wr = world.getBoundingClientRect();
-  const scale = wr.width / world.offsetWidth || 1;
+  // design-canvas.jsx owns the view scale in dcView. The world's rect over its
+  // layout width gives the same number, but it needs an offsetWidth read too.
+  const scale = (window.dcView && window.dcView.scale) || 1;
   // One DOM query for all slots; each card is measured at most once per pass.
   const slots = new Map();
   world.querySelectorAll('[data-dc-slot]').forEach((el) => slots.set(el.dataset.dcSlot, el));
@@ -279,6 +331,12 @@ function CanvasFlows({ flows: authored, section }) {
   const ctx = React.useContext(DCCtx);
   const arrows = (ctx && section && ctx.section(section).arrows) || null;
   const flows = React.useMemo(() => (arrows ? authored.map((f) => ({ ...f, ...(arrows[cfFlowKey(f)] || {}) })) : authored), [authored, arrows]);
+  // The observers watch the world, not the flows. A new flow list must not
+  // rebuild them: it must only ask for a new measure. The effect below thus
+  // reads the flows through a ref, and a second effect calls its schedule.
+  const flowsRef = React.useRef(flows); flowsRef.current = flows;
+  const hasFlows = flows.length > 0;
+  const scheduleRef = React.useRef(null);
   const setSide = (p, which, side) => {
     if (!ctx || !section) return;
     ctx.patchSection(section, (x) => dcMapPatch(x, 'arrows', p.flowKey, { ...((x.arrows || {})[p.flowKey] || {}), [which]: side }));
@@ -310,19 +368,21 @@ function CanvasFlows({ flows: authored, section }) {
   }, []);
 
   React.useEffect(() => {
-    if (!world || !flows.length) { setPaths([]); setHover(null); return; }
+    if (!world || !hasFlows) { setPaths([]); setHover(null); return; }
     let raf = 0, timer = 0, off = false;
     const measure = () => {
       if (off) return;
-      const next = cfMeasure(world, flows);
+      const next = cfMeasure(world, flowsRef.current);
       setPaths((prev) => (prev.sig === next.sig ? prev : next));
     };
-    // Slots animate their transform for 180ms; measure now and again after that.
+    // Slots animate their transform for DC.dropMs. Measure now, and again
+    // after CF.remeasureMs, when the slide is over.
     const schedule = () => {
       cancelAnimationFrame(raf); clearTimeout(timer);
       raf = requestAnimationFrame(measure);
-      timer = setTimeout(measure, 240);
+      timer = setTimeout(measure, CF.remeasureMs);
     };
+    scheduleRef.current = schedule;
     schedule();
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
@@ -344,14 +404,16 @@ function CanvasFlows({ flows: authored, section }) {
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
     return () => {
-      off = true; cancelAnimationFrame(raf); clearTimeout(timer);
+      off = true; scheduleRef.current = null; cancelAnimationFrame(raf); clearTimeout(timer);
       ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule);
     };
-  }, [world, flows]);
+  }, [world, hasFlows]);
+  // A changed flow list only asks the observers above for a new measure.
+  React.useEffect(() => { scheduleRef.current && scheduleRef.current(); }, [flows]);
 
   if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
   return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
-    <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
+    <div className="dc-flows" data-dc-ignore-pan="" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {paths.map((p, i) => {
           const on = hover === i, dim = hover != null && !on;
@@ -432,11 +494,31 @@ function cpVariants(onPage) {
   return { primaryOf, axesOf };
 }
 
-function CanvasPage({ page, stateFile }) {
-  const [data, setData] = React.useState(null);
+// The section, with the rows this page adds to each window's menu. The rows
+// need ctx.patchSection, and that context is inside DesignCanvas, so a thin
+// component reads it there. Give it the section id as `section`; every other
+// prop goes to DCSection.
+const CanvasPageSection = ({ section, ...rest }) => {
+  const ctx = React.useContext(DCCtx);
+  const patchSection = ctx && ctx.patchSection;
+  // The id DCSection itself resolves, so the patches land on the same section.
+  const sid = section ?? rest.id ?? rest.title;
+  // One identity for the life of the canvas, and the row cache lives in it. A
+  // page re-render must not give the section a new callback.
+  const slotMenu = React.useMemo(() => cfSlotMenu(patchSection, sid), [patchSection, sid]);
+  return <DCSection {...rest} id={sid} slotMenu={slotMenu} />;
+};
+
+// `data` is the canvas.json content. A host that already holds it passes it in
+// and the fetch is skipped; the sample passes nothing and the page reads the
+// file itself.
+function CanvasPage({ page, stateFile, data: given }) {
+  const [fetched, setFetched] = React.useState(null);
+  const data = given || fetched;
   React.useEffect(() => {
-    fetch('./canvas.json').then((r) => r.json()).then(setData).catch((e) => console.error('[canvas-page]', e));
-  }, []);
+    if (given) return;
+    fetch('./canvas.json').then((r) => r.json()).then(setFetched).catch((e) => console.error('[canvas-page]', e));
+  }, [given]);
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
   // Variants (see cpVariants) take no slot of their own; they join the
@@ -471,37 +553,53 @@ function CanvasPage({ page, stateFile }) {
       .filter((f) => f.from !== f.to)
       .filter((f) => { const k = cfFlowKey(f); if (seen.has(k)) return false; seen.add(k); return true; });
   }, [data, layout, page]);
+  // The notes and the slots are built once for each layout. A re-render of the
+  // page must not give the frames new elements: the props object of an element
+  // is what the frame memo compares, so new elements make every artboard
+  // render again.
+  const noteEls = React.useMemo(() => (layout ? layout.notes.map((n) => (
+    <DCPostIt key={n.id} id={n.id} width={layout.notePositions[n.id].w}>{n.text}</DCPostIt>
+  )) : null), [layout]);
+  const boardEls = React.useMemo(() => (layout ? layout.items.map((b) => {
+    const stem = b.file.split('/').pop().replace('.dc.html', '');
+    const label = layout.sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
+    return (
+      <DCArtboard key={b.file} id={b.file} label={label}
+        width={b.w} height={b.h} href={'./' + b.file} variants={layout.sizes[b.file]}>
+        {(s) => {
+          const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
+          return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
+        }}
+      </DCArtboard>
+    );
+  }) : null), [layout]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 
-  const { notes, items, positions, notePositions, sizes, variants } = layout;
+  const { items, positions, notePositions, variants } = layout;
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
   const subtitle = `${items.length} screens` + (variants ? ` · ${variants} variant${variants === 1 ? '' : 's'}` : '');
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
-      <DCSection id={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
-        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={notePositions[n.id].w}>{n.text}</DCPostIt>)}
-        {items.map((b) => {
-          const stem = b.file.split('/').pop().replace('.dc.html', '');
-          const label = sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
-          return (
-            <DCArtboard key={b.file} id={b.file} label={label}
-              width={b.w} height={b.h} href={'./' + b.file} variants={sizes[b.file]}>
-              {(s) => {
-                const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
-                return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
-              }}
-            </DCArtboard>
-          );
-        })}
-      </DCSection>
+      <CanvasPageSection section={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
+        {noteEls}
+        {boardEls}
+      </CanvasPageSection>
       <CanvasFlows flows={flows} section={page} />
     </DesignCanvas>
   );
 }
 
-window.CanvasPage = CanvasPage;
-window.CanvasFlows = CanvasFlows;
-window.cfRoute = cfRoute;
-window.cfCurve = cfCurve;
-window.cfHits = cfHits;
+// The names a host page or a tool needs. Each name says which file reads it.
+window.CanvasPage = CanvasPage;        // sample/index.html, tests/regressions.js
+window.CanvasFlows = CanvasFlows;      // tests/regressions.js flow fixtures
+window.CanvasPageSection = CanvasPageSection; // sample/all-options.html
+window.cfRoute = cfRoute;              // tests/regressions.js router check
+window.cfCurve = cfCurve;              // tests/regressions.js router check
+window.cfHits = cfHits;                // tests/regressions.js router check
+window.CF = CF;                        // tests/regressions.js reads CF.remeasureMs
+window.cfFlowKey = cfFlowKey;          // tests/regressions.js keys an arrow override
+// perf/bench.js measures the arrow re-route through this name, and patches it
+// to count the calls one drag makes. The measure effect above calls it through
+// the same global binding, so the patch is seen.
+window.cfMeasure = cfMeasure;
