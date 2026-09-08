@@ -33,7 +33,7 @@
 **Goal:** A bench function that reports what one settled level-of-detail pass costs and how many slot rects it reads, so Task 2 has a baseline.
 
 **Files:**
-- Modify: `design-canvas.jsx:1316` (the `Object.assign(window, …)` export line)
+- Modify: `design-canvas.jsx:1237` (the `Object.assign(window, …)` export line)
 - Modify: `perf/bench.js:257` (the `dcBench` export) and the `all()` object
 - Create: nothing
 
@@ -50,7 +50,7 @@
 
 - [ ] **Step 1: Export the pass so a tool can run it**
 
-In `design-canvas.jsx`, change the export line (currently line 1316) to add `dcLodRun`:
+In `design-canvas.jsx`, change the export line (currently line 1237) to add `dcLodRun`:
 
 ```js
 Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcLodRun, dcArtboardSvg, dcSvgUrl });
@@ -146,10 +146,10 @@ git commit -m "Measure the level of detail pass"
 
 **Files:**
 - Modify: `design-canvas.jsx:124-188` (the `dcLod` object, `dcSlotDistance`, `dcLodRun`, `dcLodSchedule`, `dcSetZoom`, `dcLodSubscribe`)
-- Modify: `design-canvas.jsx:1004-1027` (`DCLazyFrame`, the subscribe call)
-- Modify: `design-canvas.jsx:1029-1066` (`dcDragSession`, the finish path)
-- Modify: `design-canvas.jsx` inside `DCViewport` — the `flushNow` callback and the `ResizeObserver` effect
-- Modify: `design-canvas.jsx:1316` (the export line)
+- Modify: `design-canvas.jsx:925-948` (`DCLazyFrame`, the subscribe call)
+- Modify: `design-canvas.jsx:950-994` (`dcDragSession`, the finish path)
+- Modify: `design-canvas.jsx:508` (`flushNow`) and `design-canvas.jsx:614-620` (the `ResizeObserver` effect), both inside `DCViewport`
+- Modify: `design-canvas.jsx:1237` (the export line)
 - Test: `tests/regressions.js`
 
 **Acceptance Criteria:**
@@ -389,7 +389,7 @@ git commit -m "Rank the live budget from held world boxes"
 **Goal:** A slot that had a pointer down on it in the last `DC.stickyMs` sorts first, so a card you drag or rename does not drop while you work on it.
 
 **Files:**
-- Modify: `design-canvas.jsx:16-33` (the `DC` constants)
+- Modify: `design-canvas.jsx:16-34` (the `DC` constants)
 - Modify: `design-canvas.jsx` — `dcLodRun` (the ranking line) and `dcLodSubscribe` (the listener)
 - Test: `tests/regressions.js`
 
