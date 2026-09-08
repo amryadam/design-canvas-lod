@@ -444,6 +444,65 @@ window.canvasTestsDone = (async () => {
     finally { Element.prototype.getBoundingClientRect = orig; }
     check(reads === 0, reads + ' rect reads during 10 frames with the pill up');
     check(host.querySelector('.dc-backto'), 'the pill went away while still off content');
+    // Pan back over the content. The hide must land in the frame that brings
+    // the content on screen, not DC.settleMs later.
+    pan(-6050.012);
+    await new Promise((r) => requestAnimationFrame(r));
+    await wait(40);
+    check(!host.querySelector('.dc-backto'), 'the pill outlived the frame that brought the content back');
+  });
+  await test('the pill holds while the view sits between two sections', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // A held view: no first fit and no rescue, so the gap keeps its world size.
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-lostgap.json', [
+      E(DCSection, { key: 'a', id: 'a', title: 'First', positions: { a1: { x: 0, y: 0 } } }, E(DCArtboard, { id: 'a1', width: 300, height: 200 })),
+      E(DCSection, { key: 'b', id: 'b', title: 'Second' }, E(DCArtboard, { id: 'b1', width: 300, height: 200 })),
+    ], { style: { position: 'fixed', top: 0, left: 0, width: 600, height: 300 } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 300);
+    const vp = host.querySelector('.design-canvas');
+    const pan = (dx, dy) => vp.dispatchEvent(new WheelEvent('wheel', { deltaX: dx + 0.001, deltaY: dy + 0.001, deltaMode: 0, clientX: 300, clientY: 150, bubbles: true, cancelable: true }));
+    const secs = [...host.querySelectorAll('[data-dc-section]')];
+    const box = vp.getBoundingClientRect();
+    const top = secs[0].getBoundingClientRect().bottom, bottom = secs[1].getBoundingClientRect().top;
+    check(bottom - top > box.height + 40, 'fixture: the gap (' + (bottom - top).toFixed(0) + 'px) is not larger than the view');
+    // Put the view in the middle of the gap. No section is on screen, but one
+    // box around all the content would still cover the view.
+    pan(0, (top + bottom) / 2 - (box.top + box.height / 2));
+    await until(() => host.querySelector('.dc-backto'));
+    pan(0, 5);
+    await new Promise((r) => requestAnimationFrame(r));
+    await wait(40);
+    check(host.querySelector('.dc-backto'), 'the pill hid although both sections are off screen');
+  });
+  await test('an embedded canvas posts the zoom once per settled gesture', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const desc = Object.getOwnPropertyDescriptor(window, 'postMessage');
+    const real = window.postMessage, posts = [];
+    DC.embedded = true;
+    window.postMessage = function (msg, ...rest) {
+      if (msg && msg.type === '__dc_zoom') posts.push(msg.scale);
+      return real.apply(window, [msg, ...rest]);
+    };
+    try {
+      draw('review-embedpost.json', E(DCSection, { id: 'review', title: 'Embed' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+      await until(() => host.querySelector('[data-dc-slot]'));
+      await wait(DC.rescueMs + 300);
+      posts.length = 0;
+      const s0 = dcLod.scale;
+      real.call(window, { type: '__dc_set_zoom', scale: s0 / 2 }, '*');
+      await wait(DC.settleMs + 250);
+      check(posts.length === 1, posts.length + ' __dc_zoom posts for one settled zoom');
+      check(Math.abs(posts[0] - s0 / 2) < 1e-6, 'the post carried scale ' + posts[0] + ', not ' + (s0 / 2));
+      // The probe drops the posted scale, so the next settle must post again.
+      real.call(window, { type: '__dc_probe' }, '*');
+      await wait(DC.settleMs + 250);
+      check(posts.length === 2, posts.length + ' __dc_zoom posts after the probe');
+    } finally {
+      delete DC.embedded;
+      if (desc) Object.defineProperty(window, 'postMessage', desc); else delete window.postMessage;
+    }
   });
   await test('a top-level canvas posts no zoom to the host', async () => {
     window.fetch = async () => new Response('', { status: 404 });

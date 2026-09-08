@@ -127,7 +127,11 @@ if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snaps
 const DCCtx = React.createContext(null);
 // True only in an iframe. The host messages go out to window.parent, so a
 // canvas opened on its own must post nothing: it would talk to itself.
-const dcEmbedded = typeof window !== 'undefined' && window.parent !== window;
+// DC.embedded is a test hook. It holds no value in the app, and a boolean in it
+// wins, so a check can drive the embedded path from a top-level page.
+const dcEmbedded = () => (typeof DC.embedded === 'boolean'
+  ? DC.embedded
+  : (typeof window !== 'undefined' && window.parent !== window));
 // Shared "is the world moving" flag. Two sources set it: a pan or a zoom arms
 // dcMarkMoving, which clears itself after DC.movingMs; a card drag holds
 // dcDragDepth for the length of the gesture. dcMoving() reads both.
@@ -516,9 +520,11 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
   const lostT = React.useRef(0);
-  // The content box in world units, and the viewport size in px. checkLost
-  // caches both. flushNow then tests the box with arithmetic only.
-  const lostBox = React.useRef(null);
+  // One world-space box for each content element, and the viewport size in px.
+  // checkLost caches both. flushNow then tests the boxes with arithmetic only.
+  // One box around all the content is not enough: with two sections apart, that
+  // box covers the gap between them, and the pill would hide in the gap.
+  const lostBoxes = React.useRef(null);
   const vpSize = React.useRef({ w: 0, h: 0 });
   const tween = React.useRef(0);
 
@@ -537,14 +543,17 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     let next = els.length > 0;
     const r = vp.getBoundingClientRect(), s = tf.current.scale;
     vpSize.current = { w: r.width, h: r.height };
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const world = [];
     for (const el of els) {
       const b = el.getBoundingClientRect();
       if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { next = false; break; }
-      x0 = Math.min(x0, (b.left - r.left - tf.current.x) / s); y0 = Math.min(y0, (b.top - r.top - tf.current.y) / s);
-      x1 = Math.max(x1, (b.right - r.left - tf.current.x) / s); y1 = Math.max(y1, (b.bottom - r.top - tf.current.y) / s);
+      // World-space box of this element, for the per-frame test in flushNow.
+      world.push({
+        x0: (b.left - r.left - tf.current.x) / s, y0: (b.top - r.top - tf.current.y) / s,
+        x1: (b.right - r.left - tf.current.x) / s, y1: (b.bottom - r.top - tf.current.y) / s,
+      });
     }
-    lostBox.current = next ? { x0, y0, x1, y1 } : null;
+    lostBoxes.current = next ? world : null;
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
@@ -573,7 +582,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       lastInv.current = inv;
       el.style.setProperty('--dc-inv-zoom', String(inv));
     }
-    if (dcEmbedded && lastPostedScale.current !== tf.current.scale) {
+    if (dcEmbedded() && lastPostedScale.current !== tf.current.scale) {
       lastPostedScale.current = tf.current.scale;
       window.parent.postMessage({ type: '__dc_zoom', scale: tf.current.scale }, '*');
     }
@@ -590,11 +599,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
     dcSetZoom(scale);
     dcMarkMoving();
-    // With the pill up, test the cached content box with arithmetic only.
-    if (lostRef.current && lostBox.current) {
-      const b = lostBox.current, v = vpSize.current;
-      const onScreen = b.x1 * scale + x > 0 && b.x0 * scale + x < v.w && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h;
-      if (onScreen) { lostRef.current = false; lostBox.current = null; setLost(false); }
+    // With the pill up, test the cached content boxes with arithmetic only.
+    // The count is small: the sections, the slots and the notes.
+    if (lostRef.current && lostBoxes.current) {
+      const v = vpSize.current;
+      const onScreen = lostBoxes.current.some((b) => b.x1 * scale + x > 0 && b.x0 * scale + x < v.w
+        && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h);
+      if (onScreen) { lostRef.current = false; lostBoxes.current = null; setLost(false); }
     }
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
@@ -765,13 +776,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
         const r = vp.getBoundingClientRect();
         zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
       } else if (d && d.type === '__dc_probe') {
-        if (dcEmbedded) window.parent.postMessage({ type: '__dc_present' }, '*');
+        if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
         // apply arms the settle callback, which posts the zoom again.
         lastPostedScale.current = undefined; apply(true);
       }
     };
     window.addEventListener('message', onHostMsg);
-    if (dcEmbedded) window.parent.postMessage({ type: '__dc_present' }, '*');
+    if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
     lastPostedScale.current = undefined; apply(true);
 
     vp.addEventListener('wheel', onWheel, { passive: false });
