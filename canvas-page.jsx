@@ -279,6 +279,12 @@ function CanvasFlows({ flows: authored, section }) {
   const ctx = React.useContext(DCCtx);
   const arrows = (ctx && section && ctx.section(section).arrows) || null;
   const flows = React.useMemo(() => (arrows ? authored.map((f) => ({ ...f, ...(arrows[cfFlowKey(f)] || {}) })) : authored), [authored, arrows]);
+  // The observers watch the world, not the flows. A new flow list must not
+  // rebuild them: it must only ask for a new measure. The effect below thus
+  // reads the flows through a ref, and a second effect calls its schedule.
+  const flowsRef = React.useRef(flows); flowsRef.current = flows;
+  const hasFlows = flows.length > 0;
+  const scheduleRef = React.useRef(null);
   const setSide = (p, which, side) => {
     if (!ctx || !section) return;
     ctx.patchSection(section, (x) => dcMapPatch(x, 'arrows', p.flowKey, { ...((x.arrows || {})[p.flowKey] || {}), [which]: side }));
@@ -310,11 +316,11 @@ function CanvasFlows({ flows: authored, section }) {
   }, []);
 
   React.useEffect(() => {
-    if (!world || !flows.length) { setPaths([]); setHover(null); return; }
+    if (!world || !hasFlows) { setPaths([]); setHover(null); return; }
     let raf = 0, timer = 0, off = false;
     const measure = () => {
       if (off) return;
-      const next = cfMeasure(world, flows);
+      const next = cfMeasure(world, flowsRef.current);
       setPaths((prev) => (prev.sig === next.sig ? prev : next));
     };
     // Slots animate their transform for 180ms; measure now and again after that.
@@ -323,6 +329,7 @@ function CanvasFlows({ flows: authored, section }) {
       raf = requestAnimationFrame(measure);
       timer = setTimeout(measure, 240);
     };
+    scheduleRef.current = schedule;
     schedule();
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
@@ -344,10 +351,12 @@ function CanvasFlows({ flows: authored, section }) {
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
     return () => {
-      off = true; cancelAnimationFrame(raf); clearTimeout(timer);
+      off = true; scheduleRef.current = null; cancelAnimationFrame(raf); clearTimeout(timer);
       ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule);
     };
-  }, [world, flows]);
+  }, [world, hasFlows]);
+  // A changed flow list only asks the observers above for a new measure.
+  React.useEffect(() => { scheduleRef.current && scheduleRef.current(); }, [flows]);
 
   if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
   return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(

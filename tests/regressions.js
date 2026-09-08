@@ -478,6 +478,23 @@ window.canvasTestsDone = (async () => {
     check(dcLod.poll === 0, 'the poll outlived the last slot');
     check(dcLod.io === null, 'the observer outlived the last slot');
   });
+  await test('a flow change does not rebuild the flow observers', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { from: 'A', to: 'B', fs: 'r', ts: 'l', label: 'AAAA' };
+    const render = (flows) => draw('review-flowchurn.json', [
+      E(DCSection, { key: 's', id: 'review', positions: { A: { x: 0, y: 0 }, B: { x: 600, y: 0 } } },
+        E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
+      E(CanvasFlows, { key: 'f', flows }),
+    ]);
+    render([flow]); await until(() => host.querySelector('.dc-flows')); await wait(300);
+    const Real = window.MutationObserver; let built = 0;
+    window.MutationObserver = class extends Real { constructor(cb) { super(cb); built++; } };
+    try {
+      render([{ ...flow, label: 'BBBB' }]); await wait(350);
+      check(host.querySelector('.dc-flows').textContent === 'BBBB', 'the label did not refresh');
+      check(built === 0, built + ' flow observers built again for a label change');
+    } finally { window.MutationObserver = Real; }
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
