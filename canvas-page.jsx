@@ -526,9 +526,14 @@ function CanvasPage({ page, stateFile, data: given }) {
   );
 }
 
-window.CanvasPage = CanvasPage;
-window.CanvasFlows = CanvasFlows;
-window.cfRoute = cfRoute;
-window.cfCurve = cfCurve;
-window.cfHits = cfHits;
-window.CF = CF;
+// The names a host page or a tool needs. Each name says which file reads it.
+window.CanvasPage = CanvasPage;        // sample/index.html, tests/regressions.js
+window.CanvasFlows = CanvasFlows;      // tests/regressions.js flow fixtures
+window.cfRoute = cfRoute;              // tests/regressions.js router check
+window.cfCurve = cfCurve;              // tests/regressions.js router check
+window.cfHits = cfHits;                // tests/regressions.js router check
+window.CF = CF;                        // tests/regressions.js reads CF.remeasureMs
+// perf/bench.js measures the arrow re-route through this name, and patches it
+// to count the calls one drag makes. The measure effect above calls it through
+// the same global binding, so the patch is seen.
+window.cfMeasure = cfMeasure;

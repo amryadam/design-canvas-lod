@@ -1317,6 +1317,23 @@ function DCPostIt({ children, width = 320, rotate = -1 }) {
 function DCLib() { return null; }
 
 // A top-level const does not land on window, so the names a host page or a
-// tool needs are published here. DC, dcLod and dcArtboardSvg are read by
-// perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl, dcExportName });
+// tool needs are published here. This list is the contract. Each name says
+// which file reads it, so a rename cannot break a reader in silence.
+Object.assign(window, {
+  // Host pages (sample/index.html, sample/all-options.html) and the fixtures
+  // in tests/regressions.js build a canvas from these components.
+  DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib,
+  // canvas-page.jsx drags the arrow ends with dcDragSession, keys the arrow
+  // state with dcFlowKey and patches it with dcMapPatch.
+  dcDragSession, dcFlowKey, dcMapPatch,
+  // tests/regressions.js reads dcMoving to check the moving flag, and
+  // dcExportName to check the export file name.
+  dcMoving, dcExportName,
+  // perf/bench.js reads DC.renders, DC.liveBudget and dcLod.scale.
+  // tests/regressions.js reads DC for its waits and its budget checks.
+  DC, dcLod,
+  // tests/regressions.js rasterizes a fixture with these.
+  dcArtboardSvg, dcSvgUrl,
+  // tests/regressions.js calls the export inliners on their own.
+  dcFontCss, dcInlineCss, dcInlineDoc,
+});
