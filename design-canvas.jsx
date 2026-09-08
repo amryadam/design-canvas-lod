@@ -44,6 +44,8 @@ const DC = {
   winHead: 64,          // the window header: name, chips, buttons. World px,
   winPad: 36,           // as is the padding around the screen, so the chrome
   winBody: '#eae7e1',   // grows and shrinks with the card
+  sectionHeadMax: 1.75, // most the section head counter-scales. The rule
+                        // below gives the arithmetic
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 
@@ -97,11 +99,19 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:5px 3px}
 .dc-menu .dc-danger{color:#c96442}
 .dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}
-/* The section head follows the same rule, and by transform, not by zoom: a
-   transform never reflows, so the head keeps a fixed world box and the world's
-   layout stays free of the zoom. It grows from its bottom edge, upwards into
-   the section gap, so a title never covers its own cards. */
-.dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),4));transform-origin:bottom left}
+/* The section head follows the same rule by transform, not by zoom: a transform
+   never reflows, so the head keeps a fixed world box and the world's layout
+   stays free of the zoom. The head grows from its bottom edge, upwards into the
+   gap above it. The cap keeps the grown head inside that gap. A head with a
+   title and a subtitle measures 93 px high in headless Chrome at these styles.
+   The smaller gap is the 72 px world top padding; the section gap is 80 px. The
+   head thus grows at most 1 + 72 / 93 = 1.77 times. The cap of 1.75 grows a
+   93 px head by 0.75 x 93 = 70 px, which stays in the 72 px. Below 57 % zoom
+   (1 / 1.75) the head follows the world. A change to the title size, the
+   subtitle size or the head padding changes the 93 px. Measure the head again
+   and calculate the cap again. The check "a grown section head stays inside its
+   gap" fails if you do not. */
+.dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),${DC.sectionHeadMax}));transform-origin:bottom left}
 /* Shown only when no section is on screen. */
 .dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
 .dc-backto:hover{background:#faf8f5}
@@ -1066,6 +1076,9 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
+// Export file name: the label, or the id, with path and shell separators
+// replaced. \p{L}\p{N} keeps Arabic and every other script.
+const dcExportName = (label, id) => String(label || id || 'artboard').replace(/[^\p{L}\p{N}\s.-]+/gu, '_');
 function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
   // perf/bench.js reads this counter to find how many frames one state patch
   // renders. A render-phase increment is the only way to count renders, so it
@@ -1165,7 +1178,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   // does. Capture phase, so the title, the chips and the menu do not stop it.
   const onSlotDownCapture = (e) => { if (e.button === 0 && (e.ctrlKey || e.metaKey)) onGripDown(e); };
 
-  const fileName = String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_');
+  const fileName = dcExportName(label, id);
   const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
     .catch((err) => console.error('[design-canvas] export failed:', err));
   return (
@@ -1249,4 +1262,4 @@ function DCLib() { return null; }
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. DC, dcLod and dcArtboardSvg are read by
 // perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl, dcExportName });
