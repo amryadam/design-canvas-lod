@@ -1,3 +1,4 @@
 .DS_Store
 .design-canvas.*.state.json
 .superpowers/
+tests/.chrome-profile/

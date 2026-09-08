@@ -122,12 +122,54 @@ land inside the measurement, five runs each: median 6.9 ms both ways, p90
 34–62 ms frames seen while investigating this were the raster cost of the eight
 live iframes (F1), not the zoom path.
 
-**The cost of F2b is visual, not mechanical.** Section titles and gaps held a
-constant *screen* size, so they stayed legible and separated at 5 % zoom. In
-world units a 28 px title renders about 1.4 px tall there, and the 80 px gap
-becomes 4 px, so sections read as one block when zoomed far out. That is the
-same trade `d37bd15` accepted for the pills: they read as part of the map rather
-than as chrome.
+**Correction (F2c): the section head keeps its screen size, by transform.**
+Dropping `zoom` outright made section titles scale with the world, so they were
+1.7 px tall at 5 % zoom and 132 px at 4x — unreadable when zoomed out, and the
+first thing reported after F2b shipped. Measured against the previous build,
+which held them at 33 px at every zoom.
+
+`.dc-sectionhead` now carries `transform: scale(min(var(--dc-inv-zoom,1),4))`
+with `transform-origin: bottom left`, the same rule and the same clamp as
+`.dc-header`. A transform never reflows, so the head keeps a fixed world box and
+F2b's guarantee is untouched — the layout still moves 0.000 px across the whole
+range of the variable. The origin is the bottom edge, so the head grows upwards
+into the section gap and a title never covers its own cards. Titles now measure
+33 px from 0.25x up to 4x, and shrink with the world below that, which is what
+the clamp is for: heads must not balloon over the neighbouring cards.
+
+**The remaining cost of F2b is visual.** Section gaps are in world units now, so
+at 5 % zoom the 80 px gap is 4 px on screen and sections read as one block when
+zoomed far out. That is the same trade `d37bd15` accepted for the flow label
+pills: they read as part of the map rather than as chrome.
+
+### F1a — The "world is moving" guard never fired
+
+Reported as the canvas blinking through a wheel roll. Found by sweeping the gap
+between notches and counting iframe mounts and drops during the roll: **0 events
+at 40 ms and 90 ms, but 2 to 6 at 130, 180 and 400 ms**. One slot was seen to
+drop and mount again inside a single roll — the page turned into its striped
+placeholder and back.
+
+`dcLodRun` opens with a guard that refuses to measure the slots while the world
+moves (F1, "the registry stops while the world moves"). It could not work.
+`dcMarkMoving` cleared its flag after a hardcoded **120 ms**, while the pass
+itself is armed for `DC.settleMs`, **150 ms**, in the same tick. The flag was
+therefore always 30 ms stale by the time the pass ran, so the guard never fired
+for a pan or a zoom. It only ever worked for a card drag, which holds
+`dcDragDepth` for the length of the gesture instead of using a timer.
+
+**Decision:** the window is now `DC.movingMs`, and it must exceed `DC.settleMs`.
+At 220 ms the sweep gives **0 mounts or drops at every cadence up to 250 ms**.
+A 400 ms roll still moves slots, correctly: they leave the screen on the way in
+and come back on the way out. The cost is the first mount after a gesture, which
+goes from about 150 ms to 214–315 ms. Guarded by *"a wheel roll does not mount
+or drop iframes mid-gesture"* in `tests/regressions.js`, which asserts both the
+constant relationship and the absence of churn at the cadence that used to fail.
+
+This was not caused by F2b, and predates it: `liveByZoom` gives 8/8/8/5/3 at
+0.05/0.15/0.3/0.5/0.8 in both builds, with no idle churn at any zoom and no
+`contentvisibilityautostatechange` events through a zoom cycle. Fixing the
+position drift simply made it the most visible thing left.
 
 ### F3 — One state patch costs a whole frame
 

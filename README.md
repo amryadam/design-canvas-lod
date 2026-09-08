@@ -4,13 +4,13 @@ Pan/zoom canvas page for a claude.ai/design project, with level of detail.
 The screens nearest to the middle of the view are live iframes. All other
 screens are placeholders.
 
-- `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view).
+- `design-canvas.jsx` — the canvas (sections, artboards as windows, post-its).
   The viewport draws the background dots itself — fatoora's flow map
   dot, 26 screen px apart, the same at every zoom — so they cover the canvas at
   any pan. Pan until no page is on screen and a "Back to
   content" pill appears; a click fits every page and note back into the viewport.
 - `canvas-page.jsx` — reads `canvas.json` and lays one page out as a single free
-  canvas: every artboard and note at its own x/y. Drag a card by its grip to
+  canvas: every artboard and note at its own x/y. Drag a window by its header to
   move it; the spot is saved to the section state file and to the browser, so
   it survives a reload even where the file cannot be written.
   Its `flows` array draws arrows between artboards on the canvas itself
@@ -21,6 +21,19 @@ screens are placeholders.
   has "Reset arrow sides"). Curves route through
   the gutters around every page and note they would otherwise cross (shortest
   clear path over the page corners, then smoothed).
+- Every page is a window: a header with a live dot, the name, the variant
+  chips, the ⋯ menu and ↗ (open the screen in a new tab), then the screen inset
+  in the body (`DC.winHead`, `DC.winPad`, `DC.winBody`). Every option is in the
+  header at all times — no drawer, no hover to reveal. The header drags the
+  page; Ctrl+left click (⌘ on a Mac) drags it from anywhere on it, the screen
+  included. The ⋯ menu holds Open
+  screen, Reset position, Reset arrow sides, Download PNG, Download HTML and
+  Delete.
+  The chrome is world px, so it grows and shrinks with the card, as the flow
+  labels do — it no longer counter-scales with the zoom. The screen keeps the
+  x/y that canvas.json gives it: the window grows around it, left and up by the
+  chrome, into the gutter. Drag a window by its header. The dot is green while
+  the screen is a live iframe and grey while it shows the placeholder.
 - Variants: copies of one screen fold into one slot. A file whose CamelCase
   name starts with another file's name on the same page is a variant of it
   (`SignInWrong`, `SignInArabic`, `SignInPhone` → `SignIn`; the longest match
@@ -28,8 +41,8 @@ screens are placeholders.
   chip group per axis that varies: size (`1440 · 2K · 390`, from the width),
   language (`EN · AR`, from an `Arabic` word in the name or `RTL` in the
   title) and state (`Main · Wrong · Locked`, the leftover words). A click swaps
-  the file and resizes the frame in place; arrows, the saved position and the
-  focus view follow, and the choice is saved with the section state. Flows
+  the file and resizes the frame in place; arrows and the saved position
+  follow, and the choice is saved with the section state. Flows
   drawn on a variant land on the primary, and one that then loops back on
   itself is dropped, so the canvas shows the main flow. Optional fields in
   canvas.json override the guess: `variantOf` (a file, or `null` to keep a
@@ -66,11 +79,8 @@ two mounts in one frame make that frame long. A live slot counts as
 `DC.budgetHysteresis` px nearer than it is. The slot in last place thus stays
 stable while you pan.
 
-Two conditions are outside the budget:
+One condition is outside the budget:
 
-- The focus overlay is always a live iframe. It uses the `eager` flag on
-  `DCLazyFrame`, and the budget does not apply to it. One focused screen can
-  thus make `DC.liveBudget + 1` iframes live.
 - The registry stops while the world moves. A pan, a zoom or a card drag holds
   the canvas in its moving state, and no slot mounts or drops until the world
   stops. A long drag thus keeps the iframes that were live when it started.
@@ -85,7 +95,7 @@ opening, the canvas compares the state file with its browser copy and restores
 the newer revision. The browser copy wins ties, including legacy saves without
 revisions, so edits survive on static servers with a read-only state file.
 Local edits are saved to the browser immediately; host file writes are debounced
-by 400 ms. Changing `stateFile` starts a fresh restoration and focus lifecycle.
+by 400 ms. Changing `stateFile` starts a fresh restoration lifecycle.
 
 Editing and initial fitting wait for restoration. If the state request fails or
 takes more than five seconds, the canvas falls back to browser state.
@@ -100,12 +110,13 @@ Then open `http://localhost:8000/sample/`.
 
 ## Run the regression checks
 
-With the same server running, open
-`http://localhost:8000/tests/regressions.html`. The page reports each result and
-sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
-sample. The checks exercise real React lifecycles, connector DOM updates, the
-live iframe budget, and export pixels. Fetch responses are controlled, to
-reproduce the loading and asset cases.
+Run `node tests/run.mjs` to run the suite in headless Chrome. It prints one
+line per check and exits 1 on a failure. A hidden browser tab pauses
+`requestAnimationFrame`, so two checks fail there; the runner keeps the page
+visible. The suite uses the same React/Babel CDN scripts as the sample. The
+checks exercise real React lifecycles, connector DOM updates, the live iframe
+budget, and export pixels. Fetch responses are controlled, to reproduce the
+loading and asset cases.
 
 ## Use in claude.ai/design
 

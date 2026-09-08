@@ -62,7 +62,7 @@ window.canvasTestsDone = (async () => {
     draw('review-switch-b.json'); await wait(250);
     check(calls.some((url) => String(url).includes('-b.')), 'B was never fetched');
     check(api.section('review').title === 'B', 'A state leaked into B');
-    api.patchSection('review', { title: 'edited B' }); await wait(450);
+    api.patchSection('review', { title: 'edited B' }); await wait(DC.saveDebounceMs + 50);
     check(JSON.parse(localStorage.getItem(key('review-switch-b.json'))).sections.review.title === 'edited B', 'B edit not saved');
   });
   await test('navigation before debounce retains browser edits', async () => {
@@ -135,10 +135,15 @@ window.canvasTestsDone = (async () => {
   await test('live iframes stay inside the budget', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     const count = DC.liveBudget + 4;
+    // The window chrome is part of the slot box, and the budget counts the
+    // slots nearest the view. Size the screen so the window keeps the 300x200
+    // box this check was written for; a bigger box would push the eighth slot
+    // out of the margin and the budget would never fill.
+    const w = 300 - DC.winPad * 2, h = 200 - DC.winHead - DC.winPad * 2;
     const boards = [];
     for (let i = 0; i < count; i++) {
-      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
-        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: w, height: h },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: w, height: h })));
     }
     draw('review-budget.json', E(DCSection, { id: 'review', title: 'Budget' }, boards));
     await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
@@ -255,7 +260,7 @@ window.canvasTestsDone = (async () => {
       E(DCSection, { id: 'review', title: 'Anchor' }, E(DCArtboard, { id: 'a', width: 600, height: 4000 })),
       { style: { position: 'fixed', top: 0, left: 0, width: w, height: h } });
     await until(() => host.querySelector('[data-dc-slot]'));
-    await wait(700); // past the first fit, its 500 ms rescue and the first write
+    await wait(DC.rescueMs + 200); // past the first fit, the rescue and the 300 ms transform write
     const world = host.querySelector('[data-dc-world]');
     const slot = host.querySelector('[data-dc-slot]');
     const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
@@ -303,6 +308,224 @@ window.canvasTestsDone = (async () => {
     }
     check(world.style.transform === held, 'the transform moved during the test');
     check(worst < 0.01, 'a world box (' + culprit + ') moved ' + worst.toFixed(2) + 'px with --dc-inv-zoom');
+  });
+  await test('a wheel roll does not mount or drop iframes mid-gesture', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 400, height: 300 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 400, height: 300 })));
+    }
+    draw('review-rollchurn.json', E(DCSection, { id: 'review', title: 'Roll' }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: Math.min(900, innerWidth), height: Math.min(700, innerHeight) } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(600);
+    // DC.movingMs must outlast DC.settleMs. If it does not, the moving flag
+    // clears before the LOD pass is armed to run, dcLodRun's guard never fires,
+    // and slots mount and drop between two notches — the cards blink.
+    check(DC.movingMs > DC.settleMs, 'movingMs (' + DC.movingMs + ') must exceed settleMs (' + DC.settleMs + ')');
+    const vp = host.querySelector('.design-canvas');
+    let churn = 0;
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) {
+        r.addedNodes.forEach((n) => { if (n.nodeType === 1 && n.tagName === 'IFRAME') churn++; });
+        r.removedNodes.forEach((n) => { if (n.nodeType === 1 && n.tagName === 'IFRAME') churn++; });
+      }
+    });
+    mo.observe(vp, { childList: true, subtree: true });
+    // A gap between settleMs and movingMs: the cadence that used to churn.
+    const gap = Math.round((DC.settleMs + DC.movingMs) / 2);
+    for (let i = 0; i < 6; i++) {
+      vp.dispatchEvent(new WheelEvent('wheel', { clientX: 200, clientY: 200,
+        deltaX: 0, deltaY: -120, deltaMode: 0, bubbles: true, cancelable: true }));
+      await wait(gap);
+    }
+    mo.disconnect();
+    check(churn === 0, churn + ' iframe mounts/drops during the roll; the cards blink');
+  });
+  await test('settled visible slots reclaim the budget from off-screen live slots', async () => {
+    // Controlled post-zoom screen rects: 1000-world-px boards at 5% zoom.
+    // There are exactly budget visible boards, so none should stay a placeholder.
+    // Previously live boards sit just below the screen, inside unmountMargin.
+    const entries = [], changes = [];
+    const add = (id, top, live) => {
+      const left = innerWidth / 2;
+      const s = { id, live, margin: 600,
+        box: { getBoundingClientRect: () => ({ left, top, right: left + 50, bottom: top + 50 }) },
+        set(value) { changes.push({ id, value }); } };
+      entries.push(s); dcLod.subs.add(s);
+    };
+    // Finish the previous test's moving window before asking for settled passes.
+    await wait(DC.movingMs + DC.settleMs + 50);
+    check(dcLod.subs.size === 0, 'previous fixture retained LOD subscriptions');
+    try {
+      for (let i = 0; i < DC.liveBudget; i++) add('old-' + i, innerHeight + 10, true);
+      for (let i = 0; i < DC.liveBudget; i++) add('visible-' + i, innerHeight - 100, false);
+      for (let pass = 0; pass < 100; pass++) {
+        const start = changes.length;
+        dcLodRun();
+        check(entries.filter((s) => s.live).length <= DC.liveBudget, 'budget exceeded during recovery');
+        check(changes.slice(start).filter((c) => c.value).length <= 1, 'recovery bypassed staggered mounts');
+      }
+      const visibleLive = entries.filter((s) => s.id.startsWith('visible-') && s.live).length;
+      check(visibleLive === DC.liveBudget,
+        visibleLive + '/' + DC.liveBudget + ' visible slots live after 100 settled passes; off-screen slots retained the budget');
+      const settledChanges = changes.length;
+      for (let pass = 0; pass < 10; pass++) dcLodRun();
+      check(changes.length === settledChanges, 'idle LOD churn after recovery');
+    } finally {
+      entries.forEach((s) => dcLod.subs.delete(s));
+      clearTimeout(dcLod.timer);
+    }
+  });
+  // A section with `positions` places the cards freely and the grip moves one.
+  // A section without it lays them out in a row and the grip reorders them,
+  // which is the keepMoving path.
+  async function dragFixture(name, positions = { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } }) {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw(name, [
+      E(Probe, { key: 'p' }),
+      E(DCSection, { key: 's', id: 'review', ...(positions ? { positions } : {}) },
+        E(DCArtboard, { id: 'A', width: 200, height: 200 }), E(DCArtboard, { id: 'B', width: 200, height: 200 })),
+    ]);
+    await until(() => api && host.querySelector('[data-dc-slot] .dc-winhead'));
+    // The first fit and its DC.rescueMs nudge both arm the moving flag. Wait
+    // for it to clear, or a check cannot tell a drag's flag from theirs.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    const vp = host.querySelector('.design-canvas');
+    const grip = host.querySelector('[data-dc-slot="A"] .dc-winhead');
+    const r = grip.getBoundingClientRect();
+    const at = (type, x, y, target = grip) => target.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+    return { vp, grip, r, at };
+  }
+  await test('a lost pointer ends the card drag', async () => {
+    const { vp, r, at } = await dragFixture('review-lostdrag.json');
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 60, r.top + 60, document);
+    check(dcMoving(), 'the drag did not set the moving flag');
+    window.dispatchEvent(new Event('blur'));
+    await wait(50);
+    check(!dcMoving(), 'dcMoving() stayed true after the pointer was lost');
+    check(!vp.classList.contains('dc-moving'), '.dc-moving stayed on after the pointer was lost');
+    // The pointer went away; the user never dropped the card. A cancelled drag
+    // must put the card back and write no position to the section state.
+    check(!(api.section('review').positions || {}).A, 'the cancelled drag committed a move');
+  });
+  await test('a pan timer does not strip .dc-moving from a running drag', async () => {
+    const { vp, r, at } = await dragFixture('review-pandrag.json');
+    vp.dispatchEvent(new WheelEvent('wheel', { deltaX: 3.5, deltaY: 0, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+    await wait(20);
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 60, r.top + 60, document);
+    await wait(DC.movingMs + 60);
+    check(vp.classList.contains('dc-moving'), 'the pan timer removed .dc-moving mid-drag');
+    at('pointerup', r.left + 60, r.top + 60, document);
+    await wait(DC.movingMs + 60);
+    check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the drop');
+  });
+  await test('a grip reorder holds the flag over its drop animation', async () => {
+    const { vp, r, at } = await dragFixture('review-reorder.json', null);
+    at('pointerdown', r.left + 4, r.top + 4);
+    at('pointermove', r.left + 300, r.top, document);
+    check(dcMoving() && vp.classList.contains('dc-moving'), 'the reorder drag did not set the flag');
+    at('pointerup', r.left + 300, r.top, document);
+    // keepMoving arms the flag for DC.movingMs, which outlasts the 180 ms drop
+    // slide. An iframe that mounts under the cards mid-slide would drop frames.
+    check(dcMoving() && vp.classList.contains('dc-moving'), 'the drop cleared the flag before the slide ran');
+    await wait(DC.movingMs + 60);
+    check(!dcMoving() && !vp.classList.contains('dc-moving'), 'the flag or class stayed on after the slide');
+  });
+  await test('the rescue nudge keeps a restored pan', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: -5000, y: -5000, scale: 1 }));
+    draw('review-rescue.json', E(DCSection, { id: 'review', title: 'Rescue' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+    await until(() => host.querySelector('[data-dc-slot]'));
+    await wait(DC.rescueMs + 200);
+    const world = host.querySelector('[data-dc-world]');
+    // The style getter prints the written `0` as `0px`, so read the matrix.
+    const m = new DOMMatrix(world.style.transform);
+    check(m.a === 1 && m.e === -5000 && m.f === -5000, 'the rescue moved a restored view: ' + world.style.transform);
+  });
+  await test('the LOD budget ranks against the viewport, not the window', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 6, boards = [];
+    for (let i = 0; i < count; i++) boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
+      E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-lodvp.json', E(DCSection, { id: 'review', title: 'LOD', gap: 20 }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: 400, height: 400 } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // The window chrome puts each slot box at 300 + DC.winPad * 2 wide, so the
+    // row holds one slot every 392 px from x 60. Only b0, b1 and b2 are inside
+    // the 400 px viewport plus the 600 px margin. The browser window is wider,
+    // so b3 and b4 are inside the window and its margin.
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= 1);
+    await wait(600);
+    const live = [...host.querySelectorAll('[data-dc-slot]')].filter((s) => s.querySelector('iframe')).map((s) => s.dataset.dcSlot);
+    check(innerWidth > 1100, 'window too narrow for this check');
+    check(live.sort().join(',') === 'b0,b1,b2', 'live set: ' + live.join(','));
+  });
+  await test('a hanging state read gives up after DC.stateTimeoutMs', async () => {
+    window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
+    draw('review-hang.json'); await wait(DC.stateTimeoutMs + 300);
+    check(!!api, 'the canvas stayed blank past DC.stateTimeoutMs');
+  });
+  await test('a failed host write is retried on pagehide', async () => {
+    const calls = [];
+    window.omelette = { writeFile: async (file, json) => { calls.push(json); throw new Error('disk'); } };
+    try {
+      window.fetch = async () => json(envelope('file', 10));
+      draw('review-writefail.json'); await until(() => api);
+      api.patchSection('review', { title: 'edited' }); await wait(DC.saveDebounceMs + 100);
+      check(calls.length === 1, 'first write did not run');
+      window.dispatchEvent(new Event('pagehide')); await wait(50);
+      check(calls.length === 2, 'the failed write was marked saved and not retried');
+      check(calls[1] === calls[0], 'retry sent different JSON');
+    } finally { delete window.omelette; }
+  });
+  await test('a host write that ran is not sent again on pagehide', async () => {
+    const calls = [];
+    window.omelette = { writeFile: async (file, json) => { calls.push(json); } };
+    try {
+      window.fetch = async () => json(envelope('file', 10));
+      draw('review-writeonce.json'); await until(() => api);
+      api.patchSection('review', { title: 'edited' }); await wait(DC.saveDebounceMs + 100);
+      check(calls.length === 1, 'first write did not run');
+      window.dispatchEvent(new Event('pagehide')); await wait(50);
+      check(calls.length === 1, 'the saved sections were written a second time');
+    } finally { delete window.omelette; }
+  });
+  await test('cfRoute picks a candidate that crosses less than the plain curve', async () => {
+    // The obstacle stands against B's left anchor. No route around it is clear.
+    // The router must then draw the candidate that crosses the least.
+    const a = { x: 0, y: 0 }, b = { x: 600, y: 0 }, obs = [{ x: 440, y: -300, w: 160, h: 600 }];
+    const plainHits = cfHits(cfCurve(a, 'r', b, 'l'), obs, 96);
+    const routed = cfRoute(a, 'r', b, 'l', obs);
+    check(plainHits > 0, 'fixture: the plain curve must cross the obstacle');
+    check(cfHits(routed, obs, 96) < plainHits, 'cfRoute kept the plain curve although a clearer candidate exists');
+  });
+  await test('a grown section head stays inside its gap', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-heads.json', [
+      E(DCSection, { key: 'a', id: 'a', title: 'First', subtitle: 'With a subtitle' }, E(DCArtboard, { id: 'a1', width: 300, height: 200 })),
+      E(DCSection, { key: 'b', id: 'b', title: 'Second', subtitle: 'With a subtitle' }, E(DCArtboard, { id: 'b1', width: 300, height: 200 })),
+    ]);
+    await until(() => host.querySelectorAll('.dc-sectionhead').length === 2);
+    await wait(DC.rescueMs + 200);
+    const world = host.querySelector('[data-dc-world]');
+    world.style.setProperty('--dc-inv-zoom', '4'); void world.offsetHeight;
+    const [h1, h2] = host.querySelectorAll('.dc-sectionhead');
+    const row1 = host.querySelector('[data-dc-section="a"] [data-dc-row]');
+    check(h1.getBoundingClientRect().top >= world.getBoundingClientRect().top - 0.5, 'the first head grew above the world top');
+    check(h2.getBoundingClientRect().top >= row1.getBoundingClientRect().bottom - 0.5, 'the second head covers the first section cards');
+  });
+  await test('export names keep non-Latin letters', async () => {
+    check(dcExportName('صفحة عربية', 'x') === 'صفحة عربية', 'Arabic label collapsed: ' + dcExportName('صفحة عربية', 'x'));
+    check(dcExportName('a/b:c', 'x') === 'a_b_c', 'separators kept');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

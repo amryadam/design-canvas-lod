@@ -26,9 +26,10 @@ const CF = {
   strokeW: 'max(calc(2px * min(var(--dc-inv-zoom, 1), 2)), calc(1px * var(--dc-inv-zoom, 1)))',
   // Dashes are in world units too, so they scale with the zoom to stay 5/6 screen px.
   dashW: 'calc(5px * var(--dc-inv-zoom, 1)) calc(6px * var(--dc-inv-zoom, 1))',
-  // Pill size is in world units: 12.5px at 100% zoom, and it grows and shrinks
-  // with the pages from there.
-  pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
+  // Pill size is in world units: 18px at 100% zoom, and it grows and shrinks
+  // with the pages from there. Pages are 1440 world px wide with a 22px window
+  // title, so a smaller pill vanishes at the zoom that fits one page on screen.
+  pill: { font: '600 18px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
 // Outward normals of the source and target sides; unknown sides read as r → l.
@@ -70,7 +71,8 @@ function cfSeg(a, c1, c2, b) {
 
 const cfInside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
 // Number of sample points that fall inside an obstacle; 0 means the curve is
-// clear. Every candidate is sampled at the same density so counts compare.
+// clear. cfRoute samples every candidate at CF_SAMPLES * 4, so the counts
+// compare. CF_SAMPLES is only the default density.
 const CF_SAMPLES = 24;
 function cfHits(curve, obstacles, n = CF_SAMPLES) {
   let hits = 0;
@@ -162,7 +164,7 @@ function cfPath(a, fs, b, ts, obstacles) {
 function cfRoute(a, fs, b, ts, obstacles) {
   const plain = cfCurve(a, fs, b, ts);
   if (!obstacles.length) return plain;
-  let best = plain, bestHits = cfHits(plain, obstacles);
+  let best = plain, bestHits = cfHits(plain, obstacles, CF_SAMPLES * 4);
   if (!bestHits) return plain;
   const consider = (c) => { const h = cfHits(c, obstacles, CF_SAMPLES * 4); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
   for (const m of [0.6, 0.35, 0.2, 1.6, 2.4]) if (consider(cfCurve(a, fs, b, ts, m))) return best;
@@ -188,7 +190,7 @@ function cfArrow(p, angle) {
 const CF_LABEL_T = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74];
 function cfPlaceLabels(paths) {
   const placed = [];
-  const pill = (p, t) => { const c = p.at(t); const w = p.label.length * 7.2 + 24, h = 28; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
+  const pill = (p, t) => { const c = p.at(t); const w = p.label.length * 10.4 + 34, h = 36; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
   const overlaps = (r) => placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
   for (const p of paths) {
     if (!p.label) continue;
@@ -270,6 +272,8 @@ function CanvasFlows({ flows: authored, section }) {
   const [paths, setPaths] = React.useState([]);
   const [hover, setHover] = React.useState(null);
   const dragging = React.useRef(false);
+  // A zero-size probe in the tree, so the layer finds the world it is inside.
+  const probe = React.useRef(null);
   // Arrow sides dragged on the canvas are saved in the section state
   // (sec.arrows[flow key] = { fs, ts }) and win over canvas.json.
   const ctx = React.useContext(DCCtx);
@@ -299,9 +303,9 @@ function CanvasFlows({ flows: authored, section }) {
   React.useEffect(() => () => { clearTimeout(hoverTimer.current); cancelDrag.current && cancelDrag.current(); }, []);
 
   React.useEffect(() => {
-    // The world is the transformed layer, not whatever sits first under the
-    // viewport: the grid layer is a sibling in front of it.
-    const el = document.querySelector('[data-dc-world]');
+    // The world is the transformed layer that holds this layer, not the first
+    // one in the document: a page can hold more than one canvas.
+    const el = probe.current && probe.current.closest('[data-dc-world]');
     if (el) setWorld(el);
   }, []);
 
@@ -345,8 +349,8 @@ function CanvasFlows({ flows: authored, section }) {
     };
   }, [world, flows]);
 
-  if (!world || !paths.length) return null;
-  return ReactDOM.createPortal(
+  if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
+  return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
     <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {paths.map((p, i) => {
@@ -376,13 +380,13 @@ function CanvasFlows({ flows: authored, section }) {
           position: 'absolute', left: p.mid.x, top: p.mid.y, transform: 'translate(-50%, -50%)',
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
-          borderRadius: 999, padding: '5px 11px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
+          borderRadius: 999, padding: '8px 16px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
           pointerEvents: 'auto', transition: 'opacity .15s, color .15s, border-color .15s',
         }}>{p.label}</div>
       ))}
     </div>,
     world,
-  );
+  )}</>;
 }
 
 // ---- Page ------------------------------------------------------------------
@@ -498,3 +502,6 @@ function CanvasPage({ page, stateFile }) {
 
 window.CanvasPage = CanvasPage;
 window.CanvasFlows = CanvasFlows;
+window.cfRoute = cfRoute;
+window.cfCurve = cfCurve;
+window.cfHits = cfHits;

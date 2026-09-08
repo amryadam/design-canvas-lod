@@ -191,7 +191,7 @@
       const r = el.getBoundingClientRect();
       return r.left > 0 && r.right < innerWidth && r.top > 0 && r.bottom < innerHeight;
     }) || slots()[0];
-    const grip = slot.querySelector('.dc-grip');
+    const grip = slot.querySelector('.dc-winhead');
     const r = grip.getBoundingClientRect();
     let x = r.left + r.width / 2, y = r.top + r.height / 2;
     const ev = (type, el) => (el || document).dispatchEvent(new PointerEvent(type, {
