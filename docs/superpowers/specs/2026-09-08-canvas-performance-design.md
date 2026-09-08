@@ -122,12 +122,33 @@ land inside the measurement, five runs each: median 6.9 ms both ways, p90
 34–62 ms frames seen while investigating this were the raster cost of the eight
 live iframes (F1), not the zoom path.
 
-**The cost of F2b is visual, not mechanical.** Section titles and gaps held a
-constant *screen* size, so they stayed legible and separated at 5 % zoom. In
-world units a 28 px title renders about 1.4 px tall there, and the 80 px gap
-becomes 4 px, so sections read as one block when zoomed far out. That is the
-same trade `d37bd15` accepted for the pills: they read as part of the map rather
-than as chrome.
+**Correction (F2c): the section head keeps its screen size, by transform.**
+Dropping `zoom` outright made section titles scale with the world, so they were
+1.7 px tall at 5 % zoom and 132 px at 4x — unreadable when zoomed out, and the
+first thing reported after F2b shipped. Measured against the previous build,
+which held them at 33 px at every zoom.
+
+`.dc-sectionhead` now carries `transform: scale(min(var(--dc-inv-zoom,1),4))`
+with `transform-origin: bottom left`, the same rule and the same clamp as
+`.dc-header`. A transform never reflows, so the head keeps a fixed world box and
+F2b's guarantee is untouched — the layout still moves 0.000 px across the whole
+range of the variable. The origin is the bottom edge, so the head grows upwards
+into the section gap and a title never covers its own cards. Titles now measure
+33 px from 0.25x up to 4x, and shrink with the world below that, which is what
+the clamp is for: heads must not balloon over the neighbouring cards.
+
+**The remaining cost of F2b is visual.** Section gaps are in world units now, so
+at 5 % zoom the 80 px gap is 4 px on screen and sections read as one block when
+zoomed far out. That is the same trade `d37bd15` accepted for the flow label
+pills: they read as part of the map rather than as chrome.
+
+**Not caused by F2b.** A whole-canvas flash was also reported. It could not be
+reproduced in automation, and the level-of-detail behaviour is identical between
+the two builds — `liveByZoom` gives 8/8/8/5/3 at 0.05/0.15/0.3/0.5/0.8 either
+way, with no idle mount or drop churn at any zoom and no
+`contentvisibilityautostatechange` events through a zoom cycle. The live iframes
+re-rastering as the world scales (F1) remains the most likely source, and it
+predates all of this work.
 
 ### F3 — One state patch costs a whole frame
 
