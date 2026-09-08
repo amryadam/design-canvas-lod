@@ -173,13 +173,23 @@ function dcMarkMoving() {
   dcSyncMoving();
 }
 
+// The view transform, and the one owner of the view scale. DCViewport holds
+// this object in tf.current, so the pan and the zoom live in one place.
+// flushNow is the only writer of the world transform, and it writes what this
+// object holds. Every other reader takes the scale from here: the card drag,
+// cfMeasure in canvas-page.jsx and perf/bench.js. A rect over an offsetWidth
+// gives the same number, but it forces a layout.
+// The object is module-level, so two viewports on one page would share one
+// transform. This repository renders one viewport only. dcLod and the moving
+// flag stay correct with more than one viewport. dcView is the first state
+// that is per viewport in fact and module-level in code, so the engine is
+// single-viewport until dcView moves into DCViewport.
+const dcView = { x: 0, y: 0, scale: 1 };
+
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
 // one poll and one IntersectionObserver serve them all, instead of N timers
 // that fire per frame.
-// DCViewport writes `scale` once per flushed frame. The scale drives no
-// decision in the app: dcLodRun ranks slots by distance and budget only. The
-// field is kept because perf/bench.js reads it to know where the view is.
-const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
+const dcLod = { subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 // `v` is the slot's own viewport box, not the window: a canvas in a panel must
@@ -235,9 +245,6 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-// bench telemetry only; the pass does not read it. The call also arms the pass,
-// because a new zoom changes which slots are near the viewport centre.
-function dcLodNoteScale(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
@@ -487,26 +494,59 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   );
 }
 
-function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
-  const vpRef = React.useRef(null);
-  const worldRef = React.useRef(null);
-  const tf = React.useRef({ x: 0, y: 0, scale: 1 });
-  const tfKey = 'dc-viewport-v3:' + location.pathname;
-  const saveT = React.useRef(0);
-  const raf = React.useRef(0);
+// The settled write of the zoom. Only .dc-sectionhead reads --dc-inv-zoom,
+// and it reads it through a transform, which never reflows. The world's
+// layout is thus the same at every zoom, and this write cannot move a card.
+// It used to. The world padding, the section gaps and the .dc-sectionhead
+// zoom were all in screen units, so the settled write re-laid out the world
+// and stepped the content by 33 px for one wheel notch. A slow wheel roll
+// showed it worst: each notch is more than DC.settleMs apart, so the write
+// landed between the notches and every one got its own step.
+// The variable is still written on settle, not per frame: it is an inherited
+// custom property, so each write makes Chrome calculate the style of the full
+// world again — 0.4 ms at 10 slots, 1.1 ms at 40, in every frame of a pinch.
+// The host also learns the zoom on settle. The post is separate from the
+// variable write: repost drops the posted scale alone, and the next settle
+// must then post although the variable holds.
+function dcUseZoomSettle(worldRef, tf) {
+  const invT = React.useRef(0);
+  const lastInv = React.useRef(null);
   const lastPostedScale = React.useRef();
-  // Restoration and first fit: the fit waits until the saved view has been
-  // read and the children exist, so it cannot run against an empty world.
-  const restoredView = React.useRef(false);
-  const fittedView = React.useRef(false);
-  const hasContent = React.Children.toArray(children).length > 0;
+  const onSettle = React.useCallback(() => {
+    invT.current = 0;
+    const el = worldRef.current;
+    const inv = 1 / tf.current.scale;
+    if (el && lastInv.current !== inv) {
+      lastInv.current = inv;
+      el.style.setProperty('--dc-inv-zoom', String(inv));
+    }
+    if (dcEmbedded() && lastPostedScale.current !== tf.current.scale) {
+      lastPostedScale.current = tf.current.scale;
+      window.parent.postMessage({ type: '__dc_zoom', scale: tf.current.scale }, '*');
+    }
+  }, [worldRef, tf]);
+  // Each flushed frame arms the callback. The first paint writes at once, so
+  // the chrome is never wrong before a gesture.
+  const armSettle = React.useCallback(() => {
+    if (lastInv.current === null) { onSettle(); return; }
+    clearTimeout(invT.current);
+    invT.current = setTimeout(onSettle, DC.settleMs);
+  }, [onSettle]);
+  const stopSettle = React.useCallback(() => { clearTimeout(invT.current); }, []);
+  const repost = React.useCallback(() => { lastPostedScale.current = undefined; }, []);
+  return { armSettle, stopSettle, repost };
+}
 
+// The Back to content pill. The hook owns the settle timer that measures the
+// content, the world boxes that the per-frame test reads, and the tween that
+// flies the view back.
+function dcUseLostPill(vpRef, worldRef, tf, apply, { minScale, maxScale }) {
   // Back to content: shown once the view settles with no section on screen.
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
   const lostT = React.useRef(0);
   // One world-space box for each content element, and the viewport size in px.
-  // checkLost caches both. flushNow then tests the boxes with arithmetic only.
+  // checkLost caches both. onFrame then tests the boxes with arithmetic only.
   // One box around all the content is not enough: with two sections apart, that
   // box covers the gap between them, and the pill would hide in the gap.
   const lostBoxes = React.useRef(null);
@@ -520,7 +560,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const boxes = (vp) => vp.querySelectorAll('[data-dc-section], [data-dc-slot], [data-dc-note]');
 
   // A few rects, read on settle only. The pass also caches the world-space box
-  // of the content. flushNow tests that box with arithmetic in each frame, so
+  // of the content. onFrame tests that box with arithmetic in each frame, so
   // panning back onto the pages hides the pill at once and reads no rect.
   const checkLost = React.useCallback(() => {
     const vp = vpRef.current; if (!vp) return;
@@ -532,7 +572,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     for (const el of els) {
       const b = el.getBoundingClientRect();
       if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { next = false; break; }
-      // World-space box of this element, for the per-frame test in flushNow.
+      // World-space box of this element, for the per-frame test in onFrame.
       world.push({
         x0: (b.left - r.left - tf.current.x) / s, y0: (b.top - r.top - tf.current.y) / s,
         x1: (b.right - r.left - tf.current.x) / s, y1: (b.bottom - r.top - tf.current.y) / s,
@@ -540,67 +580,25 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     }
     lostBoxes.current = next ? world : null;
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
-  }, []);
+  }, [vpRef, tf]);
 
-  // Only .dc-sectionhead reads --dc-inv-zoom now, and it reads it through a
-  // transform, which never reflows. The world's layout is thus the same at
-  // every zoom, and this write cannot move a card.
-  // It used to. The world padding, the section gaps and the .dc-sectionhead
-  // zoom were all in screen units, so the settled write re-laid out the world
-  // and stepped the content by 33 px for one wheel notch. A slow wheel roll
-  // showed it worst: each notch is more than DC.settleMs apart, so the write
-  // landed between the notches and every one got its own step.
-  // The variable is still written on settle, not per frame: it is an inherited
-  // custom property, so each write makes Chrome calculate the style of the full
-  // world again — 0.4 ms at 10 slots, 1.1 ms at 40, in every frame of a pinch.
-  const invT = React.useRef(0);
-  const lastInv = React.useRef(null);
-  // The settle callback. It writes the variable, and it tells the host the
-  // zoom. Both run once per settled gesture, not once per frame. The zoom post
-  // is separate from the variable write: __dc_probe drops the posted scale
-  // alone, and the next settle must then post although the variable holds.
-  const onSettle = React.useCallback(() => {
-    invT.current = 0;
-    const el = worldRef.current;
-    const inv = 1 / tf.current.scale;
-    if (el && lastInv.current !== inv) {
-      lastInv.current = inv;
-      el.style.setProperty('--dc-inv-zoom', String(inv));
-    }
-    if (dcEmbedded() && lastPostedScale.current !== tf.current.scale) {
-      lastPostedScale.current = tf.current.scale;
-      window.parent.postMessage({ type: '__dc_zoom', scale: tf.current.scale }, '*');
-    }
-  }, []);
-
-  // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
-  const flushNow = React.useCallback(() => {
-    raf.current = 0;
-    const { x, y, scale } = tf.current;
-    const el = worldRef.current; if (!el) return;
-    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-    // First paint writes at once, so the chrome is never wrong before a gesture.
-    if (lastInv.current === null) onSettle();
-    else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
-    dcLodNoteScale(scale);
-    dcMarkMoving();
-    // With the pill up, test the cached content boxes with arithmetic only.
-    // The count is small: the sections, the slots and the notes.
-    if (lostRef.current && lostBoxes.current) {
-      const v = vpSize.current;
-      const onScreen = lostBoxes.current.some((b) => b.x1 * scale + x > 0 && b.x0 * scale + x < v.w
-        && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h);
-      if (onScreen) { lostRef.current = false; lostBoxes.current = null; setLost(false); }
-    }
+  // One timer for the measure pass. A flushed frame arms it, and so does the
+  // resize observer, so a gesture always pushes the pass to its end.
+  const schedule = React.useCallback(() => {
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
-    clearTimeout(saveT.current);
-    saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey, checkLost, onSettle]);
-  const apply = React.useCallback((sync) => {
-    if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
-    if (!raf.current) raf.current = requestAnimationFrame(flushNow);
-  }, [flushNow]);
+  }, [checkLost]);
+
+  // With the pill up, test the cached content boxes with arithmetic only.
+  // The count is small: the sections, the slots and the notes.
+  const onFrame = React.useCallback((x, y, scale) => {
+    if (!lostRef.current || !lostBoxes.current) return;
+    const v = vpSize.current;
+    const onScreen = lostBoxes.current.some((b) => b.x1 * scale + x > 0 && b.x0 * scale + x < v.w
+      && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h);
+    if (onScreen) { lostRef.current = false; lostBoxes.current = null; setLost(false); }
+  }, []);
+
   // Any hand-driven pan or zoom wins over a running tween.
   const stopTween = React.useCallback(() => {
     if (tween.current) { cancelAnimationFrame(tween.current); tween.current = 0; }
@@ -632,77 +630,27 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const step = () => {
       const k = Math.min(1, (performance.now() - t0) / DC.backToMs);
       const e = 1 - Math.pow(1 - k, 3);
-      tf.current = {
-        x: from.x + (to.x - from.x) * e,
-        y: from.y + (to.y - from.y) * e,
-        scale: from.scale + (to.scale - from.scale) * e,
-      };
+      // Write the fields. The object stays the same one, because dcView is it.
+      const t = tf.current;
+      t.x = from.x + (to.x - from.x) * e;
+      t.y = from.y + (to.y - from.y) * e;
+      t.scale = from.scale + (to.scale - from.scale) * e;
       apply(true);
       tween.current = k < 1 ? requestAnimationFrame(step) : 0;
     };
     stopTween();
     tween.current = requestAnimationFrame(step);
-  }, [apply, stopTween, minScale, maxScale]);
+  }, [vpRef, worldRef, tf, apply, stopTween, minScale, maxScale]);
 
-  React.useLayoutEffect(() => {
-    const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
-    try {
-      const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
-      if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
-        tf.current = { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) };
-        restoredView.current = true; apply(true);
-      }
-    } catch {}
-    window.addEventListener('pagehide', flush);
-    // This viewport may have mounted during a gesture in another one.
-    dcSyncMovingForce();
-    // The pill timer and the Back to content tween live as long as the
-    // viewport, so they are stopped here and not in the fit effect, which
-    // re-runs whenever the content or the scale bounds change.
-    return () => {
-      clearTimeout(lostT.current); clearTimeout(invT.current);
-      if (tween.current) cancelAnimationFrame(tween.current);
-      window.removeEventListener('pagehide', flush); flush();
-    };
-  }, []);
+  // The viewport stops the measure timer and the tween when it unmounts.
+  const stop = React.useCallback(() => { clearTimeout(lostT.current); stopTween(); }, [stopTween]);
 
-  React.useLayoutEffect(() => {
-    if (!hasContent) return;
-    // Wait for actual content, not a timer racing the state-file request.
-    const fit = requestAnimationFrame(() => {
-      if (restoredView.current || fittedView.current) return;
-      const w = worldRef.current; if (!w) return;
-      let maxW = 0;
-      w.querySelectorAll('[data-dc-row]').forEach((r) => { maxW = Math.max(maxW, r.scrollWidth + 120); });
-      if (!maxW) return;
-      const s = Math.min(1, maxScale, Math.max(minScale, vpRef.current.clientWidth / maxW));
-      fittedView.current = true;
-      tf.current = { x: 0, y: 0, scale: s }; apply(true);
-    });
-    const rescue = setTimeout(() => {
-      // A restored view is the user's choice, even one with nothing on screen.
-      if (restoredView.current) return;
-      const slots = worldRef.current.querySelectorAll('[data-dc-slot]');
-      if (!slots.length) return;
-      const v = vpRef.current.getBoundingClientRect();
-      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > v.left && r.left < v.right && r.bottom > v.top && r.top < v.bottom) return; }
-      const r = slots[0].getBoundingClientRect(); const t = tf.current;
-      t.x += v.left + 60 - r.left; t.y += v.top + 100 - r.top; apply(true);
-    }, DC.rescueMs);
-    return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
-  }, [hasContent, apply, minScale, maxScale]);
+  return { lost, lostRef, checkLost, schedule, onFrame, backToContent, stop, stopTween };
+}
 
-  // The pages can also leave the screen with the view held still: the window
-  // gets smaller, or the section box grows as a page is moved. Neither goes
-  // through flushNow, so watch for both.
-  React.useEffect(() => {
-    const schedule = () => { clearTimeout(lostT.current); lostT.current = setTimeout(checkLost, DC.settleMs); };
-    const ro = new ResizeObserver(schedule);
-    if (worldRef.current) ro.observe(worldRef.current);
-    window.addEventListener('resize', schedule);
-    return () => { ro.disconnect(); window.removeEventListener('resize', schedule); };
-  }, [checkLost]);
-
+// The input: the wheel, the trackpad gesture, the pointer drag and the
+// messages from a host page. Each one writes tf and calls apply.
+function dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe }) {
   React.useEffect(() => {
     const vp = vpRef.current; if (!vp) return;
     const zoomAt = (cx, cy, factor) => {
@@ -716,6 +664,8 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       // layout no longer depends on the zoom at all, so a world point below the
       // pointer stays below the pointer with nothing to cancel.
       t.x = px - (px - t.x) * k; t.y = py - (py - t.y) * k; t.scale = next;
+      // Sync on purpose: dcView.scale must not lag the DOM, because the card
+      // drag and cfMeasure read it. Every scale write ends in apply(true).
       apply(true);
     };
 
@@ -735,7 +685,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-flows, .dc-backto');
+      // [data-dc-ignore-pan] is the contract for a layer the page adds over the
+      // world (canvas-page.jsx sets it on the arrows). The engine knows the
+      // attribute, not the layer.
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, [data-dc-ignore-pan], .dc-backto');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
       stopTween();
@@ -762,13 +715,12 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
         zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
       } else if (d && d.type === '__dc_probe') {
         if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
-        // apply arms the settle callback, which posts the zoom again.
-        lastPostedScale.current = undefined; apply(true);
+        onProbe();
       }
     };
     window.addEventListener('message', onHostMsg);
     if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
-    lastPostedScale.current = undefined; apply(true);
+    onProbe();
 
     vp.addEventListener('wheel', onWheel, { passive: false });
     vp.addEventListener('gesturestart', onGestureStart, { passive: false });
@@ -800,7 +752,115 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       vp.removeEventListener('pointerup', onPointerUp);
       vp.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [apply, stopTween, minScale, maxScale]);
+  }, [vpRef, tf, apply, stopTween, minScale, maxScale, onProbe]);
+}
+
+function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
+  const vpRef = React.useRef(null);
+  const worldRef = React.useRef(null);
+  // tf.current is dcView itself, not a copy: the module object is the one
+  // owner of the view transform. Every write below changes its fields, so a
+  // reader outside this component always sees the view the world shows.
+  const tf = React.useRef(dcView);
+  const tfKey = 'dc-viewport-v3:' + location.pathname;
+  const saveT = React.useRef(0);
+  const raf = React.useRef(0);
+  // Restoration and first fit: the fit waits until the saved view has been
+  // read and the children exist, so it cannot run against an empty world.
+  const restoredView = React.useRef(false);
+  const fittedView = React.useRef(false);
+  const hasContent = React.Children.toArray(children).length > 0;
+  const { armSettle, stopSettle, repost } = dcUseZoomSettle(worldRef, tf);
+  // The pill flies the view back through apply, and apply is built from
+  // flushNow below it. applyNow gives the hook the apply of the moment.
+  const applyRef = React.useRef(null);
+  const applyNow = React.useCallback((sync) => applyRef.current(sync), []);
+  const { lost, schedule, onFrame, backToContent, stop, stopTween } =
+    dcUseLostPill(vpRef, worldRef, tf, applyNow, { minScale, maxScale });
+
+  // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
+  const flushNow = React.useCallback(() => {
+    raf.current = 0;
+    const { x, y, scale } = tf.current;
+    const el = worldRef.current; if (!el) return;
+    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    armSettle();
+    // A new view changes which slots are near the viewport centre.
+    dcLodSchedule();
+    dcMarkMoving();
+    onFrame(x, y, scale);
+    schedule();
+    clearTimeout(saveT.current);
+    saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
+  }, [tfKey, armSettle, onFrame, schedule]);
+  // `sync` writes the transform in this task, not on the next frame. Every
+  // caller that changed the scale passes it, so dcView.scale and the DOM agree
+  // for the next reader (the card drag and cfMeasure both read dcView.scale).
+  const apply = React.useCallback((sync) => {
+    if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
+    if (!raf.current) raf.current = requestAnimationFrame(flushNow);
+  }, [flushNow]);
+  applyRef.current = apply;
+  // The host probe. apply arms the settle callback, which posts the zoom again.
+  const onProbe = React.useCallback(() => { repost(); apply(true); }, [repost, apply]);
+  dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe });
+
+  React.useLayoutEffect(() => {
+    const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
+    try {
+      const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
+      if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
+        Object.assign(tf.current, { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) });
+        restoredView.current = true; apply(true);
+      }
+    } catch {}
+    window.addEventListener('pagehide', flush);
+    // This viewport may have mounted during a gesture in another one.
+    dcSyncMovingForce();
+    // The pill timer, the tween and the settle timer live as long as the
+    // viewport, so they stop here and not in the fit effect, which re-runs
+    // whenever the content or the scale bounds change.
+    return () => {
+      stop(); stopSettle();
+      window.removeEventListener('pagehide', flush); flush();
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!hasContent) return;
+    // Wait for actual content, not a timer racing the state-file request.
+    const fit = requestAnimationFrame(() => {
+      if (restoredView.current || fittedView.current) return;
+      const w = worldRef.current; if (!w) return;
+      let maxW = 0;
+      w.querySelectorAll('[data-dc-row]').forEach((r) => { maxW = Math.max(maxW, r.scrollWidth + 120); });
+      if (!maxW) return;
+      const s = Math.min(1, maxScale, Math.max(minScale, vpRef.current.clientWidth / maxW));
+      fittedView.current = true;
+      Object.assign(tf.current, { x: 0, y: 0, scale: s }); apply(true);
+    });
+    const rescue = setTimeout(() => {
+      // A restored view is the user's choice, even one with nothing on screen.
+      if (restoredView.current) return;
+      const slots = worldRef.current.querySelectorAll('[data-dc-slot]');
+      if (!slots.length) return;
+      const v = vpRef.current.getBoundingClientRect();
+      for (const el of slots) { const r = el.getBoundingClientRect(); if (r.right > v.left && r.left < v.right && r.bottom > v.top && r.top < v.bottom) return; }
+      const r = slots[0].getBoundingClientRect(); const t = tf.current;
+      t.x += v.left + 60 - r.left; t.y += v.top + 100 - r.top; apply(true);
+    }, DC.rescueMs);
+    return () => { cancelAnimationFrame(fit); clearTimeout(rescue); };
+  }, [hasContent, apply, minScale, maxScale]);
+
+  // The pages can also leave the screen with the view held still: the window
+  // gets smaller, or the section box grows as a page is moved. Neither goes
+  // through flushNow, so watch for both.
+  React.useEffect(() => {
+    const ro = new ResizeObserver(schedule);
+    if (worldRef.current) ro.observe(worldRef.current);
+    window.addEventListener('resize', schedule);
+    return () => { ro.disconnect(); window.removeEventListener('resize', schedule); };
+  }, [schedule]);
 
   return (
     <div ref={vpRef} className="design-canvas"
@@ -868,17 +928,6 @@ function dcActions(patchSection, sid, srcKey) {
     resetPosition: (k) => patchSection && patchSection(sid, (x) => {
       const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
     }),
-    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
-      // Only the end that meets this page: the far page keeps its side.
-      const n = {};
-      Object.entries(x.arrows || {}).forEach(([key, o]) => {
-        const { from, to } = dcFlowKeyParts(key), r = { ...o };
-        if (from === k) delete r.fs;
-        if (to === k) delete r.ts;
-        if (Object.keys(r).length) n[key] = r;
-      });
-      return { arrows: n };
-    }),
     remove: (k) => patchSection && patchSection(sid, (x) => ({
       hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
     })),
@@ -916,7 +965,13 @@ function dcResolveSlots(ids, persisted) {
   return { srcKey, hidden, srcIds, slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))] };
 }
 
-function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions }) {
+// `slotMenu(slotId, sec)` gives the page a say in each window's ⋯ menu. It
+// returns [{ label, onClick, danger }], or nothing for a slot with no extra
+// row. canvas-page.jsx adds "Reset arrow sides" through it.
+// Return the same array for a slot while its rows do not change: the frame
+// memo compares the array by identity, and a new array on each call
+// re-renders that slot on every patch.
+function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions, slotMenu }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
   const all = React.Children.toArray(dcFlatten(children));
@@ -953,12 +1008,16 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   });
   // A removed slot must not hold its variant in the cache for the life of the page.
   for (const k of [...variantCache.current.keys()]) if (!(k in variantOf)) variantCache.current.delete(k);
-  // One set for the whole section, not one scan of the arrows for each slot.
-  const arrowsMovedSet = React.useMemo(() => {
-    const s = new Set();
-    Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
-    return s;
-  }, [sec.arrows]);
+  // The extra ⋯ menu rows the page adds, one list for each slot that has any.
+  // One call for each slot, in the section, not one in each frame. A slot with
+  // no rows stays at undefined, and the page gives a slot with rows the same
+  // array while its own state holds, so the frame's shallow compare holds for
+  // every slot the page did not touch. The memo here only skips the calls.
+  const slotMenuRows = React.useMemo(() => {
+    const out = {};
+    if (slotMenu) order.forEach((k) => { const rows = slotMenu(k, sec); if (rows && rows.length) out[k] = rows; });
+    return out;
+  }, [slotMenu, sec, order]);
   // The box depends on the resolved variants, but `variantOf` is a new object in
   // each render. This key changes only when a slot's box changes.
   const marksKey = order.map((k) => k + ':' + variantOf[k].width + 'x' + variantOf[k].height).join('|');
@@ -1031,7 +1090,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
             position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
-            arrowsMoved={arrowsMovedSet.has(k)}
+            menuRows={slotMenuRows[k]}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>
@@ -1085,15 +1144,17 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
 function dcDragSession(e, me, { move, up, keepMoving }) {
   e.preventDefault(); e.stopPropagation();
   const sx = e.clientX, sy = e.clientY;
-  // One rect and one offsetWidth per event: both are reads, so they share one
-  // forced layout.
-  const measure = () => { const r = me.getBoundingClientRect(); return { r, z: r.width / me.offsetWidth || 1 }; };
-  const scale = measure().z;
+  // The zoom at the start of the gesture. dcView owns it, so no rect read is
+  // necessary. The whole drag keeps this value: a zoom in the middle of a drag
+  // must not change what one screen px of pointer travel is worth.
+  const scale = dcView.scale;
   me.classList.add('dc-dragging');
   try { me.setPointerCapture(e.pointerId); } catch {}
   dcDragDepth++; dcSyncMoving();
   const onMove = (ev) => {
-    const { r, z } = measure();
+    // One rect per event, for the pointer's position inside the element. The
+    // element moves under the pointer, so this one cannot come from dcView.
+    const r = me.getBoundingClientRect(), z = dcView.scale;
     move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
   };
   let done = false;
@@ -1120,18 +1181,13 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   return onCancel;
 }
 
-// Flow identity shared with canvas-page.jsx (CanvasFlows): the endpoints and the
-// label, joined with DC_KEY_SEP. Arrow-side overrides in the section state are
-// keyed by it.
-const dcFlowKey = (f) => [f.from, f.to, f.label || ''].join(DC_KEY_SEP);
-const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP); return { from, to, label }; };
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
 // Export file name: the label, or the id, with path and shell separators
 // replaced. \p{L}\p{N} keeps Arabic and every other script.
 const dcExportName = (label, id) => String(label || id || 'artboard').replace(/[^\p{L}\p{N}\s.-]+/gu, '_');
-function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
+function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, menuRows }) {
   // perf/bench.js reads this counter to find how many frames one state patch
   // renders. A render-phase increment is the only way to count renders, so it
   // stays in the body.
@@ -1258,7 +1314,10 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
                   <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                     {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
                     {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
-                    {arrowsMoved && <button onClick={() => { setMenuOpen(false); actions.resetArrows(id); }}>Reset arrow sides</button>}
+                    {(menuRows || []).map((r, i) => (
+                      <button key={r.label + i} className={r.danger ? 'dc-danger' : undefined}
+                        onClick={() => { setMenuOpen(false); r.onClick && r.onClick(); }}>{r.label}</button>
+                    ))}
                     {href && <button onClick={() => { setMenuOpen(false); save('png'); }}>Download PNG</button>}
                     {href && <button onClick={() => { setMenuOpen(false); save('html'); }}>Download HTML</button>}
                     {href && <hr />}
@@ -1315,17 +1374,22 @@ Object.assign(window, {
   // Host pages (sample/index.html, sample/all-options.html) and the fixtures
   // in tests/regressions.js build a canvas from these components.
   DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx,
-  // canvas-page.jsx drags the arrow ends with dcDragSession, keys the arrow
-  // state with dcFlowKey and patches it with dcMapPatch.
-  dcDragSession, dcFlowKey, dcMapPatch,
+  // canvas-page.jsx drags the arrow ends with dcDragSession and patches the
+  // section state with dcMapPatch.
+  dcDragSession, dcMapPatch,
   // tests/regressions.js reads dcMoving to check the moving flag, and
   // dcExportName to check the export file name.
   dcMoving, dcExportName,
-  // perf/bench.js reads DC.renders, DC.liveBudget and dcLod.scale.
-  // tests/regressions.js reads DC for its waits and its budget checks.
+  // perf/bench.js reads DC.renders and DC.liveBudget.
+  // tests/regressions.js reads DC for its waits and its budget checks, and
+  // dcLod for the registry it drives by hand.
   DC, dcLod,
+  // cfMeasure in canvas-page.jsx, perf/bench.js and tests/regressions.js read
+  // the view scale from dcView.
+  dcView,
   // tests/regressions.js rasterizes a fixture with these.
   dcArtboardSvg, dcSvgUrl,
-  // tests/regressions.js calls the export inliners on their own.
+  // tests/regressions.js calls dcFontCss and dcInlineDoc on their own.
+  // dcInlineCss goes with them, for a host page that inlines its own CSS.
   dcFontCss, dcInlineCss, dcInlineDoc,
 });

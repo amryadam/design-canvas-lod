@@ -39,12 +39,14 @@
     return { l, t, r, b, w: r - l, h: b - t };
   };
 
-  // Fit through the canvas's own zoom and pan paths, so tf stays in step with
-  // the DOM and the next gesture does not jump.
+  // Fit through the canvas's own zoom and pan paths, so dcView stays in step
+  // with the DOM and the next gesture does not jump.
   const fit = async (fill = 0.9) => {
-    const w = world();
+    // design-canvas.jsx publishes the view transform. Without that name the
+    // scale below reads as undefined and every number after it is nonsense.
+    if (!window.dcView) throw new Error('window.dcView is missing');
     let box = bbox();
-    const cur = w.getBoundingClientRect().width / w.offsetWidth || 1;
+    const cur = window.dcView.scale;
     const target = cur * Math.min((innerWidth * fill) / box.w, (innerHeight * fill) / box.h);
     window.postMessage({ type: '__dc_set_zoom', scale: target }, '*');
     await sleep(400);
@@ -56,7 +58,7 @@
       clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true,
     }));
     await sleep(300);
-    return { scale: window.dcLod.scale, onScreen: onScreenCount() };
+    return { scale: window.dcView.scale, onScreen: onScreenCount() };
   };
 
   const onScreenCount = () => slots().filter((el) => {
@@ -168,6 +170,9 @@
 
   // Milliseconds for one full re-route of every arrow.
   const flowCost = async (n = 20) => {
+    // canvas-page.jsx publishes the router. Without that name there is no
+    // route to time, and the call below throws a type error instead.
+    if (typeof window.cfMeasure !== 'function') throw new Error('window.cfMeasure is not patchable');
     const flows = await pageFlows();
     const fn = window.__cfOrig || window.cfMeasure;
     const w = world();

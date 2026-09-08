@@ -490,7 +490,7 @@ window.canvasTestsDone = (async () => {
       await until(() => host.querySelector('[data-dc-slot]'));
       await wait(DC.rescueMs + 300);
       posts.length = 0;
-      const s0 = dcLod.scale;
+      const s0 = dcView.scale;
       real.call(window, { type: '__dc_set_zoom', scale: s0 / 2 }, '*');
       await wait(DC.settleMs + 250);
       check(posts.length === 1, posts.length + ' __dc_zoom posts for one settled zoom');
@@ -576,6 +576,81 @@ window.canvasTestsDone = (async () => {
     const before = DC.renders;
     bump(); await wait(DC.settleMs);
     check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
+  });
+  await test('the page menu resets a moved arrow side', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    // The state a handle drag writes: the source end of this flow was moved to
+    // the bottom side of page A.
+    const fk = cfFlowKey(flow);
+    localStorage.setItem(key('review-arrows.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [fk]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrows.json' }));
+    await until(() => host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab'));
+    const kebab = host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab');
+    const row = () => [...host.querySelectorAll('[data-dc-slot="A.dc.html"] .dc-menu button')].find((b) => b.textContent === 'Reset arrow sides');
+    kebab.click(); await wait(30);
+    check(!!row(), 'the moved page offers no reset row');
+    row().click(); await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrows.json')));
+    check(!((saved.sections.p1.arrows || {})[fk] || {}).fs, 'the moved side is still saved');
+    kebab.click(); await wait(30);
+    check(!row(), 'the reset row is still offered');
+  });
+  await test('a moved arrow side costs no frame renders on a patch', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    localStorage.setItem(key('review-arrowcost.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [cfFlowKey(flow)]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrowcost.json' }));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 400);
+    // A patch that leaves the arrows alone. The page holds the menu rows of the
+    // moved slot, so no frame may render again.
+    const title = host.querySelector('.dc-sectionhead .dc-editable');
+    const before = DC.renders;
+    title.textContent = 'Renamed';
+    title.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await wait(DC.settleMs);
+    const grew = DC.renders - before;
+    await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrowcost.json')));
+    check(saved.sections.p1.title === 'Renamed', 'the section title patch never ran');
+    check(grew === 0, grew + ' frames rendered again for a patch that kept the arrows');
+  });
+  await test('dcView holds the scale the world and the drag use', async () => {
+    const { at } = await dragFixture('review-viewscale.json');
+    const world = host.querySelector('[data-dc-world]');
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    window.postMessage({ type: '__dc_set_zoom', scale: scaleOf() / 2 }, '*');
+    await wait(DC.settleMs + 250);
+    const shown = scaleOf();
+    check(Math.abs(dcView.scale - shown) < 1e-6, 'dcView.scale is ' + dcView.scale + ', the world shows ' + shown);
+    // The drag reports world px: the screen travel divided by the same scale.
+    // The card is at x 0, and the commit snaps the position to 10 px.
+    const g = host.querySelector('[data-dc-slot="A"] .dc-winhead').getBoundingClientRect();
+    at('pointerdown', g.left + 4, g.top + 4);
+    at('pointermove', g.left + 104, g.top + 4, document);
+    at('pointerup', g.left + 104, g.top + 4, document);
+    await wait(50);
+    const want = 100 / dcView.scale, got = api.section('review').positions.A.x;
+    check(Math.abs(got - want) <= 10, 'the drag moved the card ' + got + ' world px, not ' + want.toFixed(1));
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
