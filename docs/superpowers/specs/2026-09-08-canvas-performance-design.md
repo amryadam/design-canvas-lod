@@ -84,31 +84,50 @@ Making its consumers layout-free would recover only about a quarter of the cost.
 The visible consequence is that headers and section gaps keep their old size for
 `DC.settleMs` after a gesture ends, then snap to the right size.
 
-**Correction (F2a).** Three of those consumers change the box model — world
+**Correction (F2a).** Three of those consumers changed the box model — world
 `padding`, section `marginBottom`, `.dc-sectionhead zoom` — so the settled write
-moves every card in world space. `.dc-header width` does not: the header is
+moved every card in world space. `.dc-header width` did not: the header is
 `position:absolute`, so it adds nothing to any ancestor height or intrinsic
-width. The first version of this change moved the write but left the anchor
-correction in `zoomAt`, where the layout no longer moves. Measured on the
-sample: **0.00 px of error during the gesture, and 32.9 px when the variable
-settled.** A slow mouse-wheel roll puts more than `DC.settleMs` between notches,
-so the write lands between them and every notch gets its own step. That reads as
-a drift through the whole gesture.
+width. Moving the write without moving the anchor correction in `zoomAt` left
+nothing watching the moment the layout actually moved. Measured on the sample:
+**0.00 px of error during the gesture, and 32.9 px when the variable settled.**
+A slow mouse-wheel roll puts more than `DC.settleMs` between notches, so the
+write lands between them and every notch gets its own step. That reads as a
+drift through the whole gesture.
 
-`writeInv` now holds an anchor across the write: it measures a slot, writes the
-variable, measures again, and takes the difference out of `tf`. The anchor is
-the slot below the last zoom point, or the nearest slot to it — **not** the
-first slot on screen, because a view zoomed into the gap between two cards has
-no slot on screen, and **not** a section, whose own top does not carry the
-`.dc-sectionhead` zoom and so reports less than the cards inside it move (19 px
-and 87 px respectively, for one notch). Residual error is 0.01 px with the zoom
-point over a card, and about 0.3 px a notch over open canvas, from per-element
-layout rounding. It does not accumulate.
+**Decision (F2b): the world's layout no longer reads the zoom at all.** The
+three box-model consumers are now in world units — `72px` of world padding,
+`80px` / `540px` section gaps, `40px` of notes padding — and `.dc-sectionhead`
+has no `zoom`. Section heads and gaps scale with the pages, in the same way that
+`d37bd15` put the flow label pills in world units. `--dc-inv-zoom` now feeds only
+`.dc-header` (out of flow) and the SVG arrowheads and stroke widths, none of
+which the world's flow can see.
 
-This also makes the drift block in `zoomAt` dead: nothing in the layout moves
-inside `apply(true)` any more. Removing it takes the tick from three forced
-layouts to one, and removes the throttled `elementFromPoint` hit test. The
-"183–192 `Layout` events for 90 ticks" above was that block.
+This removes the defect by construction rather than by correcting it: a world
+point below the pointer stays below the pointer because nothing can move it.
+The settled write becomes harmless, so it keeps the per-frame saving, and
+`zoomAt` needs no drift correction — which takes the zoom tick from three forced
+layouts to one and drops the throttled `elementFromPoint` hit test. The
+"183–192 `Layout` events for 90 ticks" above was that correction.
+
+Verified with the transform held still and `--dc-inv-zoom` swung over its whole
+range, 0.25 to 20: every slot, section and row moves **0.000 px**. Zooming at
+the viewport centre is 0.000 px over 10 and over 30 notches. Guarded by *"the
+world layout does not read the zoom"* in `tests/regressions.js`, which names the
+offending box if a zoom-dependent layout rule comes back.
+
+Frame cost is unchanged. With the live budget at zero, so no iframe mount can
+land inside the measurement, five runs each: median 6.9 ms both ways, p90
+7.0–7.4 against 7.2–7.6, and no frame over 16 ms against one in five. The
+34–62 ms frames seen while investigating this were the raster cost of the eight
+live iframes (F1), not the zoom path.
+
+**The cost of F2b is visual, not mechanical.** Section titles and gaps held a
+constant *screen* size, so they stayed legible and separated at 5 % zoom. In
+world units a 28 px title renders about 1.4 px tall there, and the 80 px gap
+becomes 4 px, so sections read as one block when zoomed far out. That is the
+same trade `d37bd15` accepted for the pills: they read as part of the map rather
+than as chrome.
 
 ### F3 — One state patch costs a whole frame
 
