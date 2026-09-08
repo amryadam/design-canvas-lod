@@ -996,17 +996,6 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
-  // The eight callbacks the body already uses, rebuilt per render from one
-  // stable actions object. They are cheap; the props that reach React.memo are
-  // what has to hold still, and those are actions, size, order and primitives.
-  const onSize = (file) => actions.size(id, file);
-  const onMove = (p) => actions.move(id, p);
-  const onResetPosition = () => actions.resetPosition(id);
-  const onResetArrows = () => actions.resetArrows(id);
-  const onRename = (v) => actions.rename(id, v);
-  const onReorder = (next) => actions.reorder(next);
-  const onFocus = () => actions.focus(id);
-  const onDelete = () => actions.remove(id);
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
   size = size || dcSize(artboardProps);
@@ -1038,7 +1027,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         requestAnimationFrame(() => { me.style.transition = ''; });
         if (Math.hypot(dx, dy) < 4) return;
         const snap = (v) => Math.round(v / 10) * 10;
-        onMove && onMove({ x: snap(position.x + dx), y: snap(position.y + dy) });
+        actions.move(id, { x: snap(position.x + dx), y: snap(position.y + dy) });
       },
     });
   };
@@ -1068,7 +1057,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
         setTimeout(() => {
           for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
-          if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
+          if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
           vp && vp.classList.remove('dc-moving');
           requestAnimationFrame(() => requestAnimationFrame(() => { for (const h of homes) h.el.style.transition = ''; }));
         }, 180);
@@ -1085,11 +1074,11 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
           <div className="dc-grip" onPointerDown={onGripDown} title={position ? 'Drag to move' : 'Drag to reorder'}>
             <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6.5" r="1.1"/><circle cx="7" cy="6.5" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
           </div>
-          <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
-            <DCEditable value={label} onChange={onRename} onClick={(e) => e.stopPropagation()} style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
+          <div className="dc-labeltext" onClick={() => actions.focus(id)} title="Click to focus">
+            <DCEditable value={label} onChange={(v) => actions.rename(id, v)} onClick={(e) => e.stopPropagation()} style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
           </div>
         </div>
-        <DCSizeChips size={size} onSize={onSize} />
+        <DCSizeChips size={size} onSize={(file) => actions.size(id, file)} />
         <div className="dc-btns">
           <div ref={menuRef} style={{ position: 'relative' }}>
             <button className="dc-kebab" title="More" onClick={() => setMenuOpen((o) => !o)}>
@@ -1098,18 +1087,18 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
             {menuOpen && (
               <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                 {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
-                {moved && <button onClick={() => { setMenuOpen(false); onResetPosition && onResetPosition(); }}>Reset position</button>}
-                {arrowsMoved && <button onClick={() => { setMenuOpen(false); onResetArrows && onResetArrows(); }}>Reset arrow sides</button>}
+                {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
+                {arrowsMoved && <button onClick={() => { setMenuOpen(false); actions.resetArrows(id); }}>Reset arrow sides</button>}
                 {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'png').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download PNG</button>}
                 {href && <button onClick={() => { setMenuOpen(false); dcExportArtboard(href, width, height, String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_'), 'html').catch((err) => console.error('[design-canvas] export failed:', err)); }}>Download HTML</button>}
                 {href && <hr />}
-                <button className="dc-danger" onClick={() => { if (confirming) { setMenuOpen(false); onDelete(); } else setConfirming(true); }}>
+                <button className="dc-danger" onClick={() => { if (confirming) { setMenuOpen(false); actions.remove(id); } else setConfirming(true); }}>
                   {confirming ? 'Click again to delete' : 'Delete'}
                 </button>
               </div>
             )}
           </div>
-          <button className="dc-expand" onClick={onFocus} title="Focus">
+          <button className="dc-expand" onClick={() => actions.focus(id)} title="Focus">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5"/></svg>
           </button>
         </div>
