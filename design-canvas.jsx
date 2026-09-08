@@ -125,7 +125,15 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 }
 
 // The zoomed-out snapshots are gone; drop the cache they left in the browser.
-if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
+// One delete for each browser. The flag makes every later load skip the call.
+if (typeof indexedDB !== 'undefined') {
+  try {
+    if (!localStorage.getItem('dc-snapshots-dropped')) {
+      indexedDB.deleteDatabase('dc-snapshots');
+      localStorage.setItem('dc-snapshots-dropped', '1');
+    }
+  } catch {}
+}
 
 const DCCtx = React.createContext(null);
 // True only in an iframe. The host messages go out to window.parent, so a
@@ -227,7 +235,9 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
+// bench telemetry only; the pass does not read it. The call also arms the pass,
+// because a new zoom changes which slots are near the viewport centre.
+function dcLodNoteScale(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
@@ -600,7 +610,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // First paint writes at once, so the chrome is never wrong before a gesture.
     if (lastInv.current === null) onSettle();
     else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
-    dcSetZoom(scale);
+    dcLodNoteScale(scale);
     dcMarkMoving();
     // With the pill up, test the cached content boxes with arithmetic only.
     // The count is small: the sections, the slots and the notes.
@@ -753,7 +763,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-nav, .dc-flows, .dc-backto');
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-flows, .dc-backto');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
       stopTween();
@@ -1143,9 +1153,9 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
+  // `size` is required: DCSection resolves it once for each slot and caches it.
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
-  size = size || dcSize(artboardProps);
   const { width, height, href } = size;
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
@@ -1313,16 +1323,13 @@ function DCPostIt({ children, width = 320, rotate = -1 }) {
   );
 }
 
-// Renders nothing; lets a host mount this file purely to load the globals.
-function DCLib() { return null; }
-
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. This list is the contract. Each name says
 // which file reads it, so a rename cannot break a reader in silence.
 Object.assign(window, {
   // Host pages (sample/index.html, sample/all-options.html) and the fixtures
   // in tests/regressions.js build a canvas from these components.
-  DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib,
+  DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx,
   // canvas-page.jsx drags the arrow ends with dcDragSession, keys the arrow
   // state with dcFlowKey and patches it with dcMapPatch.
   dcDragSession, dcFlowKey, dcMapPatch,
