@@ -124,10 +124,22 @@ function dcMarkMoving(vp) {
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
 // one poll and one IntersectionObserver serve them all, instead of N timers
 // that fire per frame.
-// DCViewport writes `scale` once per flushed frame. The scale drives no
-// decision in the app: dcLodRun ranks slots by distance and budget only. The
-// field is kept because perf/bench.js reads it to know where the view is.
-const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
+// `world` is the transformed element the slots sit in, and `gen` is the
+// measurement generation. DCViewport writes both through dcSetCamera on every
+// flushed frame. `scale` drives no decision in the app: dcLodRun ranks slots by
+// distance and budget only. The field is kept because perf/bench.js reads it to
+// know where the view is.
+const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 0, io: null };
+
+// A slot's box inside the world does not move when the world pans or zooms.
+// The world carries transform-origin 0 0, and since the anchor fix only
+// .dc-header reads --dc-inv-zoom, and it is position:absolute — so the world
+// layout is the same at every zoom. Each entry therefore holds its world box
+// and the generation it was measured in, and one pass turns the held boxes
+// into screen space with one rect read of the world itself.
+// Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
+// slightly wrong ranking until the next real one, never a wrong render.
+function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 function dcSlotDistance(r) {
@@ -149,9 +161,21 @@ function dcLodRun() {
   // full iframe. Do not measure the slots during the gesture. Wait until the
   // world stops. dcLodSchedule then runs this pass again.
   if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
+  const world = dcLod.world; if (!world) return;
+  // One rect read for the whole pass. The scale comes from the same read, so
+  // it cannot fall out of step with the DOM the way a stored copy can.
+  const wr = world.getBoundingClientRect();
+  const scale = world.offsetWidth ? wr.width / world.offsetWidth : dcLod.scale;
   const all = [];
   dcLod.subs.forEach((s) => {
-    const r = s.box.getBoundingClientRect();
+    if (s.gen !== dcLod.gen) {
+      const b = s.box.getBoundingClientRect();
+      s.wx = (b.left - wr.left) / scale; s.wy = (b.top - wr.top) / scale;
+      s.ww = b.width / scale; s.wh = b.height / scale;
+      s.gen = dcLod.gen;
+    }
+    const left = wr.left + s.wx * scale, top = wr.top + s.wy * scale;
+    const r = { left, top, right: left + s.ww * scale, bottom: top + s.wh * scale };
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
     all.push({ s, near, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
@@ -169,10 +193,10 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
+function dcSetCamera(world, scale) { dcLod.world = world; dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, margin, live, set } — the slot element to measure, the px of
 // screen space that lets it mount, whether it is live now, and the setter that
-// mounts or drops it.
+// mounts or drops it. dcLodRun adds the held world box and its generation.
 function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
     dcLod.poll = setInterval(dcLodRun, 500);
@@ -180,8 +204,10 @@ function dcLodSubscribe(entry) {
     if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
+  dcLodInvalidate();
   return () => {
     dcLod.subs.delete(entry); dcLod.io.unobserve(entry.box);
+    dcLodInvalidate();
     if (!dcLod.subs.size) { clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
   };
 }
@@ -505,7 +531,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // First paint writes at once, so the chrome is never wrong before a gesture.
     if (lastInv.current === null) writeInv();
     else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
-    dcSetZoom(scale);
+    dcSetCamera(el, scale);
     if (lastPostedScale.current !== scale) {
       lastPostedScale.current = scale;
       window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
@@ -612,7 +638,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // gets smaller, or the section box grows as a page is moved. Neither goes
   // through flushNow, so watch for both.
   React.useEffect(() => {
-    const schedule = () => { clearTimeout(lostT.current); lostT.current = setTimeout(checkLost, DC.settleMs); };
+    const schedule = () => {
+      dcLodInvalidate();
+      clearTimeout(lostT.current); lostT.current = setTimeout(checkLost, DC.settleMs);
+    };
     const ro = new ResizeObserver(schedule);
     if (worldRef.current) ro.observe(worldRef.current);
     window.addEventListener('resize', schedule);
@@ -930,9 +959,7 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const off = dcLodSubscribe({ box, margin, live: false, set: setLive });
-    dcLodSchedule();
-    return off;
+    return dcLodSubscribe({ box, margin, live: false, set: setLive });
   }, [eager, margin]);
   const on = eager || live;
   // Shield: iframes swallow wheel/pinch, so a transparent layer sits over the
@@ -974,7 +1001,7 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
     // The drag is over here even when keepMoving leaves the class on for the
     // drop animation, so the registry is released at the same point.
     dcDragDepth = Math.max(0, dcDragDepth - 1);
-    dcLodSchedule();
+    dcLodInvalidate();
     if (!keepMoving && vp) vp.classList.remove('dc-moving');
     up(scale, vp, cancelled);
   };
@@ -1234,4 +1261,4 @@ function DCLib() { return null; }
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. DC, dcLod, dcLodRun and dcArtboardSvg are
 // read by perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcLodRun, dcArtboardSvg, dcSvgUrl });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcLodRun, dcLodInvalidate, dcArtboardSvg, dcSvgUrl });

@@ -149,6 +149,34 @@ window.canvasTestsDone = (async () => {
     check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
   });
+  await test('the settled pass ranks without measuring every slot', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+    }
+    draw('review-ranking.json', E(DCSection, { id: 'review', title: 'Ranking' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= DC.liveBudget);
+    await wait(400);
+    const original = Element.prototype.getBoundingClientRect;
+    let reads = 0;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.hasAttribute('data-dc-slot')) reads++;
+      return original.apply(this, arguments);
+    };
+    let held, fresh;
+    try {
+      dcLodRun(); reads = 0;      // let any pending mount settle first
+      dcLodRun(); held = reads;
+      dcLodInvalidate(); reads = 0;
+      dcLodRun(); fresh = reads;
+    } finally { Element.prototype.getBoundingClientRect = original; }
+    check(held === 0, 'a settled pass measured ' + held + ' slots');
+    check(fresh === count, 'an invalidated pass measured ' + fresh + ' of ' + count);
+  });
   await test('the settled --dc-inv-zoom write holds the zoom anchor', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     // A viewport of a known size, so the anchor is the slot below its middle
