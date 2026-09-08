@@ -490,7 +490,7 @@ window.canvasTestsDone = (async () => {
       await until(() => host.querySelector('[data-dc-slot]'));
       await wait(DC.rescueMs + 300);
       posts.length = 0;
-      const s0 = dcLod.scale;
+      const s0 = dcView.scale;
       real.call(window, { type: '__dc_set_zoom', scale: s0 / 2 }, '*');
       await wait(DC.settleMs + 250);
       check(posts.length === 1, posts.length + ' __dc_zoom posts for one settled zoom');
@@ -576,6 +576,24 @@ window.canvasTestsDone = (async () => {
     const before = DC.renders;
     bump(); await wait(DC.settleMs);
     check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
+  });
+  await test('dcView holds the scale the world and the drag use', async () => {
+    const { at } = await dragFixture('review-viewscale.json');
+    const world = host.querySelector('[data-dc-world]');
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    window.postMessage({ type: '__dc_set_zoom', scale: scaleOf() / 2 }, '*');
+    await wait(DC.settleMs + 250);
+    const shown = scaleOf();
+    check(Math.abs(dcView.scale - shown) < 1e-6, 'dcView.scale is ' + dcView.scale + ', the world shows ' + shown);
+    // The drag reports world px: the screen travel divided by the same scale.
+    // The card is at x 0, and the commit snaps the position to 10 px.
+    const g = host.querySelector('[data-dc-slot="A"] .dc-winhead').getBoundingClientRect();
+    at('pointerdown', g.left + 4, g.top + 4);
+    at('pointermove', g.left + 104, g.top + 4, document);
+    at('pointerup', g.left + 104, g.top + 4, document);
+    await wait(50);
+    const want = 100 / dcView.scale, got = api.section('review').positions.A.x;
+    check(Math.abs(got - want) <= 10, 'the drag moved the card ' + got + ' world px, not ' + want.toFixed(1));
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

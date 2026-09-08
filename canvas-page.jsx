@@ -227,7 +227,9 @@ const cfRound = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(
 
 function cfMeasure(world, flows) {
   const wr = world.getBoundingClientRect();
-  const scale = wr.width / world.offsetWidth || 1;
+  // design-canvas.jsx owns the view scale in dcView. The world's rect over its
+  // layout width gives the same number, but it needs an offsetWidth read too.
+  const scale = (window.dcView && window.dcView.scale) || 1;
   // One DOM query for all slots; each card is measured at most once per pass.
   const slots = new Map();
   world.querySelectorAll('[data-dc-slot]').forEach((el) => slots.set(el.dataset.dcSlot, el));

@@ -173,13 +173,21 @@ function dcMarkMoving() {
   dcSyncMoving();
 }
 
+// The view transform, and the one owner of the view scale. DCViewport holds
+// this object in tf.current, so the pan and the zoom live in one place.
+// flushNow is the only writer of the world transform, and it writes what this
+// object holds. Every other reader takes the scale from here: the card drag,
+// cfMeasure in canvas-page.jsx and perf/bench.js. A rect over an offsetWidth
+// gives the same number, but it forces a layout.
+// The object is module-level, so two viewports on one page would share one
+// transform. This repository renders one viewport only. dcLod and the moving
+// flag are global for the same reason.
+const dcView = { x: 0, y: 0, scale: 1 };
+
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
 // one poll and one IntersectionObserver serve them all, instead of N timers
 // that fire per frame.
-// DCViewport writes `scale` once per flushed frame. The scale drives no
-// decision in the app: dcLodRun ranks slots by distance and budget only. The
-// field is kept because perf/bench.js reads it to know where the view is.
-const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
+const dcLod = { subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 // `v` is the slot's own viewport box, not the window: a canvas in a panel must
@@ -235,9 +243,6 @@ function dcLodRun() {
   if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
-// bench telemetry only; the pass does not read it. The call also arms the pass,
-// because a new zoom changes which slots are near the viewport centre.
-function dcLodNoteScale(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
@@ -623,11 +628,11 @@ function dcUseLostPill(vpRef, worldRef, tf, apply, { minScale, maxScale }) {
     const step = () => {
       const k = Math.min(1, (performance.now() - t0) / DC.backToMs);
       const e = 1 - Math.pow(1 - k, 3);
-      tf.current = {
-        x: from.x + (to.x - from.x) * e,
-        y: from.y + (to.y - from.y) * e,
-        scale: from.scale + (to.scale - from.scale) * e,
-      };
+      // Write the fields. The object stays the same one, because dcView is it.
+      const t = tf.current;
+      t.x = from.x + (to.x - from.x) * e;
+      t.y = from.y + (to.y - from.y) * e;
+      t.scale = from.scale + (to.scale - from.scale) * e;
       apply(true);
       tween.current = k < 1 ? requestAnimationFrame(step) : 0;
     };
@@ -746,7 +751,10 @@ function dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, 
 function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const vpRef = React.useRef(null);
   const worldRef = React.useRef(null);
-  const tf = React.useRef({ x: 0, y: 0, scale: 1 });
+  // tf.current is dcView itself, not a copy: the module object is the one
+  // owner of the view transform. Every write below changes its fields, so a
+  // reader outside this component always sees the view the world shows.
+  const tf = React.useRef(dcView);
   const tfKey = 'dc-viewport-v3:' + location.pathname;
   const saveT = React.useRef(0);
   const raf = React.useRef(0);
@@ -770,7 +778,8 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     armSettle();
-    dcLodNoteScale(scale);
+    // A new view changes which slots are near the viewport centre.
+    dcLodSchedule();
     dcMarkMoving();
     onFrame(x, y, scale);
     schedule();
@@ -791,7 +800,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     try {
       const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
       if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
-        tf.current = { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) };
+        Object.assign(tf.current, { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) });
         restoredView.current = true; apply(true);
       }
     } catch {}
@@ -818,7 +827,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       if (!maxW) return;
       const s = Math.min(1, maxScale, Math.max(minScale, vpRef.current.clientWidth / maxW));
       fittedView.current = true;
-      tf.current = { x: 0, y: 0, scale: s }; apply(true);
+      Object.assign(tf.current, { x: 0, y: 0, scale: s }); apply(true);
     });
     const rescue = setTimeout(() => {
       // A restored view is the user's choice, even one with nothing on screen.
@@ -1126,15 +1135,17 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
 function dcDragSession(e, me, { move, up, keepMoving }) {
   e.preventDefault(); e.stopPropagation();
   const sx = e.clientX, sy = e.clientY;
-  // One rect and one offsetWidth per event: both are reads, so they share one
-  // forced layout.
-  const measure = () => { const r = me.getBoundingClientRect(); return { r, z: r.width / me.offsetWidth || 1 }; };
-  const scale = measure().z;
+  // The zoom at the start of the gesture. dcView owns it, so no rect read is
+  // necessary. The whole drag keeps this value: a zoom in the middle of a drag
+  // must not change what one screen px of pointer travel is worth.
+  const scale = dcView.scale;
   me.classList.add('dc-dragging');
   try { me.setPointerCapture(e.pointerId); } catch {}
   dcDragDepth++; dcSyncMoving();
   const onMove = (ev) => {
-    const { r, z } = measure();
+    // One rect per event, for the pointer's position inside the element. The
+    // element moves under the pointer, so this one cannot come from dcView.
+    const r = me.getBoundingClientRect(), z = dcView.scale;
     move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
   };
   let done = false;
@@ -1362,9 +1373,13 @@ Object.assign(window, {
   // tests/regressions.js reads dcMoving to check the moving flag, and
   // dcExportName to check the export file name.
   dcMoving, dcExportName,
-  // perf/bench.js reads DC.renders, DC.liveBudget and dcLod.scale.
-  // tests/regressions.js reads DC for its waits and its budget checks.
+  // perf/bench.js reads DC.renders and DC.liveBudget.
+  // tests/regressions.js reads DC for its waits and its budget checks, and
+  // dcLod for the registry it drives by hand.
   DC, dcLod,
+  // cfMeasure in canvas-page.jsx, perf/bench.js and tests/regressions.js read
+  // the view scale from dcView.
+  dcView,
   // tests/regressions.js rasterizes a fixture with these.
   dcArtboardSvg, dcSvgUrl,
   // tests/regressions.js calls dcFontCss and dcInlineDoc on their own.
