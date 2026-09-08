@@ -103,8 +103,9 @@ Chrome with `--virtual-time-budget`, which distorts `performance.now`, and it
 reads 0. Do not read this as an improvement. The millisecond cost of a pass
 was never measured.
 
-The regression suite grew from 14 tests to 32, all passing under
-`node tests/run.mjs`.
+This branch added 7 tests. The suite is 34 under `node tests/run.mjs`, and all
+pass. The count at the branch point was 14, and the merge from main brought the
+other 13.
 
 ### Corrections
 
