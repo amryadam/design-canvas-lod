@@ -4,17 +4,17 @@
   {
    "id": 0,
    "subject": "Task 1: Measure the pass as it is today",
-   "status": "pending",
-   "description": "**Goal:** A bench function that reports what one settled level-of-detail pass costs and how many slot rects it reads, so Task 2 has a baseline.\n\n**Files:**\n- Modify: `design-canvas.jsx:1237` (the `Object.assign(window, ...)` export line)\n- Modify: `perf/bench.js:257` (the `dcBench` export) and the `all()` object\n\n**Acceptance Criteria:**\n- [ ] `window.dcLodRun` exists and runs one pass when called.\n- [ ] `await dcBench.lodPassCost()` returns `{ slots, msPerPass, slotRectsPerPass }`.\n- [ ] On the sample page `slotRectsPerPass` equals `slots` (10). This is the baseline.\n- [ ] `dcBench.all()` includes `lodPassCost`.\n- [ ] `Element.prototype.getBoundingClientRect` is restored even if the pass throws.\n\n**Verify:** `python3 -m http.server 8000`, open `http://localhost:8000/sample/`, paste the whole of `perf/bench.js` into the console, then run `await dcBench.lodPassCost()` -> `{ slots: 10, msPerPass: <number>, slotRectsPerPass: 10 }`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"perf/bench.js\"], \"verifyCommand\": \"python3 -m http.server 8000  # then in the sample page console: await dcBench.lodPassCost()\", \"acceptanceCriteria\": [\"window.dcLodRun runs one pass\", \"dcBench.lodPassCost returns slots, msPerPass, slotRectsPerPass\", \"slotRectsPerPass equals slots (10) on the sample\", \"all() includes lodPassCost\", \"getBoundingClientRect is restored in a finally block\"], \"modelTier\": \"mechanical\"}\n```"
+   "status": "completed",
+   "description": "**Goal:** A bench function that reports what one settled level-of-detail pass costs and how many slot rects it reads, so Task 2 has a baseline.\n\nComplete \u2014 see ledger."
   },
   {
    "id": 1,
    "subject": "Task 2: Rank from held world boxes",
-   "status": "pending",
+   "status": "completed",
    "blockedBy": [
     0
    ],
-   "description": "**Goal:** One pass reads one rect instead of one per slot, and the ranking it produces is identical.\n\n**Files:**\n- Modify: `design-canvas.jsx:124-188` (`dcLod`, `dcSlotDistance`, `dcLodRun`, `dcLodSchedule`, `dcSetZoom`, `dcLodSubscribe`)\n- Modify: `design-canvas.jsx:925-948` (`DCLazyFrame`, the subscribe call)\n- Modify: `design-canvas.jsx:950-994` (`dcDragSession`, the finish path)\n- Modify: `design-canvas.jsx:508` (`flushNow`) and `design-canvas.jsx:614-620` (the `ResizeObserver` effect), both inside `DCViewport`\n- Modify: `design-canvas.jsx:1237` (the export line)\n- Test: `tests/regressions.js`\n\n**Acceptance Criteria:**\n- [ ] A settled pass with no invalidation reads zero slot rects.\n- [ ] A pass straight after `dcLodInvalidate()` reads exactly one rect per subscribed slot.\n- [ ] The existing test `budget bounds the live iframes` still passes, unchanged.\n- [ ] Every other test on `tests/regressions.html` still passes; the page title is `PASS`.\n- [ ] `await dcBench.lodPassCost()` reports `slotRectsPerPass: 0` on the sample.\n- [ ] Panning the sample by hand still mounts and drops iframes, and slots outside the budget still show the striped placeholder.\n\n**Verify:** `python3 -m http.server 8000`, then open `http://localhost:8000/tests/regressions.html` -> the document title is `PASS` and both new rows report `\"pass\": true`\n\n```json:metadata\n{\"files\": [\"design-canvas.jsx\", \"tests/regressions.js\"], \"verifyCommand\": \"python3 -m http.server 8000  # then open http://localhost:8000/tests/regressions.html and read the title\", \"acceptanceCriteria\": [\"a settled pass reads 0 slot rects\", \"a pass after dcLodInvalidate reads one rect per slot\", \"budget bounds the live iframes still passes\", \"regressions.html title is PASS\", \"dcBench.lodPassCost reports slotRectsPerPass 0\", \"manual pan still mounts and drops iframes\"], \"modelTier\": \"standard\"}\n```"
+   "description": "**Goal:** One pass reads one rect instead of one per slot, and the ranking it produces is identical.\n\nComplete \u2014 see ledger."
   },
   {
    "id": 2,
@@ -35,5 +35,5 @@
    "description": "**Goal:** The README describes what the registry now does, and the design doc carries the before and after numbers \u2014 including a withdrawal if the numbers do not justify a change.\n\n**Files:**\n- Modify: `README.md` (the \"How the level of detail works\" section)\n- Modify: `docs/superpowers/specs/2026-09-08-lod-ranking-design.md` (add a \"Measured outcome\" section)\n\n**Acceptance Criteria:**\n- [ ] The README says a slot's world box is held and re-measured on invalidation, and lists the four places that invalidate.\n- [ ] The README describes `DC.stickyMs`.\n- [ ] The design doc has a \"Measured outcome\" section with the `lodPassCost` object from Task 1 Step 4 and from Task 2 Step 9, on the same machine.\n- [ ] If `msPerPass` did not improve, the section says so plainly. Do not report an improvement the numbers do not show.\n\n**Verify:** `git diff --stat HEAD~1` shows only `README.md` and the design doc, and `grep -c \"Measured outcome\" docs/superpowers/specs/2026-09-08-lod-ranking-design.md` -> `1`\n\n```json:metadata\n{\"files\": [\"README.md\", \"docs/superpowers/specs/2026-09-08-lod-ranking-design.md\"], \"verifyCommand\": \"grep -c 'Measured outcome' docs/superpowers/specs/2026-09-08-lod-ranking-design.md\", \"acceptanceCriteria\": [\"README describes the held world box and the four invalidation points\", \"README describes DC.stickyMs\", \"the design doc carries the before and after lodPassCost objects\", \"a non-improvement is reported plainly, not dressed up\"], \"modelTier\": \"mechanical\"}\n```"
   }
  ],
- "lastUpdated": "2026-09-08T13:26:53"
+ "lastUpdated": "2026-09-08T16:28:17"
 }
