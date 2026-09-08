@@ -16,15 +16,18 @@ const CF = {
   stroke: '#b9a991', hover: '#c96442', width: 2,
   arrowLen: 11, arrowHalf: 6.5,
   handleR: 6,           // endpoint handle radius (screen px) while a flow is hovered
-  // Pills and arrowheads hold screen size down to 8% zoom (a whole flow map
-  // on one screen, as in fatoora), then shrink with the world so they never
-  // balloon over the artboards when zoomed far out.
+  // Arrowheads and endpoint handles hold screen size down to 8% zoom (a whole
+  // flow map on one screen, as in fatoora), then shrink with the world so they
+  // never balloon over the artboards when zoomed far out. Label pills do not
+  // use this: they scale with the world, as the pages do.
   inv: 'min(var(--dc-inv-zoom, 1), 12)',
   // Line width in world units: 2 screen px down to 50% zoom, then it thins
   // with the world to a 1 screen px floor, so zoomed-out maps stay hairline.
   strokeW: 'max(calc(2px * min(var(--dc-inv-zoom, 1), 2)), calc(1px * var(--dc-inv-zoom, 1)))',
   // Dashes are in world units too, so they scale with the zoom to stay 5/6 screen px.
   dashW: 'calc(5px * var(--dc-inv-zoom, 1)) calc(6px * var(--dc-inv-zoom, 1))',
+  // Pill size is in world units: 12.5px at 100% zoom, and it grows and shrinks
+  // with the pages from there.
   pill: { font: '600 12.5px/1 Inter, -apple-system, system-ui, sans-serif', color: '#6b6456', bg: '#fff', border: '1px solid #e5e0d7', shadow: '0 1px 2px rgba(40,32,22,.07)' },
 };
 const CF_NORMAL = { l: [-1, 0], r: [1, 0], t: [0, -1], b: [0, 1] };
@@ -180,12 +183,12 @@ function cfArrow(p, angle) {
 }
 
 // Slide each label along its curve (from the middle outwards) until its pill
-// overlaps no pill placed before it. Pills hold screen size, so their world
-// footprint is the screen size over the current zoom.
+// overlaps no pill placed before it. Pills scale with the world, so their world
+// footprint is the same at every zoom and one pass holds for all of them.
 const CF_LABEL_T = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74];
-function cfPlaceLabels(paths, s) {
+function cfPlaceLabels(paths) {
   const placed = [];
-  const pill = (p, t) => { const c = p.at(t); const w = (p.label.length * 7.2 + 24) / s, h = 28 / s; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
+  const pill = (p, t) => { const c = p.at(t); const w = p.label.length * 7.2 + 24, h = 28; return { x: c.x - w / 2, y: c.y - h / 2, w, h, c }; };
   const overlaps = (r) => placed.some((q) => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
   for (const p of paths) {
     if (!p.label) continue;
@@ -256,7 +259,7 @@ function cfMeasure(world, flows) {
     const curve = cfRoute(a, f.fs, b, f.ts, obstacles);
     out.push({ key: `${f.from}>${f.to}#${i}`, flowKey: cfFlowKey(f), d: curve.d, mid: curve.mid, angle: curve.angle, start: a, end: b, fb, tb, label: f.label, dashed: !!f.dashed, at: curve.at });
   });
-  cfPlaceLabels(out, Math.max(scale, 1 / 12));
+  cfPlaceLabels(out);
   // Signature lets the caller skip a React update when nothing moved.
   out.sig = JSON.stringify(out.map((o) => [o.key, o.flowKey, o.label, o.dashed, o.d, Math.round(o.mid.x), Math.round(o.mid.y), o.fb, o.tb]));
   return out;
@@ -319,27 +322,25 @@ function CanvasFlows({ flows: authored, section }) {
     schedule();
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
-    // Zoom changes where label pills land (they hold screen size), so measure
-    // once more shortly after the world's transform settles.
-    let zoomTimer = 0;
     const mo = new MutationObserver((recs) => {
-      let moved = false, zoomed = false;
+      let moved = false;
       for (const r of recs) {
         const t = r.target.nodeType === 1 ? r.target : r.target.parentElement;
         if (!t) continue;
-        if (t === world) { zoomed = true; continue; }
+        // The world's own transform is the pan and the zoom. Curves and pills
+        // are both in world units, so neither moves the layer needs to know.
+        if (t === world) continue;
         // Anything inside a card (iframe mounts, placeholder swaps) never changes
         // card geometry, and our own layer's re-render must not re-trigger us.
         if (t.closest('.dc-card') || t.closest('.dc-flows')) continue;
         moved = true;
       }
       if (moved) schedule();
-      else if (zoomed) { clearTimeout(zoomTimer); zoomTimer = setTimeout(measure, 200); }
     });
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
     return () => {
-      off = true; cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(zoomTimer);
+      off = true; cancelAnimationFrame(raf); clearTimeout(timer);
       ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule);
     };
   }, [world, flows]);
@@ -372,7 +373,7 @@ function CanvasFlows({ flows: authored, section }) {
       </svg>
       {paths.map((p, i) => p.label && (
         <div key={p.key} onPointerEnter={() => enter(i)} onPointerLeave={leave} style={{
-          position: 'absolute', left: p.mid.x, top: p.mid.y, transform: `translate(-50%, -50%) scale(${CF.inv})`,
+          position: 'absolute', left: p.mid.x, top: p.mid.y, transform: 'translate(-50%, -50%)',
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
           borderRadius: 999, padding: '5px 11px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
