@@ -96,13 +96,26 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
 
 const DCCtx = React.createContext(null);
-// Shared "is the world moving" flag: toggled by DCViewport, read via CSS class.
+// Shared "is the world moving" flag. The .dc-moving class drives CSS only:
+// live iframes lose pointer events while the world moves. The module keeps its
+// own answer in dcMovingTimer and dcDragDepth, and dcMoving() reads those.
+// A class left behind by a drag that did not finish thus cannot stop the LOD
+// registry for the life of the page.
+// Two sources set the flag: a pan or a zoom arms dcMarkMoving, which clears
+// itself after 120 ms; a card drag holds dcDragDepth for the length of the
+// gesture.
 let dcMovingTimer = 0;
+let dcDragDepth = 0;
+const dcMoving = () => dcMovingTimer !== 0 || dcDragDepth > 0;
 function dcMarkMoving(vp) {
   if (!vp) return;
   if (!vp.classList.contains('dc-moving')) vp.classList.add('dc-moving');
   clearTimeout(dcMovingTimer);
-  dcMovingTimer = setTimeout(() => vp.classList.remove('dc-moving'), 120);
+  dcMovingTimer = setTimeout(() => {
+    dcMovingTimer = 0;
+    vp.classList.remove('dc-moving');
+    dcLodSchedule();
+  }, 120);
 }
 
 // The level-of-detail registry. Every slot subscribes to it. One settle timer,
@@ -128,10 +141,10 @@ function dcSlotDistance(r) {
 // step (a whole document parses and lays out), so at most one slot mounts per
 // pass and the rest wait a beat; dropping is cheap and is not rationed.
 function dcLodRun() {
-  // A pan or pinch moves the ranking every frame, and a drop tears down a whole
-  // iframe. Wait for the world to stop rather than read every slot's rect and
-  // drop several of them inside the gesture; dcLodSchedule re-runs on settle.
-  if (document.querySelector('.design-canvas.dc-moving')) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
+  // A pan or a pinch changes the ranking in each frame, and a drop removes a
+  // full iframe. Do not measure the slots during the gesture. Wait until the
+  // world stops. dcLodSchedule then runs this pass again.
+  if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
   const all = [];
   dcLod.subs.forEach((s) => {
     const r = s.box.getBoundingClientRect();
@@ -927,6 +940,7 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   const scale = scaleOf();
   me.classList.add('dc-dragging');
   const vp = me.closest('.design-canvas'); vp && vp.classList.add('dc-moving');
+  dcDragDepth++;
   const onMove = (ev) => {
     const r = me.getBoundingClientRect(), z = scaleOf();
     move((ev.clientX - sx) / scale, (ev.clientY - sy) / scale, scale, { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z });
@@ -936,6 +950,10 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
     if (done) return; done = true;
     document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onCancel);
     me.classList.remove('dc-dragging');
+    // The drag is over here even when keepMoving leaves the class on for the
+    // drop animation, so the registry is released at the same point.
+    dcDragDepth = Math.max(0, dcDragDepth - 1);
+    dcLodSchedule();
     if (!keepMoving && vp) vp.classList.remove('dc-moving');
     up(scale, vp, cancelled);
   };
