@@ -22,6 +22,13 @@ const DC = {
   backToMs: 300,        // Back to content tween
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
+  stickyMs: 4000,       // a slot keeps its place in the budget this long after a
+                        // pointer goes down on it, so a card you are working on
+                        // does not drop under you
+  stickyBias: 1e6,      // px a touched slot counts as nearer. It outranks every
+                        // real distance, but it never outranks a visible slot:
+                        // the visible sort runs first, and that rule exists to
+                        // stop off-screen frames holding the budget
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
   movingMs: 220,        // how long a pan or a zoom counts as still moving. It
                         // MUST be more than settleMs. The LOD pass is armed for
@@ -177,6 +184,21 @@ const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 
 // Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
 // slightly wrong ranking until the next real one, never a wrong render.
 function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
+// A pointer down anywhere in a slot marks it. The mark wins the budget for
+// DC.stickyMs, so a card you drag, rename or open the ⋯ menu on does not drop
+// while you work on it. It does not win the margin, and it does not win against
+// a visible slot: a slot that has left the screen must still give its place up.
+// Capture phase, because the slot header stops propagation on its own pointer
+// down. A pointer down inside a live iframe never reaches this document, so the
+// mark covers the parent-side gestures only. The mark needs no clean-up: the
+// 500 ms poll re-ranks within 500 ms of it going stale.
+function dcTouch(e) {
+  const box = e.target.closest && e.target.closest('[data-dc-slot]');
+  if (!box) return;
+  let hit = false;
+  dcLod.subs.forEach((s) => { if (s.box === box) { s.touchedAt = performance.now(); hit = true; } });
+  if (hit) dcLodSchedule();
+}
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 // `v` is the slot's own viewport box, not the window: a canvas in a panel must
@@ -221,6 +243,7 @@ function dcLodRun() {
   // sort.
   const wr = world ? world.getBoundingClientRect() : null;
   const scale = world ? wr.width / world.offsetWidth : 1;
+  const now = performance.now();
   const all = [];
   // One rect per viewport, not one per slot: all the slots of a canvas share
   // its box.
@@ -256,7 +279,8 @@ function dcLodRun() {
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > v.left - m && r.left < v.left + v.width + m && r.bottom > v.top - m && r.top < v.top + v.height + m;
     const visible = r.right > v.left && r.left < v.left + v.width && r.bottom > v.top && r.top < v.top + v.height;
-    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
+    const sticky = s.touchedAt !== undefined && now - s.touchedAt < DC.stickyMs;
+    all.push({ s, near, visible, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) - (sticky ? DC.stickyBias : 0) });
   });
   // Hysteresis stabilizes peers, but must not let off-screen live frames keep
   // the entire budget while visible slots remain placeholders indefinitely.
@@ -299,6 +323,7 @@ function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
     dcLod.poll = setInterval(dcLodRun, 500);
     document.addEventListener('visibilitychange', dcLodSchedule);
+    document.addEventListener('pointerdown', dcTouch, true);
     if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
@@ -306,7 +331,10 @@ function dcLodSubscribe(entry) {
   return () => {
     dcLod.subs.delete(entry); dcLod.io.unobserve(entry.box);
     dcLodInvalidate();
-    if (!dcLod.subs.size) { clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
+    if (!dcLod.subs.size) {
+      clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule);
+      document.removeEventListener('pointerdown', dcTouch, true);
+    }
   };
 }
 

@@ -539,6 +539,51 @@ window.canvasTestsDone = (async () => {
     check(innerWidth > 1100, 'window too narrow for this check');
     check(live.sort().join(',') === 'b0,b1,b2', 'live set: ' + live.join(','));
   });
+  await test('a touched slot keeps its place in the budget', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // More slots than the budget, so some stay placeholders after the fit.
+    const count = DC.liveBudget + 6;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 100, height: 80 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 100, height: 80 })));
+    }
+    draw('review-sticky.json', E(DCSection, { id: 'review', title: 'Sticky' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // The first fit and its DC.rescueMs nudge both arm the moving flag, and a
+    // pass refuses to run while it is set.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    // Manual pump to the fixed point, per this file's convention: no sleep
+    // stands in for a real assertion, and dcLod.subs is read directly rather
+    // than the DOM, which a React commit can still lag behind.
+    const settle = () => { for (let i = 0; i < count + 2; i++) dcLodRun(); };
+    settle();
+
+    const vp = host.querySelector('.design-canvas');
+    const vr = vp.getBoundingClientRect();
+    const isVisible = (box) => {
+      const r = box.getBoundingClientRect();
+      return r.right > vr.left && r.left < vr.left + vr.width && r.bottom > vr.top && r.top < vr.top + vr.height;
+    };
+
+    const subs = [...dcLod.subs];
+    check(subs.filter((s) => s.live).length === DC.liveBudget, 'the fixture did not settle to a full budget');
+    const target = subs.find((s) => !s.live && isVisible(s.box));
+    check(!!target, 'fixture: no visible placeholder to touch');
+
+    // A pointer down anywhere in the slot marks it; a pointer up ends the
+    // gesture, so it cannot hold the registry moving and block the next pass.
+    const tr = target.box.getBoundingClientRect();
+    const opts = { pointerId: 11, clientX: tr.left + 4, clientY: tr.top + 4, button: 0, buttons: 1, bubbles: true, cancelable: true };
+    target.box.dispatchEvent(new PointerEvent('pointerdown', opts));
+    document.dispatchEvent(new PointerEvent('pointerup', { ...opts, buttons: 0 }));
+
+    settle();
+    check(target.live, 'a touch on a visible placeholder did not win it a place in the budget');
+    check(subs.filter((s) => s.live).length === DC.liveBudget,
+      'the touch pushed the live count past DC.liveBudget: ' + subs.filter((s) => s.live).length);
+  });
   await test('a hanging state read gives up after DC.stateTimeoutMs', async () => {
     window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
     draw('review-hang.json'); await wait(DC.stateTimeoutMs + 300);
