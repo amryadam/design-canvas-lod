@@ -458,34 +458,6 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     return () => { clearTimeout(t); window.removeEventListener('pagehide', write); };
   }, [ready, state.sections, state.updatedAt, lsKey, stateFile]);
 
-  const registry = {}, sectionMeta = {}, sectionOrder = [];
-  dcFlatten(children).forEach((sec) => {
-    if (!sec || sec.type !== DCSection) return;
-    const sid = sec.props.id ?? sec.props.title;
-    if (!sid) return;
-    sectionOrder.push(sid);
-    const persisted = state.sections[sid] || {};
-    const abs = [];
-    dcFlatten(sec.props.children).forEach((ab) => {
-      if (!ab || ab.type !== DCArtboard) return;
-      const aid = ab.props.id ?? ab.props.label;
-      if (aid) abs.push([aid, ab]);
-    });
-    const srcKey = abs.map(([k]) => k).join('\x1f');
-    const hidden = persisted.srcKey === srcKey ? (persisted.hidden || []) : [];
-    const srcIds = [];
-    abs.forEach(([aid, ab]) => {
-      if (hidden.includes(aid)) return;
-      registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
-      srcIds.push(aid);
-    });
-    const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
-    sectionMeta[sid] = {
-      title: persisted.title ?? sec.props.title, subtitle: sec.props.subtitle,
-      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))], srcKey,
-    };
-  });
-
   // patchSection keeps one identity for the life of the canvas, so the per-slot
   // callbacks built on it survive a state change. Only `state` and `section`
   // move, and only the components that read them re-render.
@@ -929,6 +901,21 @@ function DCSizeChips({ size, onSize, style }) {
   );
 }
 
+// The separator for a joined key. No file name, no label and no id carries it.
+const DC_KEY_SEP = '\x1f';
+
+// One answer for "which slots does this section show, in what order". `ids` is
+// the ordered artboard id list. The persisted hidden list counts only while the
+// source key holds: a canvas that gained or lost a page must not hide the wrong
+// slot, so a changed key drops the whole list.
+function dcResolveSlots(ids, persisted) {
+  const srcKey = ids.join(DC_KEY_SEP);
+  const hidden = persisted.srcKey === srcKey ? (persisted.hidden || []) : [];
+  const srcIds = ids.filter((k) => !hidden.includes(k));
+  const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
+  return { srcKey, hidden, srcIds, slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))] };
+}
+
 function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
@@ -937,13 +924,12 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   const rest = all.filter((c) => !(c && c.type === DCArtboard));
   const sec = (ctx && sid && ctx.section(sid)) || {};
   const allIds = artboards.map((a) => a.props.id ?? a.props.label).filter(Boolean);
-  const srcKey = allIds.join('\x1f');
-  const hidden = sec.srcKey === srcKey ? (sec.hidden || []) : [];
-  const srcOrder = allIds.filter((k) => !hidden.includes(k));
-  const order = React.useMemo(() => {
-    const kept = (sec.order || []).filter((k) => srcOrder.includes(k));
-    return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
-  }, [sec.order, srcOrder.join('|')]);
+  // `order` is a prop of every slot, so it must keep its identity while the
+  // answer holds. The deps are what the resolver reads, and nothing else.
+  const idsKey = allIds.join('|');
+  const { srcKey, slotIds: order } = React.useMemo(
+    () => dcResolveSlots(allIds, sec),
+    [sec.order, sec.hidden, sec.srcKey, idsKey]);
   const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
   // dcVariant reads these props only, together with the variant the section chose.
   // One mark for each slot thus says when to resolve it again. `byId` is a
@@ -1134,10 +1120,9 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   return onCancel;
 }
 
-// Flow identity shared with canvas-page.jsx (CanvasFlows): endpoints and
-// label, joined with a separator no file name or label carries. Arrow-side
-// overrides in the section state are keyed by it.
-const DC_KEY_SEP = '\x1f';
+// Flow identity shared with canvas-page.jsx (CanvasFlows): the endpoints and the
+// label, joined with DC_KEY_SEP. Arrow-side overrides in the section state are
+// keyed by it.
 const dcFlowKey = (f) => [f.from, f.to, f.label || ''].join(DC_KEY_SEP);
 const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP); return { from, to, label }; };
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
