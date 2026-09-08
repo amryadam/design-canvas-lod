@@ -1228,4 +1228,7 @@ function DCPostIt({ children, width = 320, rotate = -1 }) {
 // Renders nothing; lets a host mount this file purely to load the globals.
 function DCLib() { return null; }
 
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch });
+// A top-level const does not land on window, so the names a host page or a
+// tool needs are published here. DC, dcLod and dcArtboardSvg are read by
+// perf/bench.js and tests/regressions.js.
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, DC, dcLod, dcArtboardSvg, dcSvgUrl });

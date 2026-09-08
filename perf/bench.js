@@ -53,7 +53,7 @@
       clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true,
     }));
     await sleep(300);
-    return { scale: window.dcZoom.scale, onScreen: onScreenCount() };
+    return { scale: window.dcLod.scale, onScreen: onScreenCount() };
   };
 
   const onScreenCount = () => slots().filter((el) => {
