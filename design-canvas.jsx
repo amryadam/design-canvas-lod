@@ -1073,6 +1073,9 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
+// Export file name: the label, or the id, with path and shell separators
+// replaced. \p{L}\p{N} keeps Arabic and every other script.
+const dcExportName = (label, id) => String(label || id || 'artboard').replace(/[^\p{L}\p{N}\s.-]+/gu, '_');
 function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
   // perf/bench.js reads this counter to find how many frames one state patch
   // renders. A render-phase increment is the only way to count renders, so it
@@ -1172,7 +1175,7 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
   // does. Capture phase, so the title, the chips and the menu do not stop it.
   const onSlotDownCapture = (e) => { if (e.button === 0 && (e.ctrlKey || e.metaKey)) onGripDown(e); };
 
-  const fileName = String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_');
+  const fileName = dcExportName(label, id);
   const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
     .catch((err) => console.error('[design-canvas] export failed:', err));
   return (
@@ -1256,4 +1259,4 @@ function DCLib() { return null; }
 // A top-level const does not land on window, so the names a host page or a
 // tool needs are published here. DC, dcLod and dcArtboardSvg are read by
 // perf/bench.js and tests/regressions.js.
-Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl });
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx, DCLib, dcDragSession, dcFlowKey, dcMapPatch, dcMoving, DC, dcLod, dcArtboardSvg, dcSvgUrl, dcExportName });
