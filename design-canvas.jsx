@@ -481,12 +481,12 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   }), [state, patchSection, setFocus]);
 
   React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') api.setFocus(null); };
+    const onKey = (e) => { if (e.key === 'Escape') setFocus(null); };
     const onPd = (e) => { const ae = document.activeElement; if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur(); };
     document.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onPd, true);
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onPd, true); };
-  }, [api]);
+  }, [setFocus]);
 
   return (
     <DCCtx.Provider value={api}>
