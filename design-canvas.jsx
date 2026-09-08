@@ -105,15 +105,13 @@ function dcMarkMoving(vp) {
   dcMovingTimer = setTimeout(() => vp.classList.remove('dc-moving'), 120);
 }
 
-// Shared zoom signal: DCViewport writes it once per flushed frame; lazy frames
-// subscribe and only re-render when their live decision changes.
-// One settle timer, one poll and one IntersectionObserver serve every slot,
-// instead of N timers firing per frame.
-// scale itself now drives nothing in the app — the live/placeholder decision
-// is distance-and-budget only (dcLodRun), not zoom level. It is kept and
-// written on every flush because perf/bench.js reads it; do not infer from
-// dcSetZoom(scale) in flushNow that LOD still depends on zoom.
-const dcZoom = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
+// The level-of-detail registry. Every slot subscribes to it. One settle timer,
+// one poll and one IntersectionObserver serve them all, instead of N timers
+// that fire per frame.
+// DCViewport writes `scale` once per flushed frame. The scale drives no
+// decision in the app: dcLodRun ranks slots by distance and budget only. The
+// field is kept because perf/bench.js reads it to know where the view is.
+const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
 function dcSlotDistance(r) {
@@ -133,9 +131,9 @@ function dcLodRun() {
   // A pan or pinch moves the ranking every frame, and a drop tears down a whole
   // iframe. Wait for the world to stop rather than read every slot's rect and
   // drop several of them inside the gesture; dcLodSchedule re-runs on settle.
-  if (document.querySelector('.design-canvas.dc-moving')) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); return; }
+  if (document.querySelector('.design-canvas.dc-moving')) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
   const all = [];
-  dcZoom.subs.forEach((s) => {
+  dcLod.subs.forEach((s) => {
     const r = s.box.getBoundingClientRect();
     const m = s.live ? DC.unmountMargin : s.margin;
     const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
@@ -151,23 +149,23 @@ function dcLodRun() {
     if (mounted) { pending = true; break; }
     s.live = true; s.set(true); mounted = true;
   }
-  if (pending) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.mountGapMs); }
+  if (pending) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
-function dcLodSchedule() { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); }
-function dcSetZoom(scale) { dcZoom.scale = scale; dcLodSchedule(); }
+function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
+function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, margin, live, set } — the slot element to measure, the px of
 // screen space that lets it mount, whether it is live now, and the setter that
 // mounts or drops it.
 function dcLodSubscribe(entry) {
-  if (!dcZoom.subs.size) {
-    dcZoom.poll = setInterval(dcLodRun, 500);
+  if (!dcLod.subs.size) {
+    dcLod.poll = setInterval(dcLodRun, 500);
     document.addEventListener('visibilitychange', dcLodSchedule);
-    if (!dcZoom.io) dcZoom.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
+    if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
-  dcZoom.subs.add(entry); dcZoom.io.observe(entry.box);
+  dcLod.subs.add(entry); dcLod.io.observe(entry.box);
   return () => {
-    dcZoom.subs.delete(entry); dcZoom.io.unobserve(entry.box);
-    if (!dcZoom.subs.size) { clearInterval(dcZoom.poll); clearTimeout(dcZoom.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
+    dcLod.subs.delete(entry); dcLod.io.unobserve(entry.box);
+    if (!dcLod.subs.size) { clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
   };
 }
 
