@@ -88,9 +88,10 @@ that frame long.
 **The pass reads one rect, not one per slot.** A slot's box inside the world
 does not move when the world pans or zooms, so each slot holds its own box in
 world coordinates, and the pass turns it into a screen box by arithmetic on a
-single rect read of the world element. This is safe because only
-`.dc-sectionhead` reads `--dc-inv-zoom`, and it reads it through a transform,
-which never reflows the world's layout.
+single rect read of the world element. This is safe because no reader of
+`--dc-inv-zoom` reflows the world: `.dc-sectionhead` reads it through a
+transform, and a transform never reflows, while the flow layer in
+`canvas-page.jsx` reads it inside an absolute overlay of zero box.
 
 A held box goes stale when a slot mounts, a slot unmounts, a section patch
 lands, a card drag ends, a reorder commits, the world resizes, or the camera

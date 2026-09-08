@@ -55,9 +55,18 @@ keeps a spatial index in world coordinates and reads no DOM to decide.
 
 A slot's box **inside the world** does not change when the world pans or zooms.
 The world element carries `transformOrigin: '0 0'`, and since the F2a
-correction only `.dc-header` reads `--dc-inv-zoom`, and it is `position:
-absolute`. The world layout is therefore the same at every zoom. A slot's world
-box is thus stable, and it only has to be measured again when the DOM moves it.
+correction no reader of `--dc-inv-zoom` reflows the world. `.dc-sectionhead`
+reads the variable, and it reads it through a `transform`, which never reflows.
+The flow layer in `canvas-page.jsx` reads it as well, inside an absolute
+overlay of zero box, so its own layout moves nothing. The world layout is
+therefore the same at every zoom. A slot's world box is thus stable, and it
+only has to be measured again when the DOM moves it.
+
+This is the single point of failure of the design, so one check guards it:
+"the world layout does not read the zoom" in `tests/regressions.js` swings the
+variable over its whole range and compares all four edges of every world box.
+The four edges matter. A held box carries a size as well as an origin, and
+`near` and `visible` both read the far edges.
 
 **Decision:** cache each slot's world box, and rank from arithmetic. One rect
 read of the world element per pass replaces N rect reads of slots.
@@ -116,6 +125,9 @@ The regression suite grew from 14 tests to 32, all passing under
    pan or zoom puts the generation up. The error thus held for the rest of the
    session. `patchSection` now invalidates, which covers every action that
    writes section state.
+5. The C2 text above first said that `.dc-header` reads `--dc-inv-zoom`, and
+   that `position: absolute` is what makes it safe. Neither half was true. The
+   reader is `.dc-sectionhead`, and the `transform` is what makes it safe.
 
 ## Not doing
 

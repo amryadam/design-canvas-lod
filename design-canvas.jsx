@@ -177,12 +177,13 @@ function dcMarkMoving() {
 const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 0, io: null };
 
 // A slot's box inside the world does not move when the world pans or zooms.
-// The world carries transform-origin 0 0. Only .dc-sectionhead reads
-// --dc-inv-zoom now, and it reads it through a transform, which never
-// reflows. The world layout is thus the same at every zoom. Each entry
-// therefore holds its world box and the generation it was measured in, and
-// one pass turns the held boxes into screen space with one rect read of the
-// world itself.
+// The world carries transform-origin 0 0. No reader of --dc-inv-zoom reflows
+// the world. .dc-sectionhead reads it through a transform, and a transform
+// never reflows. The flow layer in canvas-page.jsx reads it too, but that
+// layer is an absolute overlay of zero box, so its own layout moves nothing.
+// The world layout is thus the same at every zoom. Each entry therefore holds
+// its world box and the generation it was measured in, and one pass turns the
+// held boxes into screen space with one rect read of the world itself.
 // Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
 // slightly wrong ranking until the next real one, never a wrong render.
 function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
@@ -651,9 +652,11 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
-  // Only .dc-sectionhead reads --dc-inv-zoom now, and it reads it through a
-  // transform, which never reflows. The world's layout is thus the same at
-  // every zoom, and this write cannot move a card.
+  // No reader of --dc-inv-zoom reflows the world. .dc-sectionhead reads it
+  // through a transform, and a transform never reflows. The flow layer in
+  // canvas-page.jsx reads it inside an absolute overlay of zero box. The
+  // world's layout is thus the same at every zoom, and this write cannot move
+  // a card.
   // It used to. The world padding, the section gaps and the .dc-sectionhead
   // zoom were all in screen units, so the settled write re-laid out the world
   // and stepped the content by 33 px for one wheel notch. A slow wheel roll
