@@ -924,27 +924,34 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   // dcSize reads these props only, together with the variant the section chose.
   // One mark for each slot thus says when to build its size again. `byId` is a
   // fresh object in each render and cannot be a dependency; the marks can.
-  const sizeMark = (k) => {
-    const q = byId[k].props;
-    return JSON.stringify([q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]);
-  };
-  const marks = order.map((k) => k + '\x00' + sizeMark(k)).join('\x1f');
+  // The mark is a tuple, and two marks are compared by identity, one field at a
+  // time. A string of the same fields costs a JSON.stringify for each slot in
+  // each render, and the render runs on every keystroke in a title.
+  const sizeMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
+  const sameMark = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   // One size object for each slot. A slot keeps the same object until its own
   // mark changes. Without the cache, a variant switch on one slot would give a
   // new size object to every slot. Each frame would then fail its shallow
   // compare and render again, which is what the memo has to stop.
   const sizeCache = React.useRef(new Map());
-  const sizes = React.useMemo(() => {
-    const cache = sizeCache.current, out = {};
-    order.forEach((k) => {
-      const mark = sizeMark(k), hit = cache.get(k);
-      out[k] = hit && hit.mark === mark ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
-      cache.set(k, { mark, size: out[k] });
-    });
-    // A removed slot must not hold its size in the cache for the life of the page.
-    for (const k of [...cache.keys()]) if (!(k in out)) cache.delete(k);
-    return out;
-  }, [marks]);
+  // Rebuilt in every render; each slot keeps its object while its mark holds.
+  const sizes = {};
+  order.forEach((k) => {
+    const cache = sizeCache.current, mark = sizeMark(k), hit = cache.get(k);
+    sizes[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
+    cache.set(k, { mark, size: sizes[k] });
+  });
+  // A removed slot must not hold its size in the cache for the life of the page.
+  for (const k of [...sizeCache.current.keys()]) if (!(k in sizes)) sizeCache.current.delete(k);
+  // One set for the whole section, not one scan of the arrows for each slot.
+  const arrowsMovedSet = React.useMemo(() => {
+    const s = new Set();
+    Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
+    return s;
+  }, [sec.arrows]);
+  // The box depends on the sizes, but `sizes` is a new object in each render.
+  // This key changes only when a slot's box changes.
+  const marksKey = order.map((k) => k + ':' + sizes[k].width + 'x' + sizes[k].height).join('|');
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -975,7 +982,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       span(p, p.w || (n.props && n.props.width) || 320, DC.noteReserveH);
     });
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
-  }, [placed, notePositions, order.join('|'), rest.length, sizes]);
+  }, [placed, notePositions, order.join('|'), rest.length, marksKey]);
 
   // One stable object of actions. Each action takes the slot id. Without it,
   // each slot would get eight new closures in each render, and the memo on the
@@ -1014,7 +1021,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
             position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
-            arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
+            arrowsMoved={arrowsMovedSet.has(k)}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>
