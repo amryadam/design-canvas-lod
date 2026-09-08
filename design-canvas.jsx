@@ -125,6 +125,9 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
 
 const DCCtx = React.createContext(null);
+// True only in an iframe. The host messages go out to window.parent, so a
+// canvas opened on its own must post nothing: it would talk to itself.
+const dcEmbedded = typeof window !== 'undefined' && window.parent !== window;
 // Shared "is the world moving" flag. Two sources set it: a pan or a zoom arms
 // dcMarkMoving, which clears itself after DC.movingMs; a card drag holds
 // dcDragDepth for the length of the gesture. dcMoving() reads both.
@@ -546,13 +549,22 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // world again — 0.4 ms at 10 slots, 1.1 ms at 40, in every frame of a pinch.
   const invT = React.useRef(0);
   const lastInv = React.useRef(null);
-  const writeInv = React.useCallback(() => {
+  // The settle callback. It writes the variable, and it tells the host the
+  // zoom. Both run once per settled gesture, not once per frame. The zoom post
+  // is separate from the variable write: __dc_probe drops the posted scale
+  // alone, and the next settle must then post although the variable holds.
+  const onSettle = React.useCallback(() => {
     invT.current = 0;
-    const el = worldRef.current; if (!el) return;
+    const el = worldRef.current;
     const inv = 1 / tf.current.scale;
-    if (lastInv.current === inv) return;
-    lastInv.current = inv;
-    el.style.setProperty('--dc-inv-zoom', String(inv));
+    if (el && lastInv.current !== inv) {
+      lastInv.current = inv;
+      el.style.setProperty('--dc-inv-zoom', String(inv));
+    }
+    if (dcEmbedded && lastPostedScale.current !== tf.current.scale) {
+      lastPostedScale.current = tf.current.scale;
+      window.parent.postMessage({ type: '__dc_zoom', scale: tf.current.scale }, '*');
+    }
   }, []);
 
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
@@ -562,13 +574,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     // First paint writes at once, so the chrome is never wrong before a gesture.
-    if (lastInv.current === null) writeInv();
-    else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
+    if (lastInv.current === null) onSettle();
+    else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
     dcSetZoom(scale);
-    if (lastPostedScale.current !== scale) {
-      lastPostedScale.current = scale;
-      window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
-    }
     dcMarkMoving();
     // With the pill up, test the cached content box with arithmetic only.
     if (lostRef.current && lostBox.current) {
@@ -580,7 +588,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey, checkLost, writeInv]);
+  }, [tfKey, checkLost, onSettle]);
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
@@ -745,12 +753,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
         const r = vp.getBoundingClientRect();
         zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
       } else if (d && d.type === '__dc_probe') {
-        window.parent.postMessage({ type: '__dc_present' }, '*');
+        if (dcEmbedded) window.parent.postMessage({ type: '__dc_present' }, '*');
+        // apply arms the settle callback, which posts the zoom again.
         lastPostedScale.current = undefined; apply(true);
       }
     };
     window.addEventListener('message', onHostMsg);
-    window.parent.postMessage({ type: '__dc_present' }, '*');
+    if (dcEmbedded) window.parent.postMessage({ type: '__dc_present' }, '*');
     lastPostedScale.current = undefined; apply(true);
 
     vp.addEventListener('wheel', onWheel, { passive: false });

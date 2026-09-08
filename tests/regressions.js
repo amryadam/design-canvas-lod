@@ -445,6 +445,20 @@ window.canvasTestsDone = (async () => {
     check(reads === 0, reads + ' rect reads during 10 frames with the pill up');
     check(host.querySelector('.dc-backto'), 'the pill went away while still off content');
   });
+  await test('a top-level canvas posts no zoom to the host', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const posts = [];
+    const onMsg = (e) => { if (e.data && e.data.type === '__dc_zoom') posts.push(e.data.scale); };
+    window.addEventListener('message', onMsg);
+    try {
+      draw('review-zoompost.json', E(DCSection, { id: 'review', title: 'Zoom' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+      await until(() => host.querySelector('[data-dc-slot]')); await wait(DC.rescueMs + 200);
+      const vp = host.querySelector('.design-canvas');
+      for (let i = 0; i < 6; i++) vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -60, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+      await wait(DC.settleMs + 250);
+      check(posts.length === 0, posts.length + ' __dc_zoom posts from a canvas that is not embedded');
+    } finally { window.removeEventListener('message', onMsg); }
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
