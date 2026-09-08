@@ -42,18 +42,41 @@ screens are placeholders.
   page's saved layout (localStorage key `dc-state:…`) to see the new one.
 - `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with
   `flows`, and an `index.html` that runs the canvas on them.
+- `perf/bench.js` — the measurement harness. The app never loads it. Open the
+  sample, then paste the full file into the DevTools console and run
+  `await dcBench.all()`. It reports frame times through a pinch, the number of
+  `--dc-inv-zoom` writes in a gesture, the live iframe count at five zoom
+  levels, the arrow re-route cost, and the render count for one state patch.
+  **`all()` writes to saved state.** It drags a card and it clicks variant
+  chips, and the canvas keeps both. To undo, delete the page's `dc-state:`
+  entry from localStorage and reload.
 
 ## How the level of detail works
 
-Nothing to run and no files to add. A slot is a live iframe while it is one of
-the `DC.liveBudget` (8) slots nearest the middle of the view and within
-`margin` px of it. Every other slot shows a striped placeholder with its name.
+Nothing to run and no files to add. A slot is a live iframe while two
+conditions are true: it is one of the `DC.liveBudget` (8) slots nearest to the
+middle of the view, and it is inside `margin` px of the view. All other slots
+show a striped placeholder with the name of the screen. Zoom has no part in the
+decision.
 
-One registry serves every slot: a single pass runs `DC.settleMs` after the last
-zoom or pan tick, ranks the slots by distance from the centre of the view, and
-mounts at most one iframe per pass so a burst does not jank one frame. A live
-slot counts as `DC.budgetHysteresis` px nearer than it is, so the slot in last
-place does not flip on and off while you pan.
+One registry serves all the slots. A single pass runs `DC.settleMs` after the
+last zoom or pan tick. The pass puts the slots in order of their distance from
+the middle of the view. It mounts a maximum of one iframe in each pass, because
+two mounts in one frame make that frame long. A live slot counts as
+`DC.budgetHysteresis` px nearer than it is. The slot in last place thus stays
+stable while you pan.
+
+Two conditions are outside the budget:
+
+- The focus overlay is always a live iframe. It uses the `eager` flag on
+  `DCLazyFrame`, and the budget does not apply to it. One focused screen can
+  thus make `DC.liveBudget + 1` iframes live.
+- The registry stops while the world moves. A pan, a zoom or a card drag holds
+  the canvas in its moving state, and no slot mounts or drops until the world
+  stops. A long drag thus keeps the iframes that were live when it started.
+
+`DC.renders` counts the artboard frames that React rendered. Only `perf/bench.js`
+reads it.
 
 ## Saved state
 
