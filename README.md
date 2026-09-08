@@ -100,12 +100,13 @@ Then open `http://localhost:8000/sample/`.
 
 ## Run the regression checks
 
-With the same server running, open
-`http://localhost:8000/tests/regressions.html`. The page reports each result and
-sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
-sample. The checks exercise real React lifecycles, connector DOM updates, the
-live iframe budget, and export pixels. Fetch responses are controlled, to
-reproduce the loading and asset cases.
+Run `node tests/run.mjs` to run the suite in headless Chrome. It prints one
+line per check and exits 1 on a failure. A hidden browser tab pauses
+`requestAnimationFrame`, so two checks fail there; the runner keeps the page
+visible. The suite uses the same React/Babel CDN scripts as the sample. The
+checks exercise real React lifecycles, connector DOM updates, the live iframe
+budget, and export pixels. Fetch responses are controlled, to reproduce the
+loading and asset cases.
 
 ## Use in claude.ai/design
 
