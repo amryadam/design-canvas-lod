@@ -561,10 +561,22 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
   // patchSection keeps one identity for the life of the canvas, so the per-slot
   // callbacks built on it survive a state change. Only `state` and `section`
   // move, and only the components that read them re-render.
-  const patchSection = React.useCallback((id, p) => setState((s) => ({
-    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
-    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
-  })), []);
+  // A section patch can also move a slot, so the held world boxes go stale
+  // here. A variant changes a card's width and height, and every sibling to
+  // its right in the flex row shifts. A reset position sends a freely placed
+  // card back to its authored spot. The world keeps its own border box in both
+  // cases, because it is as wide as its widest row and as tall as its tallest
+  // card. The ResizeObserver on the world thus does not fire, and no other
+  // path recovers the boxes: a pan or a zoom keeps the same world element and
+  // puts no generation up. One call here covers every patch, which a call in
+  // each action of dcActions would not: the next action added would miss it.
+  const patchSection = React.useCallback((id, p) => {
+    dcLodInvalidate();
+    setState((s) => ({
+      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    }));
+  }, []);
   const api = React.useMemo(() => ({
     state,
     section: (id) => state.sections[id] || {},

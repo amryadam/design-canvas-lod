@@ -103,6 +103,13 @@ The regression suite grew from 14 tests to 32, all passing under
 3. This plan and another session rewrote `dcLodRun` at the same time. The
    designs combined: main's viewport-box ranking and visible-first sort were
    kept, with the slot rect sourced from the held box.
+4. The first cut of the held boxes invalidated on five events, and a section
+   state patch was not one of them. A size chip changes a card's width inside a
+   flex row, and every sibling to its right moves. The world keeps its own
+   border box while that happens, so its `ResizeObserver` does not fire, and no
+   pan or zoom puts the generation up. The error thus held for the rest of the
+   session. `patchSection` now invalidates, which covers every action that
+   writes section state.
 
 ## Not doing
 

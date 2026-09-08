@@ -303,6 +303,61 @@ window.canvasTestsDone = (async () => {
       world.style.transform = before; clearTimeout(dcLod.timer);
     }
   });
+  await test('a variant size change re-measures the held boxes', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // A restored view, so the first fit leaves the scale at 1 and the row
+    // below keeps the sizes this check counts on.
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    // dcActions.size patches sec.variant. The slot then changes width, and
+    // every sibling to its right in the flex row moves. Nothing on that path
+    // measures the world again unless the patch itself invalidates.
+    // Two sections make the hole visible. The second holds one very wide card,
+    // so it and not the row under test sets the world's width. Every card is
+    // the same height, so the row height and the world height never change.
+    // The world thus keeps its own border box through the patch, its
+    // ResizeObserver stays silent, and no pan or zoom puts the generation up.
+    const count = DC.liveBudget + 6;
+    const boards = [];
+    // b0 starts wide. The thin variant pulls every card to its right back by
+    // 2340 px, from outside the mount margin to inside the viewport.
+    boards.push(E(DCArtboard, { key: 'b0', id: 'b0', width: 2400, height: 40,
+      variants: [{ file: 'b0-fat', w: 2400, h: 40, primary: true }, { file: 'b0-thin', w: 60, h: 40 }] },
+      E(DCLazyFrame, { src: 'about:blank', title: 'b0', width: 60, height: 40 })));
+    for (let i = 1; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 60, height: 40 },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 60, height: 40 })));
+    }
+    draw('review-variant.json', [
+      E(Probe, { key: 'p' }),
+      E(DCSection, { key: 'r', id: 'review', title: 'Variant', gap: 20 }, boards),
+      E(DCSection, { key: 'w', id: 'wide', title: 'Wide' }, E(DCArtboard, { id: 'w0', width: 8000, height: 40 })),
+    ], { style: { position: 'fixed', top: 0, left: 0, width: 900, height: 700 } });
+    await until(() => api && host.querySelectorAll('[data-dc-slot]').length === count + 1);
+    // The first fit and its DC.rescueMs nudge both arm the moving flag, and a
+    // pass refuses to run while it is set.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    check(dcLod.subs.size === count, 'the fixture registered ' + dcLod.subs.size + ' slots, not ' + count);
+    // Manual pump to the fixed point, per this file's convention: no sleep
+    // stands in for a real assertion, and dcLod.subs is read directly rather
+    // than the DOM, which a React commit can still lag behind.
+    const settle = () => { for (let i = 0; i < count + 2; i++) dcLodRun(); };
+    const live = () => [...dcLod.subs].filter((s) => s.live).length;
+    settle();
+    check(live() === 1, 'fixture: ' + live() + ' slots were live before the patch, not 1');
+    const world = host.querySelector('[data-dc-world]');
+    const box0 = world.getBoundingClientRect();
+    api.patchSection('review', (x) => dcMapPatch(x, 'variant', 'b0', 'b0-thin'));
+    const b0 = host.querySelector('[data-dc-slot="b0"]');
+    await until(() => b0.getBoundingClientRect().width < 200);
+    const box1 = world.getBoundingClientRect();
+    check(Math.abs(box1.width - box0.width) < 0.5 && Math.abs(box1.height - box0.height) < 0.5,
+      'fixture: the world resized, so its ResizeObserver would have invalidated on its own');
+    await until(() => !dcMoving());
+    settle();
+    check(live() === DC.liveBudget,
+      'the row moved and ' + live() + ' of ' + DC.liveBudget + ' slots went live; the held boxes were never dropped');
+  });
   await test('the settled --dc-inv-zoom write holds the zoom anchor', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     // A viewport of a known size, so the anchor is the slot below its middle

@@ -91,9 +91,12 @@ single rect read of the world element. This is safe because only
 `.dc-sectionhead` reads `--dc-inv-zoom`, and it reads it through a transform,
 which never reflows the world's layout.
 
-A held box goes stale when a slot mounts, a slot unmounts, a card drag ends,
-a reorder commits, the world resizes, or the camera changes. The camera is
-the world element the held boxes are relative to. `DCViewport` gives the
+A held box goes stale when a slot mounts, a slot unmounts, a section patch
+lands, a card drag ends, a reorder commits, the world resizes, or the camera
+changes. The section patch covers the size chips and Reset position. Both move
+cards inside a row, and the world keeps its own border box while they do, so
+nothing else on that path would notice. The camera is the world element the
+held boxes are relative to. `DCViewport` gives the
 camera back when it unmounts, so the registry never ranks against a dead one.
 A slot the camera's world does not contain — another canvas's slot, or any
 slot while no camera is set — is measured from the DOM every pass instead of
