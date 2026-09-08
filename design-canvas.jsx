@@ -125,6 +125,13 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
 
 const DCCtx = React.createContext(null);
+// True only in an iframe. The host messages go out to window.parent, so a
+// canvas opened on its own must post nothing: it would talk to itself.
+// DC.embedded is a test hook. It holds no value in the app, and a boolean in it
+// wins, so a check can drive the embedded path from a top-level page.
+const dcEmbedded = () => (typeof DC.embedded === 'boolean'
+  ? DC.embedded
+  : (typeof window !== 'undefined' && window.parent !== window));
 // Shared "is the world moving" flag. Two sources set it: a pan or a zoom arms
 // dcMarkMoving, which clears itself after DC.movingMs; a card drag holds
 // dcDragDepth for the length of the gesture. dcMoving() reads both.
@@ -221,16 +228,28 @@ function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
+// The poll is a safety net for the moves that no observer reports. It forces
+// layout twice a second, so it must not run in a hidden tab. It also must not
+// run when no slot is left.
+function dcLodPoll(on) {
+  clearInterval(dcLod.poll); dcLod.poll = 0;
+  if (on) dcLod.poll = setInterval(dcLodRun, 500);
+}
+function dcLodVisibility() { dcLodPoll(!document.hidden && dcLod.subs.size > 0); dcLodSchedule(); }
 function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
-    dcLod.poll = setInterval(dcLodRun, 500);
-    document.addEventListener('visibilitychange', dcLodSchedule);
-    if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
+    dcLodPoll(!document.hidden);
+    document.addEventListener('visibilitychange', dcLodVisibility);
+    dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
   return () => {
-    dcLod.subs.delete(entry); dcLod.io.unobserve(entry.box);
-    if (!dcLod.subs.size) { clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
+    dcLod.subs.delete(entry); dcLod.io && dcLod.io.unobserve(entry.box);
+    if (!dcLod.subs.size) {
+      dcLodPoll(false); clearTimeout(dcLod.timer);
+      document.removeEventListener('visibilitychange', dcLodVisibility);
+      dcLod.io && dcLod.io.disconnect(); dcLod.io = null;
+    }
   };
 }
 
@@ -501,6 +520,12 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
   const lostT = React.useRef(0);
+  // One world-space box for each content element, and the viewport size in px.
+  // checkLost caches both. flushNow then tests the boxes with arithmetic only.
+  // One box around all the content is not enough: with two sections apart, that
+  // box covers the gap between them, and the pill would hide in the gap.
+  const lostBoxes = React.useRef(null);
+  const vpSize = React.useRef({ w: 0, h: 0 });
   const tween = React.useRef(0);
 
   // What counts as content: the section (its header too), every slot and every
@@ -509,17 +534,26 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // reading its rect would lay out a skipped subtree.
   const boxes = (vp) => vp.querySelectorAll('[data-dc-section], [data-dc-slot], [data-dc-note]');
 
-  // A few rects, read on settle — and, while the pill is up, on every flushed
-  // frame, so panning back onto the pages hides it at once instead of 150 ms on.
+  // A few rects, read on settle only. The pass also caches the world-space box
+  // of the content. flushNow tests that box with arithmetic in each frame, so
+  // panning back onto the pages hides the pill at once and reads no rect.
   const checkLost = React.useCallback(() => {
     const vp = vpRef.current; if (!vp) return;
     const els = boxes(vp);
     let next = els.length > 0;
-    const r = vp.getBoundingClientRect();
+    const r = vp.getBoundingClientRect(), s = tf.current.scale;
+    vpSize.current = { w: r.width, h: r.height };
+    const world = [];
     for (const el of els) {
       const b = el.getBoundingClientRect();
       if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { next = false; break; }
+      // World-space box of this element, for the per-frame test in flushNow.
+      world.push({
+        x0: (b.left - r.left - tf.current.x) / s, y0: (b.top - r.top - tf.current.y) / s,
+        x1: (b.right - r.left - tf.current.x) / s, y1: (b.bottom - r.top - tf.current.y) / s,
+      });
     }
+    lostBoxes.current = next ? world : null;
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
@@ -536,13 +570,22 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // world again — 0.4 ms at 10 slots, 1.1 ms at 40, in every frame of a pinch.
   const invT = React.useRef(0);
   const lastInv = React.useRef(null);
-  const writeInv = React.useCallback(() => {
+  // The settle callback. It writes the variable, and it tells the host the
+  // zoom. Both run once per settled gesture, not once per frame. The zoom post
+  // is separate from the variable write: __dc_probe drops the posted scale
+  // alone, and the next settle must then post although the variable holds.
+  const onSettle = React.useCallback(() => {
     invT.current = 0;
-    const el = worldRef.current; if (!el) return;
+    const el = worldRef.current;
     const inv = 1 / tf.current.scale;
-    if (lastInv.current === inv) return;
-    lastInv.current = inv;
-    el.style.setProperty('--dc-inv-zoom', String(inv));
+    if (el && lastInv.current !== inv) {
+      lastInv.current = inv;
+      el.style.setProperty('--dc-inv-zoom', String(inv));
+    }
+    if (dcEmbedded() && lastPostedScale.current !== tf.current.scale) {
+      lastPostedScale.current = tf.current.scale;
+      window.parent.postMessage({ type: '__dc_zoom', scale: tf.current.scale }, '*');
+    }
   }, []);
 
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
@@ -552,20 +595,23 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     // First paint writes at once, so the chrome is never wrong before a gesture.
-    if (lastInv.current === null) writeInv();
-    else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
+    if (lastInv.current === null) onSettle();
+    else { clearTimeout(invT.current); invT.current = setTimeout(onSettle, DC.settleMs); }
     dcSetZoom(scale);
-    if (lastPostedScale.current !== scale) {
-      lastPostedScale.current = scale;
-      window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
-    }
     dcMarkMoving();
-    if (lostRef.current) checkLost();
+    // With the pill up, test the cached content boxes with arithmetic only.
+    // The count is small: the sections, the slots and the notes.
+    if (lostRef.current && lostBoxes.current) {
+      const v = vpSize.current;
+      const onScreen = lostBoxes.current.some((b) => b.x1 * scale + x > 0 && b.x0 * scale + x < v.w
+        && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h);
+      if (onScreen) { lostRef.current = false; lostBoxes.current = null; setLost(false); }
+    }
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey, checkLost, writeInv]);
+  }, [tfKey, checkLost, onSettle]);
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
@@ -730,12 +776,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
         const r = vp.getBoundingClientRect();
         zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
       } else if (d && d.type === '__dc_probe') {
-        window.parent.postMessage({ type: '__dc_present' }, '*');
+        if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
+        // apply arms the settle callback, which posts the zoom again.
         lastPostedScale.current = undefined; apply(true);
       }
     };
     window.addEventListener('message', onHostMsg);
-    window.parent.postMessage({ type: '__dc_present' }, '*');
+    if (dcEmbedded()) window.parent.postMessage({ type: '__dc_present' }, '*');
     lastPostedScale.current = undefined; apply(true);
 
     vp.addEventListener('wheel', onWheel, { passive: false });
@@ -888,27 +935,34 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   // dcSize reads these props only, together with the variant the section chose.
   // One mark for each slot thus says when to build its size again. `byId` is a
   // fresh object in each render and cannot be a dependency; the marks can.
-  const sizeMark = (k) => {
-    const q = byId[k].props;
-    return JSON.stringify([q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]);
-  };
-  const marks = order.map((k) => k + '\x00' + sizeMark(k)).join('\x1f');
+  // The mark is a tuple, and two marks are compared by identity, one field at a
+  // time. A string of the same fields costs a JSON.stringify for each slot in
+  // each render, and the render runs on every keystroke in a title.
+  const sizeMark = (k) => { const q = byId[k].props; return [q.width, q.height, q.href, q.variants, (sec.variant || {})[k]]; };
+  const sameMark = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   // One size object for each slot. A slot keeps the same object until its own
   // mark changes. Without the cache, a variant switch on one slot would give a
   // new size object to every slot. Each frame would then fail its shallow
   // compare and render again, which is what the memo has to stop.
   const sizeCache = React.useRef(new Map());
-  const sizes = React.useMemo(() => {
-    const cache = sizeCache.current, out = {};
-    order.forEach((k) => {
-      const mark = sizeMark(k), hit = cache.get(k);
-      out[k] = hit && hit.mark === mark ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
-      cache.set(k, { mark, size: out[k] });
-    });
-    // A removed slot must not hold its size in the cache for the life of the page.
-    for (const k of [...cache.keys()]) if (!(k in out)) cache.delete(k);
-    return out;
-  }, [marks]);
+  // Rebuilt in every render; each slot keeps its object while its mark holds.
+  const sizes = {};
+  order.forEach((k) => {
+    const cache = sizeCache.current, mark = sizeMark(k), hit = cache.get(k);
+    sizes[k] = hit && sameMark(hit.mark, mark) ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
+    cache.set(k, { mark, size: sizes[k] });
+  });
+  // A removed slot must not hold its size in the cache for the life of the page.
+  for (const k of [...sizeCache.current.keys()]) if (!(k in sizes)) sizeCache.current.delete(k);
+  // One set for the whole section, not one scan of the arrows for each slot.
+  const arrowsMovedSet = React.useMemo(() => {
+    const s = new Set();
+    Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
+    return s;
+  }, [sec.arrows]);
+  // The box depends on the sizes, but `sizes` is a new object in each render.
+  // This key changes only when a slot's box changes.
+  const marksKey = order.map((k) => k + ':' + sizes[k].width + 'x' + sizes[k].height).join('|');
   // Persisted moves override the authored positions.
   const placed = React.useMemo(() => (positions ? { ...positions, ...(sec.positions || {}) } : null), [positions, sec.positions]);
   // In free mode every note is placed too; one without a position sits at the origin.
@@ -939,7 +993,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       span(p, p.w || (n.props && n.props.width) || 320, DC.noteReserveH);
     });
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
-  }, [placed, notePositions, order.join('|'), rest.length, sizes]);
+  }, [placed, notePositions, order.join('|'), rest.length, marksKey]);
 
   // One stable object of actions. Each action takes the slot id. Without it,
   // each slot would get eight new closures in each render, and the memo on the
@@ -978,7 +1032,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
             position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
-            arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
+            arrowsMoved={arrowsMovedSet.has(k)}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>

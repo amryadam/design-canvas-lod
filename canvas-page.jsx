@@ -279,6 +279,12 @@ function CanvasFlows({ flows: authored, section }) {
   const ctx = React.useContext(DCCtx);
   const arrows = (ctx && section && ctx.section(section).arrows) || null;
   const flows = React.useMemo(() => (arrows ? authored.map((f) => ({ ...f, ...(arrows[cfFlowKey(f)] || {}) })) : authored), [authored, arrows]);
+  // The observers watch the world, not the flows. A new flow list must not
+  // rebuild them: it must only ask for a new measure. The effect below thus
+  // reads the flows through a ref, and a second effect calls its schedule.
+  const flowsRef = React.useRef(flows); flowsRef.current = flows;
+  const hasFlows = flows.length > 0;
+  const scheduleRef = React.useRef(null);
   const setSide = (p, which, side) => {
     if (!ctx || !section) return;
     ctx.patchSection(section, (x) => dcMapPatch(x, 'arrows', p.flowKey, { ...((x.arrows || {})[p.flowKey] || {}), [which]: side }));
@@ -310,11 +316,11 @@ function CanvasFlows({ flows: authored, section }) {
   }, []);
 
   React.useEffect(() => {
-    if (!world || !flows.length) { setPaths([]); setHover(null); return; }
+    if (!world || !hasFlows) { setPaths([]); setHover(null); return; }
     let raf = 0, timer = 0, off = false;
     const measure = () => {
       if (off) return;
-      const next = cfMeasure(world, flows);
+      const next = cfMeasure(world, flowsRef.current);
       setPaths((prev) => (prev.sig === next.sig ? prev : next));
     };
     // Slots animate their transform for 180ms; measure now and again after that.
@@ -323,6 +329,7 @@ function CanvasFlows({ flows: authored, section }) {
       raf = requestAnimationFrame(measure);
       timer = setTimeout(measure, 240);
     };
+    scheduleRef.current = schedule;
     schedule();
     const ro = new ResizeObserver(schedule);
     ro.observe(world);
@@ -344,10 +351,12 @@ function CanvasFlows({ flows: authored, section }) {
     mo.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
     window.addEventListener('resize', schedule);
     return () => {
-      off = true; cancelAnimationFrame(raf); clearTimeout(timer);
+      off = true; scheduleRef.current = null; cancelAnimationFrame(raf); clearTimeout(timer);
       ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', schedule);
     };
-  }, [world, flows]);
+  }, [world, hasFlows]);
+  // A changed flow list only asks the observers above for a new measure.
+  React.useEffect(() => { scheduleRef.current && scheduleRef.current(); }, [flows]);
 
   if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
   return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
@@ -432,11 +441,16 @@ function cpVariants(onPage) {
   return { primaryOf, axesOf };
 }
 
-function CanvasPage({ page, stateFile }) {
-  const [data, setData] = React.useState(null);
+// `data` is the canvas.json content. A host that already holds it passes it in
+// and the fetch is skipped; the sample passes nothing and the page reads the
+// file itself.
+function CanvasPage({ page, stateFile, data: given }) {
+  const [fetched, setFetched] = React.useState(null);
+  const data = given || fetched;
   React.useEffect(() => {
-    fetch('./canvas.json').then((r) => r.json()).then(setData).catch((e) => console.error('[canvas-page]', e));
-  }, []);
+    if (given) return;
+    fetch('./canvas.json').then((r) => r.json()).then(setFetched).catch((e) => console.error('[canvas-page]', e));
+  }, [given]);
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
   // Variants (see cpVariants) take no slot of their own; they join the
@@ -471,29 +485,37 @@ function CanvasPage({ page, stateFile }) {
       .filter((f) => f.from !== f.to)
       .filter((f) => { const k = cfFlowKey(f); if (seen.has(k)) return false; seen.add(k); return true; });
   }, [data, layout, page]);
+  // The notes and the slots are built once for each layout. A re-render of the
+  // page must not give the frames new elements: the props object of an element
+  // is what the frame memo compares, so new elements make every artboard
+  // render again.
+  const noteEls = React.useMemo(() => (layout ? layout.notes.map((n) => (
+    <DCPostIt key={n.id} id={n.id} width={layout.notePositions[n.id].w}>{n.text}</DCPostIt>
+  )) : null), [layout]);
+  const boardEls = React.useMemo(() => (layout ? layout.items.map((b) => {
+    const stem = b.file.split('/').pop().replace('.dc.html', '');
+    const label = layout.sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
+    return (
+      <DCArtboard key={b.file} id={b.file} label={label}
+        width={b.w} height={b.h} href={'./' + b.file} variants={layout.sizes[b.file]}>
+        {(s) => {
+          const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
+          return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
+        }}
+      </DCArtboard>
+    );
+  }) : null), [layout]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 
-  const { notes, items, positions, notePositions, sizes, variants } = layout;
+  const { items, positions, notePositions, variants } = layout;
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
   const subtitle = `${items.length} screens` + (variants ? ` · ${variants} variant${variants === 1 ? '' : 's'}` : '');
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
       <DCSection id={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
-        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={notePositions[n.id].w}>{n.text}</DCPostIt>)}
-        {items.map((b) => {
-          const stem = b.file.split('/').pop().replace('.dc.html', '');
-          const label = sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
-          return (
-            <DCArtboard key={b.file} id={b.file} label={label}
-              width={b.w} height={b.h} href={'./' + b.file} variants={sizes[b.file]}>
-              {(s) => {
-                const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
-                return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
-              }}
-            </DCArtboard>
-          );
-        })}
+        {noteEls}
+        {boardEls}
       </DCSection>
       <CanvasFlows flows={flows} section={page} />
     </DesignCanvas>
