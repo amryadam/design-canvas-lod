@@ -501,7 +501,7 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
 // The host also learns the zoom on settle. The post is separate from the
 // variable write: repost drops the posted scale alone, and the next settle
 // must then post although the variable holds.
-function useZoomSettle(worldRef, tf) {
+function dcUseZoomSettle(worldRef, tf) {
   const invT = React.useRef(0);
   const lastInv = React.useRef(null);
   const lastPostedScale = React.useRef();
@@ -533,7 +533,7 @@ function useZoomSettle(worldRef, tf) {
 // The Back to content pill. The hook owns the settle timer that measures the
 // content, the world boxes that the per-frame test reads, and the tween that
 // flies the view back.
-function useLostPill(vpRef, worldRef, tf, apply, { minScale, maxScale }) {
+function dcUseLostPill(vpRef, worldRef, tf, apply, { minScale, maxScale }) {
   // Back to content: shown once the view settles with no section on screen.
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
@@ -643,7 +643,7 @@ function useLostPill(vpRef, worldRef, tf, apply, { minScale, maxScale }) {
 
 // The input: the wheel, the trackpad gesture, the pointer drag and the
 // messages from a host page. Each one writes tf and calls apply.
-function useCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe }) {
+function dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe }) {
   React.useEffect(() => {
     const vp = vpRef.current; if (!vp) return;
     const zoomAt = (cx, cy, factor) => {
@@ -755,13 +755,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const restoredView = React.useRef(false);
   const fittedView = React.useRef(false);
   const hasContent = React.Children.toArray(children).length > 0;
-  const { armSettle, stopSettle, repost } = useZoomSettle(worldRef, tf);
+  const { armSettle, stopSettle, repost } = dcUseZoomSettle(worldRef, tf);
   // The pill flies the view back through apply, and apply is built from
   // flushNow below it. applyNow gives the hook the apply of the moment.
   const applyRef = React.useRef(null);
   const applyNow = React.useCallback((sync) => applyRef.current(sync), []);
   const { lost, schedule, onFrame, backToContent, stop, stopTween } =
-    useLostPill(vpRef, worldRef, tf, applyNow, { minScale, maxScale });
+    dcUseLostPill(vpRef, worldRef, tf, applyNow, { minScale, maxScale });
 
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
   const flushNow = React.useCallback(() => {
@@ -784,7 +784,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   applyRef.current = apply;
   // The host probe. apply arms the settle callback, which posts the zoom again.
   const onProbe = React.useCallback(() => { repost(); apply(true); }, [repost, apply]);
-  useCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe });
+  dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, onProbe });
 
   React.useLayoutEffect(() => {
     const flush = () => { clearTimeout(saveT.current); try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} };
