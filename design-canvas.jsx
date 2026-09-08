@@ -224,16 +224,28 @@ function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
 // entry is { box, vp, margin, live, set } — the slot element to measure, the
 // viewport it lives in, the px of screen space that lets it mount, whether it
 // is live now, and the setter that mounts or drops it.
+// The poll is a safety net for the moves that no observer reports. It forces
+// layout twice a second, so it must not run in a hidden tab. It also must not
+// run when no slot is left.
+function dcLodPoll(on) {
+  clearInterval(dcLod.poll); dcLod.poll = 0;
+  if (on) dcLod.poll = setInterval(dcLodRun, 500);
+}
+function dcLodVisibility() { dcLodPoll(!document.hidden && dcLod.subs.size > 0); dcLodSchedule(); }
 function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
-    dcLod.poll = setInterval(dcLodRun, 500);
-    document.addEventListener('visibilitychange', dcLodSchedule);
-    if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
+    dcLodPoll(!document.hidden);
+    document.addEventListener('visibilitychange', dcLodVisibility);
+    dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
   return () => {
-    dcLod.subs.delete(entry); dcLod.io.unobserve(entry.box);
-    if (!dcLod.subs.size) { clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
+    dcLod.subs.delete(entry); dcLod.io && dcLod.io.unobserve(entry.box);
+    if (!dcLod.subs.size) {
+      dcLodPoll(false); clearTimeout(dcLod.timer);
+      document.removeEventListener('visibilitychange', dcLodVisibility);
+      dcLod.io && dcLod.io.disconnect(); dcLod.io = null;
+    }
   };
 }
 

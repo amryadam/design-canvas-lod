@@ -459,6 +459,25 @@ window.canvasTestsDone = (async () => {
       check(posts.length === 0, posts.length + ' __dc_zoom posts from a canvas that is not embedded');
     } finally { window.removeEventListener('message', onMsg); }
   });
+  await test('the LOD poll pauses when hidden and frees the observer', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw('review-lodpoll.json', E(DCSection, { id: 'review', title: 'Poll' },
+      E(DCArtboard, { id: 'a', width: 300, height: 200 }, E(DCLazyFrame, { src: 'about:blank', title: 'a', width: 300, height: 200 }))));
+    await until(() => dcLod.subs.size > 0);
+    check(dcLod.poll !== 0, 'the poll never started');
+    const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+    try {
+      Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      check(dcLod.poll === 0, 'the poll kept running in a hidden tab');
+    } finally { Object.defineProperty(Document.prototype, 'hidden', desc); }
+    document.dispatchEvent(new Event('visibilitychange'));
+    check(dcLod.poll !== 0, 'the poll did not restart when the tab came back');
+    root.unmount(); root = ReactDOM.createRoot(host);
+    await until(() => dcLod.subs.size === 0);
+    check(dcLod.poll === 0, 'the poll outlived the last slot');
+    check(dcLod.io === null, 'the observer outlived the last slot');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
