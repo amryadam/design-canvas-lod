@@ -17,6 +17,15 @@
    "description": "**Goal:** One pass reads one rect instead of one per slot, and the ranking it produces is identical.\n\nComplete \u2014 see ledger."
   },
   {
+   "id": 4,
+   "subject": "Task 2b: Merge main and re-integrate",
+   "status": "completed",
+   "blockedBy": [
+    1
+   ],
+   "description": "**Goal:** feature/lod-ranking contains main's viewport-box ranking AND this plan's held world boxes, in one dcLodRun that does both.\n\nComplete \u2014 see ledger."
+  },
+  {
    "id": 2,
    "subject": "Task 3: Keep a slot you just touched",
    "status": "pending",
@@ -35,5 +44,5 @@
    "description": "**Goal:** The README describes what the registry now does, and the design doc carries the before and after numbers \u2014 including a withdrawal if the numbers do not justify a change.\n\n**Files:**\n- Modify: `README.md` (the \"How the level of detail works\" section)\n- Modify: `docs/superpowers/specs/2026-09-08-lod-ranking-design.md` (add a \"Measured outcome\" section)\n\n**Acceptance Criteria:**\n- [ ] The README says a slot's world box is held and re-measured on invalidation, and lists the four places that invalidate.\n- [ ] The README describes `DC.stickyMs`.\n- [ ] The design doc has a \"Measured outcome\" section with the `lodPassCost` object from Task 1 Step 4 and from Task 2 Step 9, on the same machine.\n- [ ] If `msPerPass` did not improve, the section says so plainly. Do not report an improvement the numbers do not show.\n\n**Verify:** `git diff --stat HEAD~1` shows only `README.md` and the design doc, and `grep -c \"Measured outcome\" docs/superpowers/specs/2026-09-08-lod-ranking-design.md` -> `1`\n\n```json:metadata\n{\"files\": [\"README.md\", \"docs/superpowers/specs/2026-09-08-lod-ranking-design.md\"], \"verifyCommand\": \"grep -c 'Measured outcome' docs/superpowers/specs/2026-09-08-lod-ranking-design.md\", \"acceptanceCriteria\": [\"README describes the held world box and the four invalidation points\", \"README describes DC.stickyMs\", \"the design doc carries the before and after lodPassCost objects\", \"a non-improvement is reported plainly, not dressed up\"], \"modelTier\": \"mechanical\"}\n```"
   }
  ],
- "lastUpdated": "2026-09-08T16:28:17"
+ "lastUpdated": "2026-09-08T17:14:12"
 }
