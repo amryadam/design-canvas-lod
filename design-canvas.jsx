@@ -20,6 +20,9 @@ const DC = {
   dotSize: 26,          // fatoora's flow map: screen px, the same at every zoom
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
+  dropMs: 180,          // the slot reorder slide. The CSS transition on
+                        // [data-dc-slot] and the timer that commits the new
+                        // order both read it, so they cannot drift apart
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
@@ -55,7 +58,7 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   s.textContent = `
 .dc-editable{cursor:text;outline:none;white-space:nowrap;border-radius:3px;padding:0 2px;margin:0 -2px}
 .dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}
-[data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}
+[data-dc-slot]{transition:transform ${DC.dropMs}ms cubic-bezier(.2,.7,.3,1)}
 [data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}
 /* A page is a window: a header with the name and the page options, then the
    screen inset in the body. The chrome is world px, so it grows and shrinks
@@ -1217,13 +1220,13 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
         if (cancelled) { home(); return; }
         const finalSlot = liveOrder.indexOf(id);
         me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
-        // The slots slide for 180 ms, then the new order is committed. The
+        // The slots slide for DC.dropMs, then the new order is committed. The
         // timer is held, so an unmount in that window cannot patch the state.
         dropT.current = setTimeout(() => {
           dropT.current = 0;
           home();
           if (liveOrder.join('|') !== order.join('|')) actions.reorder(liveOrder);
-        }, 180);
+        }, DC.dropMs);
       },
     });
   };
