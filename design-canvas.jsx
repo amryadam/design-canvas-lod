@@ -77,7 +77,13 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 [data-dc-slot]:hover:not(.dc-dragging) .dc-win{transform:translateY(-3px);box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)}
 .dc-winhead{display:flex;align-items:center;gap:14px;padding:0 22px;cursor:grab;user-select:none;border-bottom:1px solid rgba(40,32,22,.07)}
 .dc-winhead:active{cursor:grabbing}
-.dc-dot{flex:0 0 12px;height:12px;border-radius:6px;background:#cfc9bf;transition:background .18s}
+/* No transition on the dot. It sits in the world layer, and a transition
+   there recalculates style and repaints the whole world on every one of its
+   frames. Each mount or drop then cost 20 full-world paints, and on a page
+   with live iframes the paint fell behind the frame: the cards and the arrows
+   went unpainted for a frame and the canvas flickered. "a mount or a drop
+   starts no transition in the world" in tests/regressions.js guards this. */
+.dc-dot{flex:0 0 12px;height:12px;border-radius:6px;background:#cfc9bf}
 [data-dc-slot]:has([data-dc-live="1"]) .dc-dot{background:#12a594}
 .dc-wintitle{flex:1 1 auto;min-width:0;display:flex;align-items:center;overflow:hidden}
 .dc-wintitle .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%;font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1e1b16;line-height:1.2}

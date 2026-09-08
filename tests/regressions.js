@@ -154,6 +154,37 @@ window.canvasTestsDone = (async () => {
     check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
   });
+  await test('a mount or a drop starts no transition in the world', async () => {
+    // A CSS transition on a node inside the world runs on the main thread:
+    // every frame of it recalculates style and repaints the whole world
+    // layer. On a 13-slot page with live iframes that repaint storm is what
+    // left the cards and the arrows unpainted for a frame after each mount
+    // or drop, which the user saw as the canvas flickering. The live dot
+    // used to fade in over 180 ms, so every mount and every drop cost 20
+    // full-world paints instead of one.
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 4;
+    const w = 300 - DC.winPad * 2, h = 200 - DC.winHead - DC.winPad * 2;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: w, height: h },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: w, height: h })));
+    }
+    draw('review-mount-anim.json', E(DCSection, { id: 'review', title: 'Mount' }, boards));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // Watch the whole fill: one slot mounts per DC.mountGapMs pass, so a
+    // transition started by any of them is running at one of these polls.
+    const world = host.querySelector('[data-dc-world]');
+    const seen = new Set();
+    for (let i = 0; i < 120 && host.querySelectorAll('.dc-card iframe').length < DC.liveBudget; i++) {
+      for (const a of document.getAnimations()) {
+        const target = a.effect && a.effect.target;
+        if (target && world.contains(target)) seen.add(a.constructor.name + ' on .' + [...target.classList].join('.') + ' (' + (a.transitionProperty || a.animationName || '?') + ')');
+      }
+      await wait(10);
+    }
+    check(seen.size === 0, 'a mount ran ' + [...seen].join(', ') + '; each frame of it repaints the whole world');
+  });
   await test('the settled pass ranks without measuring every slot', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     const count = DC.liveBudget + 4;
