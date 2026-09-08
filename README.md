@@ -1,8 +1,8 @@
 # design-canvas-lod
 
-Pan/zoom canvas page for a claude.ai/design project, with level of detail:
-the screens nearest the middle of the view are live iframes, the rest are
-placeholders.
+Pan/zoom canvas page for a claude.ai/design project, with level of detail.
+The screens nearest to the middle of the view are live iframes. All other
+screens are placeholders.
 
 - `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view).
   The viewport draws the background dots itself — fatoora's flow map
@@ -80,8 +80,9 @@ Then open `http://localhost:8000/sample/`.
 With the same server running, open
 `http://localhost:8000/tests/regressions.html`. The page reports each result and
 sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
-sample. The checks exercise real React lifecycles, connector DOM updates, and
-export pixels, with controlled fetch responses for loading and asset cases.
+sample. The checks exercise real React lifecycles, connector DOM updates, the
+live iframe budget, and export pixels. Fetch responses are controlled, to
+reproduce the loading and asset cases.
 
 ## Use in claude.ai/design
 

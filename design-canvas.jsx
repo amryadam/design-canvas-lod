@@ -1,10 +1,12 @@
 // design-canvas.jsx — pan/zoom canvas: sections, artboards (reorder / rename /
 // delete / focus), post-its. Ported from the fatoora project with performance
 // work for heavy artboards (full-page iframes):
-//   • DCLazyFrame mounts an iframe only when its slot is near the viewport AND
-//     one of the DC.liveBudget slots nearest the viewport centre; nearness is
-//     necessary but the budget decides — the rest show a placeholder, so
-//     everything on screen at 5 % zoom does not mount at once
+//   • DCLazyFrame mounts an iframe for a slot that obeys two conditions. The
+//     slot must be near the viewport. The slot must also be one of the
+//     DC.liveBudget slots nearest to the viewport centre. Nearness is
+//     necessary, but the budget makes the decision. All other slots show a
+//     placeholder. At 5 % zoom the full page is on screen, but only
+//     DC.liveBudget iframes mount
 //   • pan/zoom writes are rAF-coalesced; iframes lose pointer events while moving
 //   • zoom-anchor lookup (elementFromPoint) is throttled to one per frame
 //   • cards use CSS containment; persistence writes are debounced
@@ -18,12 +20,13 @@ const DC = {
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
-  budgetHysteresis: 400, // px a live slot counts as nearer, so the last place does not flip
+  budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
-  settleMs: 150,        // wait after the last zoom/pan change before the LOD pass runs,
-                        // the --dc-inv-zoom CSS var is written, and the lost-pill check
-                        // runs — raising it also delays when iframes mount
-  mountGapMs: 60,       // gap between two iframe mounts, so they don't jank one frame
+  settleMs: 150,        // wait after the last zoom or pan change. Three things then
+                        // occur: the LOD pass runs, the --dc-inv-zoom variable is
+                        // written, and the lost-pill check runs. A larger value
+                        // also delays the mount of an iframe
+  mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -134,12 +137,13 @@ function dcSlotDistance(r) {
   return Math.hypot(dx, dy);
 }
 
-// One pass over every slot. The nearest DC.liveBudget slots that are within
-// their margin go live; everything else drops to its placeholder. A live slot
-// counts as DC.budgetHysteresis px nearer than it is, so a slot on the last
-// place does not flip on every pass. Mounting an iframe is the one expensive
-// step (a whole document parses and lays out), so at most one slot mounts per
-// pass and the rest wait a beat; dropping is cheap and is not rationed.
+// One pass over every slot. The DC.liveBudget slots that are nearest to the
+// viewport centre, and are inside their margin, become live. All other slots
+// show their placeholder. A live slot counts as DC.budgetHysteresis px nearer
+// than it is. The slot in last place thus stays stable from pass to pass.
+// The mount of an iframe is the one expensive step, because a full document
+// parses and lays out. Only one slot mounts in each pass. The other slots wait
+// for the next pass. A drop is cheap, and it has no such limit.
 function dcLodRun() {
   // A pan or a pinch changes the ranking in each frame, and a drop removes a
   // full iframe. Do not measure the slots during the gesture. Wait until the
@@ -470,12 +474,13 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
-  // Zoom-dependent chrome (header sizes, section gaps, world padding) reads
-  // --dc-inv-zoom. It is an inherited custom property, so writing it makes
-  // Chrome recalculate style for the whole world — 0.4 ms at 10 slots, 1.1 ms
-  // at 40, on every frame of a pinch. It is written once the gesture settles
-  // instead: during the gesture the world is one composited transform, and the
-  // chrome scales with it for a beat before it snaps back to screen size.
+  // The header sizes, the section gaps and the world padding read
+  // --dc-inv-zoom. It is an inherited custom property. Each write thus makes
+  // Chrome calculate the style of the full world again. That cost is 0.4 ms at
+  // 10 slots and 1.1 ms at 40 slots, in each frame of a pinch. The variable is
+  // written when the gesture settles. During the gesture the world is one
+  // composited transform, and the headers scale with it. They go back to their
+  // screen size when the gesture stops.
   const invT = React.useRef(0);
   const lastInv = React.useRef(null);
   const writeInv = React.useCallback(() => {
@@ -846,9 +851,9 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
   }, [placed, notePositions, order.join('|'), rest.length, sizes]);
 
-  // One stable object of actions, keyed by slot id, instead of eight fresh
-  // closures per slot per render. Without this React.memo on the frame can
-  // never hit: every prop would be a new function on every state change.
+  // One stable object of actions. Each action takes the slot id. Without it,
+  // each slot would get eight new closures in each render, and the memo on the
+  // frame could never hit.
   const patchSection = ctx && ctx.patchSection, setFocus = ctx && ctx.setFocus;
   const actions = React.useMemo(() => ({
     size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
@@ -893,16 +898,16 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x - freeBox.origin.x, top: noteAt(n).y - freeBox.origin.y }}>{n}</div>
         ))}
         {order.map((k) => (
-          // byId[k] itself is a new element every render: React.Children.toArray
-          // re-keys by cloning, so the element identity churns even though its
-          // props do not. Passing the element would defeat the memo for every
-          // slot; the props object holds still instead.
+          // byId[k] is a new element in each render, because
+          // React.Children.toArray makes a clone to add its key. The identity
+          // of the element thus changes, but its props do not. The element
+          // would fail the memo for each slot. Send the props object, which
+          // does not change.
           <DCArtboardFrame key={k} sectionId={sid} artboardProps={byId[k].props} order={order}
             size={sizes[k]} actions={actions}
-            // freeBox.origin is a fresh object every recompute (any position
-            // patch remakes it), so an object prop here would fail the shallow
-            // compare for every slot and defeat the memo. Two numbers hold
-            // still instead.
+            // freeBox.origin is a new object after each position patch. As an
+            // object prop it would fail the shallow compare for each slot, and
+            // thus the memo. Two numbers do not change in the same way.
             position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
             arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
@@ -915,13 +920,15 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
 function DCArtboard() { return null; }
 
 // Lazy frame with two levels of detail:
-//   live  — a real iframe. Mounted while the slot is one of the DC.liveBudget
-//           slots nearest the viewport centre and within `margin` px of it;
-//           dropped once it falls out of the budget or past DC.unmountMargin.
-//   placeholder — the striped card, for every slot that is not live.
-// `eager` forces a live iframe regardless (focus overlay). The registry runs
-// one pass for every slot at once, DC.settleMs after the last zoom or pan tick,
-// so a pinch does not thrash iframes.
+//   live  — a real iframe. It mounts while the slot is one of the
+//           DC.liveBudget slots nearest to the viewport centre, and is inside
+//           `margin` px of it. It drops when the slot leaves the budget, or
+//           goes more than DC.unmountMargin px away.
+//   placeholder — the striped card. Each slot that is not live shows it.
+// `eager` makes the iframe live at all times. The focus overlay uses it, and
+// the budget does not apply to it. The registry does one pass for all slots
+// together, DC.settleMs after the last zoom or pan tick. A pinch thus does not
+// mount and drop iframes many times.
 function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href }) {
   const ref = React.useRef(null);
   const [live, setLive] = React.useState(eager);
@@ -993,6 +1000,9 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
 function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
+  // perf/bench.js reads this counter to find how many frames one state patch
+  // renders. A render-phase increment is the only way to count renders, so it
+  // stays in the body.
   DC.renders++;
   const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
@@ -1111,8 +1121,8 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     </div>
   );
 }
-// Every prop the frame takes now holds still through a state change that did
-// not touch this slot, so the default shallow compare is enough.
+// Each prop of the frame keeps its identity through a state change that did
+// not touch this slot. The default shallow compare is thus sufficient.
 DCArtboardFrame = React.memo(DCArtboardFrame);
 
 function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
