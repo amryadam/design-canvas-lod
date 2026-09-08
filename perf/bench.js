@@ -168,6 +168,9 @@
 
   // Milliseconds for one full re-route of every arrow.
   const flowCost = async (n = 20) => {
+    // canvas-page.jsx publishes the router. Without that name there is no
+    // route to time, and the call below throws a type error instead.
+    if (typeof window.cfMeasure !== 'function') throw new Error('window.cfMeasure is not patchable');
     const flows = await pageFlows();
     const fn = window.__cfOrig || window.cfMeasure;
     const w = world();
