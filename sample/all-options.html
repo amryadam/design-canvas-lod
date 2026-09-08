@@ -25,6 +25,9 @@
   }));
 </script>
 <script type="text/babel" src="../design-canvas.jsx"></script>
+<!-- The arrows are a page-file feature: canvas-page.jsx gives the ⋯ menu the
+     "Reset arrow sides" row through the DCSection slotMenu prop. -->
+<script type="text/babel" src="../canvas-page.jsx"></script>
 <script type="text/babel">
   // One page, three axes. Each variant points at a real file in this folder,
   // so the frame shows a screen whatever the chips choose.
@@ -37,11 +40,11 @@
   ];
   ReactDOM.createRoot(document.getElementById('root')).render(
     <DesignCanvas stateFile=".design-canvas.all-options.state.json">
-      <DCSection id="demo" title="Every option" subtitle="one window · three axes · every menu row">
+      <CanvasPageSection section="demo" title="Every option" subtitle="one window · three axes · every menu row">
         <DCArtboard id="Invoices" label="04 Invoices · every option" variants={V}>
           {(cur, size) => <DCLazyFrame src={size.href} title="Invoices" width={size.width} height={size.height} href={size.href} />}
         </DCArtboard>
-      </DCSection>
+      </CanvasPageSection>
     </DesignCanvas>
   );
 </script>

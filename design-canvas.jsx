@@ -681,7 +681,10 @@ function dcUseCanvasGestures(vpRef, tf, apply, stopTween, { minScale, maxScale, 
 
     let drag = null;
     const onPointerDown = (e) => {
-      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, .dc-flows, .dc-backto');
+      // [data-dc-ignore-pan] is the contract for a layer the page adds over the
+      // world (canvas-page.jsx sets it on the arrows). The engine knows the
+      // attribute, not the layer.
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable, [data-dc-ignore-pan], .dc-backto');
       if (!(e.button === 1 || (e.button === 0 && onBg))) return;
       e.preventDefault();
       stopTween();
@@ -918,17 +921,6 @@ function dcActions(patchSection, sid, srcKey) {
     resetPosition: (k) => patchSection && patchSection(sid, (x) => {
       const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
     }),
-    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
-      // Only the end that meets this page: the far page keeps its side.
-      const n = {};
-      Object.entries(x.arrows || {}).forEach(([key, o]) => {
-        const { from, to } = dcFlowKeyParts(key), r = { ...o };
-        if (from === k) delete r.fs;
-        if (to === k) delete r.ts;
-        if (Object.keys(r).length) n[key] = r;
-      });
-      return { arrows: n };
-    }),
     remove: (k) => patchSection && patchSection(sid, (x) => ({
       hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
     })),
@@ -966,7 +958,10 @@ function dcResolveSlots(ids, persisted) {
   return { srcKey, hidden, srcIds, slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))] };
 }
 
-function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions }) {
+// `slotMenu(slotId, sec)` gives the page a say in each window's ⋯ menu. It
+// returns [{ label, onClick, danger }], or nothing for a slot with no extra
+// row. canvas-page.jsx adds "Reset arrow sides" through it.
+function DCSection({ id, title, subtitle, children, gap = 48, positions, notePositions, slotMenu }) {
   const ctx = React.useContext(DCCtx);
   const sid = id ?? title;
   const all = React.Children.toArray(dcFlatten(children));
@@ -1003,12 +998,15 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
   });
   // A removed slot must not hold its variant in the cache for the life of the page.
   for (const k of [...variantCache.current.keys()]) if (!(k in variantOf)) variantCache.current.delete(k);
-  // One set for the whole section, not one scan of the arrows for each slot.
-  const arrowsMovedSet = React.useMemo(() => {
-    const s = new Set();
-    Object.entries(sec.arrows || {}).forEach(([key, o]) => { const { from, to } = dcFlowKeyParts(key); if (o.fs) s.add(from); if (o.ts) s.add(to); });
-    return s;
-  }, [sec.arrows]);
+  // The extra ⋯ menu rows the page adds, one list for each slot that has any.
+  // The rows are new objects, so a slot with no rows must stay at undefined:
+  // the frame's shallow compare then holds for every slot the page did not
+  // touch. One pass for the whole section, not one call for each frame.
+  const slotMenuRows = React.useMemo(() => {
+    const out = {};
+    if (slotMenu) order.forEach((k) => { const rows = slotMenu(k, sec); if (rows && rows.length) out[k] = rows; });
+    return out;
+  }, [slotMenu, sec, order]);
   // The box depends on the resolved variants, but `variantOf` is a new object in
   // each render. This key changes only when a slot's box changes.
   const marksKey = order.map((k) => k + ':' + variantOf[k].width + 'x' + variantOf[k].height).join('|');
@@ -1081,7 +1079,7 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
             // object prop it would fail the shallow compare for each slot, and
             // thus the memo. Two numbers do not change in the same way.
             position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
-            arrowsMoved={arrowsMovedSet.has(k)}
+            menuRows={slotMenuRows[k]}
             label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>
@@ -1172,18 +1170,13 @@ function dcDragSession(e, me, { move, up, keepMoving }) {
   return onCancel;
 }
 
-// Flow identity shared with canvas-page.jsx (CanvasFlows): the endpoints and the
-// label, joined with DC_KEY_SEP. Arrow-side overrides in the section state are
-// keyed by it.
-const dcFlowKey = (f) => [f.from, f.to, f.label || ''].join(DC_KEY_SEP);
-const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP); return { from, to, label }; };
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
 // Export file name: the label, or the id, with path and shell separators
 // replaced. \p{L}\p{N} keeps Arabic and every other script.
 const dcExportName = (label, id) => String(label || id || 'artboard').replace(/[^\p{L}\p{N}\s.-]+/gu, '_');
-function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
+function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, menuRows }) {
   // perf/bench.js reads this counter to find how many frames one state patch
   // renders. A render-phase increment is the only way to count renders, so it
   // stays in the body.
@@ -1310,7 +1303,10 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
                   <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
                     {href && <button onClick={() => { setMenuOpen(false); window.open(href, '_blank'); }}>Open screen</button>}
                     {moved && <button onClick={() => { setMenuOpen(false); actions.resetPosition(id); }}>Reset position</button>}
-                    {arrowsMoved && <button onClick={() => { setMenuOpen(false); actions.resetArrows(id); }}>Reset arrow sides</button>}
+                    {(menuRows || []).map((r) => (
+                      <button key={r.label} className={r.danger ? 'dc-danger' : undefined}
+                        onClick={() => { setMenuOpen(false); r.onClick(); }}>{r.label}</button>
+                    ))}
                     {href && <button onClick={() => { setMenuOpen(false); save('png'); }}>Download PNG</button>}
                     {href && <button onClick={() => { setMenuOpen(false); save('html'); }}>Download HTML</button>}
                     {href && <hr />}
@@ -1367,9 +1363,9 @@ Object.assign(window, {
   // Host pages (sample/index.html, sample/all-options.html) and the fixtures
   // in tests/regressions.js build a canvas from these components.
   DesignCanvas, DCSection, DCArtboard, DCPostIt, DCLazyFrame, DCCtx,
-  // canvas-page.jsx drags the arrow ends with dcDragSession, keys the arrow
-  // state with dcFlowKey and patches it with dcMapPatch.
-  dcDragSession, dcFlowKey, dcMapPatch,
+  // canvas-page.jsx drags the arrow ends with dcDragSession and patches the
+  // section state with dcMapPatch.
+  dcDragSession, dcMapPatch,
   // tests/regressions.js reads dcMoving to check the moving flag, and
   // dcExportName to check the export file name.
   dcMoving, dcExportName,

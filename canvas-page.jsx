@@ -204,11 +204,43 @@ function cfPlaceLabels(paths) {
   }
 }
 
-// A flow's identity for saved overrides: endpoints and label, not its index
-// (dcFlowKey, design-canvas.jsx, so the engine can read the key back).
-// design-canvas.jsx may still be evaluating when this file runs (the two are
-// imported in parallel), so look the helper up lazily.
-const cfFlowKey = (...a) => window.dcFlowKey(...a);
+// A flow's identity for saved overrides: the endpoints and the label, not the
+// index. This file owns the key, because the engine knows nothing about flows.
+// The separator is a control character: no file name and no label holds one.
+// Saved state holds these keys, so the character must not change.
+const CF_KEY_SEP = '\x1f';
+const cfFlowKey = (f) => [f.from, f.to, f.label || ''].join(CF_KEY_SEP);
+const cfFlowKeyParts = (key) => { const [from, to, label] = key.split(CF_KEY_SEP); return { from, to, label }; };
+
+// ---- The page's rows in the window menu ---------------------------------------
+// A drag moves one end of an arrow to another side of a page. The override is
+// saved in the section state (sec.arrows), so the page offers a row that puts
+// the ends of that page back. The engine only carries the rows (DCSection
+// slotMenu); it does not know what a flow is.
+
+// Does any arrow end that was moved meet slot `k`?
+const cfArrowsMoved = (sec, k) => Object.entries((sec && sec.arrows) || {})
+  .some(([key, o]) => { const { from, to } = cfFlowKeyParts(key); return (o.fs && from === k) || (o.ts && to === k); });
+
+// Drop the moved sides that meet slot `k`. Only the end that meets this page:
+// the far page keeps its side.
+const cfResetArrows = (patchSection, sid, k) => patchSection && patchSection(sid, (x) => {
+  const n = {};
+  Object.entries(x.arrows || {}).forEach(([key, o]) => {
+    const { from, to } = cfFlowKeyParts(key), r = { ...o };
+    if (from === k) delete r.fs;
+    if (to === k) delete r.ts;
+    if (Object.keys(r).length) n[key] = r;
+  });
+  return { arrows: n };
+});
+
+// The rows this page gives to each window's menu. A slot with nothing to reset
+// gets no row, so its frame keeps the same props and does not render again.
+const cfSlotMenu = (patchSection, sid) => (k, sec) => (cfArrowsMoved(sec, k)
+  ? [{ label: 'Reset arrow sides', onClick: () => cfResetArrows(patchSection, sid, k) }]
+  : null);
+
 // Side of `box` nearest to world point p, measured to the side as a segment
 // (not the whole edge line), so a pointer above a narrow page reads as top.
 function cfNearestSide(box, p) {
@@ -366,7 +398,7 @@ function CanvasFlows({ flows: authored, section }) {
 
   if (!world || !paths.length) return <span ref={probe} data-dc-flows-probe hidden />;
   return <>{<span ref={probe} data-dc-flows-probe hidden />}{ReactDOM.createPortal(
-    <div className="dc-flows" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
+    <div className="dc-flows" data-dc-ignore-pan="" style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 5 }}>
       <svg width="1" height="1" style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
         {paths.map((p, i) => {
           const on = hover === i, dim = hover != null && !on;
@@ -447,6 +479,19 @@ function cpVariants(onPage) {
   return { primaryOf, axesOf };
 }
 
+// The section, with the rows this page adds to each window's menu. The rows
+// need ctx.patchSection, and that context is inside DesignCanvas, so a thin
+// component reads it there. Give it the section id as `section`; every other
+// prop goes to DCSection.
+const CanvasPageSection = ({ section, ...rest }) => {
+  const ctx = React.useContext(DCCtx);
+  const patchSection = ctx && ctx.patchSection;
+  // One identity for the life of the canvas. DCSection caches the rows against
+  // it, so a page re-render must not give it a new callback.
+  const slotMenu = React.useMemo(() => cfSlotMenu(patchSection, section), [patchSection, section]);
+  return <DCSection id={section} slotMenu={slotMenu} {...rest} />;
+};
+
 // `data` is the canvas.json content. A host that already holds it passes it in
 // and the fetch is skipped; the sample passes nothing and the page reads the
 // file itself.
@@ -519,10 +564,10 @@ function CanvasPage({ page, stateFile, data: given }) {
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
-      <DCSection id={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
+      <CanvasPageSection section={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
         {noteEls}
         {boardEls}
-      </DCSection>
+      </CanvasPageSection>
       <CanvasFlows flows={flows} section={page} />
     </DesignCanvas>
   );
@@ -531,10 +576,12 @@ function CanvasPage({ page, stateFile, data: given }) {
 // The names a host page or a tool needs. Each name says which file reads it.
 window.CanvasPage = CanvasPage;        // sample/index.html, tests/regressions.js
 window.CanvasFlows = CanvasFlows;      // tests/regressions.js flow fixtures
+window.CanvasPageSection = CanvasPageSection; // sample/all-options.html
 window.cfRoute = cfRoute;              // tests/regressions.js router check
 window.cfCurve = cfCurve;              // tests/regressions.js router check
 window.cfHits = cfHits;                // tests/regressions.js router check
 window.CF = CF;                        // tests/regressions.js reads CF.remeasureMs
+window.cfFlowKey = cfFlowKey;          // tests/regressions.js keys an arrow override
 // perf/bench.js measures the arrow re-route through this name, and patches it
 // to count the calls one drag makes. The measure effect above calls it through
 // the same global binding, so the patch is seen.

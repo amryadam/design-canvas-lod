@@ -577,6 +577,34 @@ window.canvasTestsDone = (async () => {
     bump(); await wait(DC.settleMs);
     check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
   });
+  await test('the page menu resets a moved arrow side', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const flow = { page: 'p1', from: 'A.dc.html', to: 'B.dc.html', fs: 'r', ts: 'l', label: 'go' };
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [flow],
+    };
+    // The state a handle drag writes: the source end of this flow was moved to
+    // the bottom side of page A.
+    const fk = cfFlowKey(flow);
+    localStorage.setItem(key('review-arrows.json'),
+      JSON.stringify({ sections: { p1: { arrows: { [fk]: { fs: 'b' } } } }, updatedAt: 20 }));
+    root.render(E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-arrows.json' }));
+    await until(() => host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab'));
+    const kebab = host.querySelector('[data-dc-slot="A.dc.html"] .dc-kebab');
+    const row = () => [...host.querySelectorAll('[data-dc-slot="A.dc.html"] .dc-menu button')].find((b) => b.textContent === 'Reset arrow sides');
+    kebab.click(); await wait(30);
+    check(!!row(), 'the moved page offers no reset row');
+    row().click(); await wait(DC.saveDebounceMs + 60);
+    const saved = JSON.parse(localStorage.getItem(key('review-arrows.json')));
+    check(!((saved.sections.p1.arrows || {})[fk] || {}).fs, 'the moved side is still saved');
+    kebab.click(); await wait(30);
+    check(!row(), 'the reset row is still offered');
+  });
   await test('dcView holds the scale the world and the drag use', async () => {
     const { at } = await dragFixture('review-viewscale.json');
     const world = host.querySelector('[data-dc-world]');
