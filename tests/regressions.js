@@ -495,6 +495,29 @@ window.canvasTestsDone = (async () => {
       check(built === 0, built + ' flow observers built again for a label change');
     } finally { window.MutationObserver = Real; }
   });
+  await test('a CanvasPage re-render keeps the artboard elements', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const fixture = {
+      pages: [{ id: 'p1', name: 'Page one' }],
+      artboards: [
+        { page: 'p1', file: 'A.dc.html', title: 'A', x: 0, y: 0, w: 300, h: 200 },
+        { page: 'p1', file: 'B.dc.html', title: 'B', x: 600, y: 0, w: 300, h: 200 },
+      ],
+      annotations: [], flows: [],
+    };
+    let bump = null;
+    function Wrap() {
+      const [, setN] = React.useState(0);
+      bump = () => setN((v) => v + 1);
+      return E(CanvasPage, { page: 'p1', data: fixture, stateFile: 'review-canvaspage.json' });
+    }
+    root.render(E(Wrap));
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === 2);
+    await wait(DC.rescueMs + 400);
+    const before = DC.renders;
+    bump(); await wait(150);
+    check(DC.renders === before, (DC.renders - before) + ' artboard frames rendered again for the same data');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

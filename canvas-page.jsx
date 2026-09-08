@@ -441,11 +441,16 @@ function cpVariants(onPage) {
   return { primaryOf, axesOf };
 }
 
-function CanvasPage({ page, stateFile }) {
-  const [data, setData] = React.useState(null);
+// `data` is the canvas.json content. A host that already holds it passes it in
+// and the fetch is skipped; the sample passes nothing and the page reads the
+// file itself.
+function CanvasPage({ page, stateFile, data: given }) {
+  const [fetched, setFetched] = React.useState(null);
+  const data = given || fetched;
   React.useEffect(() => {
-    fetch('./canvas.json').then((r) => r.json()).then(setData).catch((e) => console.error('[canvas-page]', e));
-  }, []);
+    if (given) return;
+    fetch('./canvas.json').then((r) => r.json()).then(setFetched).catch((e) => console.error('[canvas-page]', e));
+  }, [given]);
   // One free canvas per page: every artboard and note sits at its canvas.json
   // x/y, relative to the page's top-left corner (notes can sit above y = 0).
   // Variants (see cpVariants) take no slot of their own; they join the
@@ -480,29 +485,37 @@ function CanvasPage({ page, stateFile }) {
       .filter((f) => f.from !== f.to)
       .filter((f) => { const k = cfFlowKey(f); if (seen.has(k)) return false; seen.add(k); return true; });
   }, [data, layout, page]);
+  // The notes and the slots are built once for each layout. A re-render of the
+  // page must not give the frames new elements: the props object of an element
+  // is what the frame memo compares, so new elements make every artboard
+  // render again.
+  const noteEls = React.useMemo(() => (layout ? layout.notes.map((n) => (
+    <DCPostIt key={n.id} id={n.id} width={layout.notePositions[n.id].w}>{n.text}</DCPostIt>
+  )) : null), [layout]);
+  const boardEls = React.useMemo(() => (layout ? layout.items.map((b) => {
+    const stem = b.file.split('/').pop().replace('.dc.html', '');
+    const label = layout.sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
+    return (
+      <DCArtboard key={b.file} id={b.file} label={label}
+        width={b.w} height={b.h} href={'./' + b.file} variants={layout.sizes[b.file]}>
+        {(s) => {
+          const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
+          return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
+        }}
+      </DCArtboard>
+    );
+  }) : null), [layout]);
   if (!data) return <div style={{ height: '100vh', background: '#f0eee9' }} />;
 
-  const { notes, items, positions, notePositions, sizes, variants } = layout;
+  const { items, positions, notePositions, variants } = layout;
   const pageName = (data.pages.find((p) => p.id === page) || {}).name || page;
   const subtitle = `${items.length} screens` + (variants ? ` · ${variants} variant${variants === 1 ? '' : 's'}` : '');
 
   return (
     <DesignCanvas stateFile={stateFile || `.design-canvas.${page}.state.json`}>
       <DCSection id={page} title={pageName} subtitle={subtitle} positions={positions} notePositions={notePositions}>
-        {notes.map((n) => <DCPostIt key={n.id} id={n.id} width={notePositions[n.id].w}>{n.text}</DCPostIt>)}
-        {items.map((b) => {
-          const stem = b.file.split('/').pop().replace('.dc.html', '');
-          const label = sizes[b.file] ? cpStripSize(b.title || stem) : (b.title || stem);
-          return (
-            <DCArtboard key={b.file} id={b.file} label={label}
-              width={b.w} height={b.h} href={'./' + b.file} variants={sizes[b.file]}>
-              {(s) => {
-                const file = s ? s.file : b.file, w = s ? s.w : b.w, h = s ? s.h : b.h;
-                return <DCLazyFrame key={file} src={'./' + file} href={file} title={(s && s.title) || b.title || file} width={w} height={h} />;
-              }}
-            </DCArtboard>
-          );
-        })}
+        {noteEls}
+        {boardEls}
       </DCSection>
       <CanvasFlows flows={flows} section={page} />
     </DesignCanvas>
