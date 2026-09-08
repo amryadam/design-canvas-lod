@@ -102,11 +102,14 @@ A slot the camera's world does not contain — another canvas's slot, or any
 slot while no camera is set — is measured from the DOM every pass instead of
 held.
 
-The touch mark: a pointer down on a slot keeps its place in the budget for
-`DC.stickyMs` (4 s), so a card you drag, rename or open the ⋯ menu on does not
-drop while you work on it. The mark biases the distance only. It never
-outranks a visible slot, because a slot that has left the screen must still
-give its place up. A pointer down inside a live iframe never reaches the
+The touch mark: a pointer down on a slot, and the pointer up that ends the
+gesture, each keep its place in the budget for `DC.stickyMs` (4 s), so a card
+you drag, rename or open the ⋯ menu on does not drop while you work on it. The
+second mark is what makes a long drag keep its place. No pass runs while a drag
+holds the canvas moving, so the mark is first read at the drop, and a drag
+longer than 4 s would arrive there stale. The mark biases the distance only. It
+never outranks a visible slot, because a slot that has left the screen must
+still give its place up. A pointer down inside a live iframe never reaches the
 page, so the mark covers the grip, the header and the ⋯ menu only.
 
 One condition is outside the budget:

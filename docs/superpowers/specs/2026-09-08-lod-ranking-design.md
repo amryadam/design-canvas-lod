@@ -73,9 +73,12 @@ whatever it reads.
 4000 in its ranking. We have no equivalent. Drag a card to the edge of the view
 and it can leave the budget while you are still working on it.
 
-**Decision:** a slot that had a pointer down in the last `DC.stickyMs` sorts
-first. It wins the budget, not the margin: a slot more than `DC.unmountMargin`
-px away still drops.
+**Decision:** a slot that had a pointer down or a pointer up in the last
+`DC.stickyMs` sorts first. It wins the budget, not the margin: a slot more than
+`DC.unmountMargin` px away still drops. The pointer up matters as much as the
+pointer down. No pass runs while a drag holds the registry moving, so the mark
+is first read at the drop, and a drag longer than `DC.stickyMs` would reach
+that moment with a stale mark.
 
 ## Measured outcome
 

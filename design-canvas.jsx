@@ -23,8 +23,10 @@ const DC = {
   liveBudget: 8,        // most live iframes at once; the nearest to the centre win
   budgetHysteresis: 400, // px a live slot counts as nearer; it keeps the last place stable
   stickyMs: 4000,       // a slot keeps its place in the budget this long after a
-                        // pointer goes down on it, so a card you are working on
-                        // does not drop under you
+                        // pointer goes down on it or comes up on it, so a card
+                        // you are working on does not drop under you. The
+                        // pointer up is what makes a drag longer than this
+                        // window keep its place: no pass runs during a drag
   stickyBias: 1e6,      // px a touched slot counts as nearer. It outranks every
                         // real distance, but it never outranks a visible slot:
                         // the visible sort runs first, and that rule exists to
@@ -184,10 +186,18 @@ const dcLod = { scale: 1, world: null, gen: 0, subs: new Set(), timer: 0, poll: 
 // Call dcLodInvalidate whenever the DOM moves a slot. A missed call costs a
 // slightly wrong ranking until the next real one, never a wrong render.
 function dcLodInvalidate() { dcLod.gen++; dcLodSchedule(); }
-// A pointer down anywhere in a slot marks it. The mark wins the budget for
-// DC.stickyMs, so a card you drag, rename or open the ⋯ menu on does not drop
-// while you work on it. It does not win the margin, and it does not win against
-// a visible slot: a slot that has left the screen must still give its place up.
+// A pointer down anywhere in a slot marks it, and the pointer up marks it
+// again. The mark wins the budget for DC.stickyMs, so a card you drag, rename
+// or open the ⋯ menu on does not drop while you work on it. It does not win
+// the margin, and it does not win against a visible slot: a slot that has left
+// the screen must still give its place up.
+// The second mark is what makes the window start at the end of the gesture. A
+// drag holds the registry moving for its whole length, so no pass reads the
+// mark until the drop. A drag longer than DC.stickyMs would then find a stale
+// mark, at the one moment the mark is for. The drag holds the pointer capture,
+// so the pointer up reaches the dragged slot even outside it. A drag that the
+// browser cancels gets no second mark. That is safe: a cancelled drag commits
+// no move, so the card keeps the place it already had.
 // Capture phase, because the slot header stops propagation on its own pointer
 // down. A pointer down inside a live iframe never reaches this document, so the
 // mark covers the parent-side gestures only. The mark needs no clean-up: the
@@ -324,6 +334,7 @@ function dcLodSubscribe(entry) {
     dcLod.poll = setInterval(dcLodRun, 500);
     document.addEventListener('visibilitychange', dcLodSchedule);
     document.addEventListener('pointerdown', dcTouch, true);
+    document.addEventListener('pointerup', dcTouch, true);
     if (!dcLod.io) dcLod.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
   dcLod.subs.add(entry); dcLod.io.observe(entry.box);
@@ -334,6 +345,7 @@ function dcLodSubscribe(entry) {
     if (!dcLod.subs.size) {
       clearInterval(dcLod.poll); clearTimeout(dcLod.timer); document.removeEventListener('visibilitychange', dcLodSchedule);
       document.removeEventListener('pointerdown', dcTouch, true);
+      document.removeEventListener('pointerup', dcTouch, true);
     }
   };
 }
