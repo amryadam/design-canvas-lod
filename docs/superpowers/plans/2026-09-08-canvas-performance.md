@@ -437,16 +437,38 @@ Fill the table below in with the numbers you got. Later tasks compare against **
 
 #### Baseline (fill in — reference numbers from the profiling run in brackets)
 
-| Measure | This machine | Reference |
-|---|---|---|
-| `zoomFrameCost.transformOnly` | | 0.01 ms |
-| `zoomFrameCost.withInvZoom` | | 0.33–0.42 ms |
-| `invWrites.invWrites` | | 90 |
-| `zoomFrames.median` / `over16` | | 8.3 ms / 0 (thumbs) |
-| `liveByZoom` at 0.05 | | 0 live (snapshots) |
-| `flowCost.msPerCall` | | 0.51 ms |
-| `dragFlowCost.cfCalls` / `cfMs` | | 44 / ~22 ms |
-| `patchCost.variantSwitchMs` / `controlMs` | | 6.7 ms / 2.0 ms |
+Taken on 2026-09-08 at base `e8e871c`, worktree served on :8020, viewport
+1066 x 666, DPR 3, ~144 Hz display (6.9 ms frame budget), no CPU throttling,
+regression suite 11/11 PASS.
+
+| Measure | This machine | Reference | Verdict |
+|---|---|---|---|
+| `zoomFrameCost.transformOnly` | **0.01 ms** | 0.01 ms | matches |
+| `zoomFrameCost.withInvZoom` | **0.31 ms** (0.22 of it from an unread property) | 0.33–0.42 ms | matches |
+| `invWrites.invWrites` | **90** of 90 ticks | 90 | matches |
+| `zoomFrames.median` / `over16` | **6.9 ms / 0** (max 8.6, 0 live, 10 on screen) | 8.3 ms / 0 | matches |
+| `liveByZoom` at 0.05 | **0 live**, 10 on screen | 0 live | matches |
+| `flowCost.msPerCall` | **0.8 ms** | 0.51 ms | same order |
+| `dragFlowCost.cfCalls` / `cfMs` | **2 calls / 2.3 ms** | 44 / ~22 ms | **contradicts — see below** |
+| `patchCost.variantSwitchMs` / `controlMs` | **6.5 / 7.2 ms** — both one frame | 6.7 / 2.0 ms | **harness cannot resolve it — see below** |
+
+**`dragFlowCost` contradicts the spec.** The spec's finding F4 claimed ~1.1
+re-routes per drag frame. That was inferred from the MutationObserver batch
+count, never measured. Measured directly: a 40-frame drag fires **44 observer
+batches but only 2 `cfMeasure` calls**, costing 4 ms in total. `schedule()`
+cancels the pending `requestAnimationFrame` and pushes the 240 ms timer on
+every mutation, so a continuous drag coalesces to one measure when it pauses
+and one after the drop. The existing debounce already does what Task 6 was
+going to add.
+
+**`patchCost` measures the wrong thing.** It times from click to the next
+`requestAnimationFrame`, which quantises to the frame period: control and
+variant both read 6.8 ms, and 20 back-to-back clicks of each gave an identical
+6.81 ms per click with zero long tasks. Measured without a frame wait, forcing
+layout inside the timing window, a variant switch costs **1.0 ms** against a
+control of **0.01 ms**. So F3's 4.7 ms was frame-quantisation noise; the real
+cost of one `patchSection` is about 1 ms at 10 slots. Any Task 5 acceptance
+criterion must use `framesRenderedPerPatch`, not `variantSwitchMs`.
 
 - [ ] **Step 6: Commit**
 
@@ -522,14 +544,33 @@ Then add `writeInv` to the `flushNow` dependency array, which becomes:
 
 - [ ] **Step 3: Clear the timer on unmount**
 
-In the `useLayoutEffect` cleanup that already clears `fit`, `rescue` and `lostT` (search for `clearTimeout(rescue)`), add `invT`:
+`DCViewport` has two layout effects. The first one restores the saved view and
+owns the mount-lifetime teardown; the second runs the first fit and re-runs
+whenever `hasContent`, `apply`, `minScale` or `maxScale` change. `invT` is a
+mount-lifetime timer, so it goes in the **first** one, beside `lostT` and
+`tween` — not in the fit effect, which would cancel a pending settle write
+every time those deps changed.
+
+Find this cleanup (it is the one that removes the `pagehide` listener):
 
 ```jsx
     return () => {
-      clearTimeout(fit); clearTimeout(rescue); clearTimeout(lostT.current); clearTimeout(invT.current);
+      clearTimeout(lostT.current);
       if (tween.current) cancelAnimationFrame(tween.current);
       window.removeEventListener('pagehide', flush); flush();
     };
+  }, []);
+```
+
+and add the one line:
+
+```jsx
+    return () => {
+      clearTimeout(lostT.current); clearTimeout(invT.current);
+      if (tween.current) cancelAnimationFrame(tween.current);
+      window.removeEventListener('pagehide', flush); flush();
+    };
+  }, []);
 ```
 
 - [ ] **Step 4: Measure the writes**
@@ -626,20 +667,23 @@ Keep `dcBlobToDataUrl`, `dcFontCss`, `dcInlineDoc` and `dcExportArtboard`.
 const dcFontCache = new Map();
 ```
 
-and inside the function replace the three `dcSnap.fontCss` uses:
+and then change ONLY the two cache lines inside the function — the first line
+and the last. **Leave the body exactly as it is.** The `dev` merge rewrote it:
+the subset comment now attaches to the rule that FOLLOWS it, faces with no
+subset comment are kept, and the inlining is delegated to `dcInlineCss`. The
+regression check "Google Fonts preserves Arabic and final Latin face" asserts
+that behaviour, and the older `css.split('@font-face')` version fails it.
 
 ```js
 function dcFontCss(href) {
   if (!dcFontCache.has(href)) dcFontCache.set(href, (async () => {
     const css = await (await fetch(href)).text();
-    const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b)
-      .filter((b) => /\/\* (latin|arabic) \*\//.test(b));
-    const out = [];
-    for (const b of blocks) {
-      const m = b.match(/url\(([^)]+)\)/); if (!m) continue;
-      try { const d = await dcBlobToDataUrl(await (await fetch(m[1])).blob()); out.push(b.replace(m[1], d)); } catch {}
-    }
-    return out.join('\n');
+    // A subset comment belongs to the following rule, including the last face.
+    // Some responses have no subset comments; keep those faces as well.
+    const blocks = [...css.matchAll(/(?:\/\*\s*([^*]*?)\s*\*\/\s*)?@font-face\s*\{[^}]*\}/g)]
+      .filter((m) => !m[1] || /^(latin|arabic)$/.test(m[1].trim()))
+      .map((m) => m[0]);
+    return dcInlineCss(blocks.join('\n'), href);
   })().catch(() => ''));
   return dcFontCache.get(href);
 }
@@ -928,20 +972,24 @@ In `DesignCanvas`, replace the `api` memo:
     state,
     section: (id) => state.sections[id] || {},
     patchSection: (id, p) => setState((s) => ({
-      ...s, sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
     })),
     setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
   }), [state]);
 ```
 
-with:
+with this — **the `updatedAt` line is load-bearing**: it is the save revision
+that decides whether the browser copy or the state file wins on the next open,
+and three regression checks assert it advances. Carry it over unchanged:
 
 ```jsx
   // patchSection and setFocus keep one identity for the life of the canvas, so
   // the per-slot callbacks built on them survive a state change. Only `state`
   // and `section` move, and only the components that read them re-render.
   const patchSection = React.useCallback((id, p) => setState((s) => ({
-    ...s, sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
   })), []);
   const setFocus = React.useCallback((slotId) => setState((s) => ({ ...s, focus: slotId })), []);
   const api = React.useMemo(() => ({
@@ -1241,7 +1289,14 @@ with:
 
 - [ ] **Step 6: Clear the cache when the flows change**
 
-In the same effect's cleanup, add the reset:
+The effect early-returns when there are no flows, and that path runs no
+cleanup, so clear the cache there as well:
+
+```js
+    if (!world || !flows.length) { setPaths([]); setHover(null); lastPaths.current = null; return; }
+```
+
+Then, in the same effect's cleanup, add the reset:
 
 ```js
     return () => {

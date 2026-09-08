@@ -1,10 +1,11 @@
 # design-canvas-lod
 
 Pan/zoom canvas page for a claude.ai/design project, with level of detail:
-live iframes near 1:1 or in focus, snapshots when zoomed out.
+the screens nearest the middle of the view are live iframes, the rest are
+placeholders.
 
-- `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view,
-  snapshots). The viewport draws the background dots itself — fatoora's flow map
+- `design-canvas.jsx` — the canvas (sections, artboards, post-its, focus view).
+  The viewport draws the background dots itself — fatoora's flow map
   dot, 26 screen px apart, the same at every zoom — so they cover the canvas at
   any pan. Pan until no page is on screen and a "Back to
   content" pill appears; a click fits every page and note back into the viewport.
@@ -42,19 +43,17 @@ live iframes near 1:1 or in focus, snapshots when zoomed out.
 - `sample/` — one example page: 11 `.dc.html` artboards, a `canvas.json` with
   `flows`, and an `index.html` that runs the canvas on them.
 
-## How snapshots work
+## How the level of detail works
 
-Nothing to run and no files to add. The canvas makes them itself, in the browser:
+Nothing to run and no files to add. A slot is a live iframe while it is one of
+the `DC.liveBudget` (8) slots nearest the middle of the view and within
+`margin` px of it. Every other slot shows a striped placeholder with its name.
 
-1. Each artboard's `.dc.html` is fetched once, one at a time, in idle moments.
-2. Its same-origin images and Google Fonts are inlined, then the document is
-   rasterized through an SVG `foreignObject` onto a canvas as a 720 px WebP.
-3. The result is cached in IndexedDB, keyed by a hash of the file. A changed
-   artboard gets a new snapshot on the next open. A new artboard shows live
-   until its snapshot exists, usually within a second.
-
-Below 50 % zoom, or far from the viewport, a slot shows its snapshot.
-Live iframes mount only near 1:1 or in the focus view, one at a time.
+One registry serves every slot: a single pass runs `DC.settleMs` after the last
+zoom or pan tick, ranks the slots by distance from the centre of the view, and
+mounts at most one iframe per pass so a burst does not jank one frame. A live
+slot counts as `DC.budgetHysteresis` px nearer than it is, so the slot in last
+place does not flip on and off while you pan.
 
 ## Saved state
 
@@ -82,7 +81,7 @@ With the same server running, open
 `http://localhost:8000/tests/regressions.html`. The page reports each result and
 sets its title to PASS or FAIL. It uses the same React/Babel CDN scripts as the
 sample. The checks exercise real React lifecycles, connector DOM updates, and
-snapshot pixels, with controlled fetch responses for loading and asset cases.
+export pixels, with controlled fetch responses for loading and asset cases.
 
 ## Use in claude.ai/design
 

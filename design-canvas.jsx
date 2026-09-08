@@ -1,29 +1,29 @@
 // design-canvas.jsx — pan/zoom canvas: sections, artboards (reorder / rename /
 // delete / focus), post-its. Ported from the fatoora project with performance
 // work for heavy artboards (full-page iframes):
-//   • DCLazyFrame mounts an iframe only when its slot is near the viewport
+//   • DCLazyFrame mounts an iframe only when its slot is near the viewport AND
+//     one of the DC.liveBudget slots nearest the viewport centre; nearness is
+//     necessary but the budget decides — the rest show a placeholder, so
+//     everything on screen at 5 % zoom does not mount at once
 //   • pan/zoom writes are rAF-coalesced; iframes lose pointer events while moving
 //   • zoom-anchor lookup (elementFromPoint) is throttled to one per frame
 //   • cards use CSS containment; persistence writes are debounced
 //   • first load fits the widest section to the viewport instead of 1:1
 //   • slots use content-visibility:auto, so off-screen cards skip layout/paint
-//   • LOD: below DC.liveScale zoom, or far from the viewport, a slot shows a
-//     snapshot instead of a live iframe; iframes mount only near 1:1 or in focus
-//   • snapshots are made in the browser, one at a time in idle moments: the
-//     .dc.html is fetched, its images and Google Fonts are inlined, and it is
-//     rasterized through an SVG <foreignObject> onto a canvas, then cached in
-//     IndexedDB keyed by content hash — no build step, no files in the project
 
 const DC = {
+  renders: 0,           // artboard frames rendered; read by perf/bench.js
   bg: '#f0eee9', dot: 'rgba(70,58,46,.16)',   // dot colour and pitch, as in
   dotSize: 26,          // fatoora's flow map: screen px, the same at every zoom
   fitPad: 80,           // margin left around the content by Back to content
   backToMs: 300,        // Back to content tween
-  liveScale: 0.5,       // live iframe at or above this zoom
+  liveBudget: 8,        // most live iframes at once; the nearest to the centre win
+  budgetHysteresis: 400, // px a live slot counts as nearer, so the last place does not flip
   unmountMargin: 1600,  // px of screen space beyond which a live iframe is dropped
-  settleMs: 150,        // wait after the last zoom/pan change before switching modes
+  settleMs: 150,        // wait after the last zoom/pan change before the LOD pass runs,
+                        // the --dc-inv-zoom CSS var is written, and the lost-pill check
+                        // runs — raising it also delays when iframes mount
   mountGapMs: 60,       // gap between two iframe mounts, so they don't jank one frame
-  snapWidth: 720,       // snapshot bitmap width; they only show below liveScale
   label: 'rgba(60,50,40,0.7)', title: 'rgba(40,30,20,0.85)', subtitle: 'rgba(60,50,40,0.6)',
   postitBg: '#fef4a8', postitText: '#5a4a2a',
   noteReserveH: 240,    // height a free-placed note reserves in the page box
@@ -44,7 +44,6 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-card *{scrollbar-width:none}
 .dc-card *::-webkit-scrollbar{display:none}
 .dc-card iframe{display:block;border:0;background:#fff}
-.dc-card img.dc-thumb{display:block;width:100%;height:100%;object-fit:cover;object-position:top left;background:#fff}
 .dc-moving .dc-card iframe{pointer-events:none}
 .dc-shield{position:absolute;inset:0;cursor:pointer}
 .dc-header{position:absolute;bottom:100%;left:-4px;margin-bottom:calc(4px * var(--dc-hz,1));z-index:2;display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;container-type:inline-size}
@@ -93,6 +92,9 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   document.head.appendChild(s);
 }
 
+// The zoomed-out snapshots are gone; drop the cache they left in the browser.
+if (typeof indexedDB !== 'undefined') { try { indexedDB.deleteDatabase('dc-snapshots'); } catch {} }
+
 const DCCtx = React.createContext(null);
 // Shared "is the world moving" flag: toggled by DCViewport, read via CSS class.
 let dcMovingTimer = 0;
@@ -104,119 +106,78 @@ function dcMarkMoving(vp) {
 }
 
 // Shared zoom signal: DCViewport writes it once per flushed frame; lazy frames
-// subscribe and only re-render when their live/thumb decision changes.
+// subscribe and only re-render when their live decision changes.
 // One settle timer, one poll and one IntersectionObserver serve every slot,
 // instead of N timers firing per frame.
+// scale itself now drives nothing in the app — the live/placeholder decision
+// is distance-and-budget only (dcLodRun), not zoom level. It is kept and
+// written on every flush because perf/bench.js reads it; do not infer from
+// dcSetZoom(scale) in flushNow that LOD still depends on zoom.
 const dcZoom = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
-// Mounting an iframe is the one expensive step (a whole document parses and
-// lays out), so at most one slot goes live per pass; the rest wait a beat.
+// Distance from the viewport centre to the nearest point of a slot's box; 0
+// when the centre is inside it. This is what ranks slots for the budget.
+function dcSlotDistance(r) {
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const dx = Math.max(r.left - cx, 0, cx - r.right);
+  const dy = Math.max(r.top - cy, 0, cy - r.bottom);
+  return Math.hypot(dx, dy);
+}
+
+// One pass over every slot. The nearest DC.liveBudget slots that are within
+// their margin go live; everything else drops to its placeholder. A live slot
+// counts as DC.budgetHysteresis px nearer than it is, so a slot on the last
+// place does not flip on every pass. Mounting an iframe is the one expensive
+// step (a whole document parses and lays out), so at most one slot mounts per
+// pass and the rest wait a beat; dropping is cheap and is not rationed.
 function dcLodRun() {
-  let mounted = false, pending = false;
-  dcZoom.subs.forEach((f) => {
-    try {
-      const r = f(!mounted);          // returns 'mount' when it wants to go live
-      if (r === 'mount') mounted = true;
-      else if (r === 'wait') pending = true;
-    } catch {}
+  // A pan or pinch moves the ranking every frame, and a drop tears down a whole
+  // iframe. Wait for the world to stop rather than read every slot's rect and
+  // drop several of them inside the gesture; dcLodSchedule re-runs on settle.
+  if (document.querySelector('.design-canvas.dc-moving')) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); return; }
+  const all = [];
+  dcZoom.subs.forEach((s) => {
+    const r = s.box.getBoundingClientRect();
+    const m = s.live ? DC.unmountMargin : s.margin;
+    const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
+    all.push({ s, near, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
   });
+  const ranked = all.filter((e) => e.near).sort((a, b) => a.d - b.d);
+  const winners = new Set(ranked.slice(0, DC.liveBudget).map((e) => e.s));
+  // Drop first, so a mount never takes the page over the budget for a frame.
+  all.forEach(({ s }) => { if (s.live && !winners.has(s)) { s.live = false; s.set(false); } });
+  let mounted = false, pending = false;
+  for (const { s } of ranked) {
+    if (s.live || !winners.has(s)) continue;
+    if (mounted) { pending = true; break; }
+    s.live = true; s.set(true); mounted = true;
+  }
   if (pending) { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.mountGapMs); }
 }
 function dcLodSchedule() { clearTimeout(dcZoom.timer); dcZoom.timer = setTimeout(dcLodRun, DC.settleMs); }
 function dcSetZoom(scale) { dcZoom.scale = scale; dcLodSchedule(); }
-function dcLodSubscribe(el, decide) {
+// entry is { box, margin, live, set } — the slot element to measure, the px of
+// screen space that lets it mount, whether it is live now, and the setter that
+// mounts or drops it.
+function dcLodSubscribe(entry) {
   if (!dcZoom.subs.size) {
     dcZoom.poll = setInterval(dcLodRun, 500);
     document.addEventListener('visibilitychange', dcLodSchedule);
     if (!dcZoom.io) dcZoom.io = new IntersectionObserver(dcLodSchedule, { rootMargin: '600px' });
   }
-  dcZoom.subs.add(decide); dcZoom.io.observe(el);
+  dcZoom.subs.add(entry); dcZoom.io.observe(entry.box);
   return () => {
-    dcZoom.subs.delete(decide); dcZoom.io.unobserve(el);
+    dcZoom.subs.delete(entry); dcZoom.io.unobserve(entry.box);
     if (!dcZoom.subs.size) { clearInterval(dcZoom.poll); clearTimeout(dcZoom.timer); document.removeEventListener('visibilitychange', dcLodSchedule); }
   };
 }
 
-// ---------------------------------------------------------------------------
-// In-browser snapshots. dcSnap.want(src, w, h, cb) registers a slot; cb gets a
-// data URL as soon as one exists (memory → IndexedDB → freshly rasterized).
-// Rasterizing = fetch html → DOMParser → strip scripts → inline same-origin
-// images + Google Fonts CSS (woff2 as data:) → XMLSerializer → SVG
-// foreignObject → <img> → <canvas> → webp data URL. Runs one artboard at a
-// time, only while the canvas is idle and the tab is visible.
-const dcSnap = {
-  mem: new Map(),          // src → { hash, data }
-  subs: new Map(),         // src → Set(cb)
-  queue: [],               // [{ src, w, h }]
-  queued: new Set(),
-  busy: false,
-  fontCss: new Map(),      // href → Promise<string>
-  db: null,
-  get(src) { const e = this.mem.get(src); return e ? e.data : null; },
-  want(src, w, h, cb) {
-    if (!this.subs.has(src)) this.subs.set(src, new Set());
-    this.subs.get(src).add(cb);
-    const e = this.mem.get(src); if (e) cb(e.data);
-    if (!this.queued.has(src)) { this.queued.add(src); this.queue.push({ src, w, h }); this.kick(); }
-    return () => { const s = this.subs.get(src); if (s) { s.delete(cb); if (!s.size) this.subs.delete(src); } };
-  },
-  kick() {
-    if (this.busy || !this.queue.length) return;
-    this.busy = true;
-    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 50));
-    idle(() => this.step());
-  },
-  async step() {
-    const moving = document.querySelector('.design-canvas.dc-moving');
-    if (moving || document.visibilityState !== 'visible') { setTimeout(() => this.step(), 250); return; }
-    const job = this.queue.shift();
-    if (job) {
-      try { await this.make(job); } catch (e) { console.warn('[dc-snap]', job.src, e && e.message); }
-      this.queued.delete(job.src);
-    }
-    this.busy = false;
-    this.kick();
-  },
-  emit(src, data) { const s = this.subs.get(src); if (s) s.forEach((cb) => { try { cb(data); } catch {} }); },
-  async make({ src, w, h }) {
-    const html = await (await fetch(src)).text();
-    // Invalidate snapshots made before CSS assets/font subsets were inlined.
-    const hash = 'v2:' + dcHash(html) + ':' + w + 'x' + h;
-    let cached = this.mem.get(src) || (await this.dbGet(src));
-    if (cached && cached.hash === hash) { this.mem.set(src, cached); this.emit(src, cached.data); return; }
-    const data = await dcRasterize(html, new URL(src, location.href).href, w, h);
-    const entry = { hash, data };
-    this.mem.set(src, entry); this.emit(src, data);
-    await this.dbPut(src, entry);
-  },
-  open() {
-    if (this.db) return this.db;
-    this.db = new Promise((res) => {
-      try {
-        const r = indexedDB.open('dc-snapshots', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('snap');
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => res(null);
-      } catch { res(null); }
-    });
-    return this.db;
-  },
-  async dbGet(k) {
-    const db = await this.open(); if (!db) return null;
-    return new Promise((res) => { try { const q = db.transaction('snap').objectStore('snap').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch { res(null); } });
-  },
-  async dbPut(k, v) {
-    const db = await this.open(); if (!db) return;
-    return new Promise((res) => { try { const tx = db.transaction('snap', 'readwrite'); tx.objectStore('snap').put(v, k); tx.oncomplete = res; tx.onerror = res; } catch { res(); } });
-  },
-};
-
-function dcHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) + ':' + s.length; }
-
 const dcBlobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 
 // Google Fonts CSS with the latin/arabic faces inlined as data: URLs, cached per href.
+// href → Promise<string>, so two artboards on the same font fetch it once.
+const dcFontCache = new Map();
 function dcFontCss(href) {
-  if (!dcSnap.fontCss.has(href)) dcSnap.fontCss.set(href, (async () => {
+  if (!dcFontCache.has(href)) dcFontCache.set(href, (async () => {
     const css = await (await fetch(href)).text();
     // A subset comment belongs to the following rule, including the last face.
     // Some responses have no subset comments; keep those faces as well.
@@ -225,7 +186,7 @@ function dcFontCss(href) {
       .map((m) => m[0]);
     return dcInlineCss(blocks.join('\n'), href);
   })().catch(() => ''));
-  return dcSnap.fontCss.get(href);
+  return dcFontCache.get(href);
 }
 
 async function dcReplaceAsync(text, pattern, replace) {
@@ -266,7 +227,7 @@ async function dcInlineCss(css, baseHref, ancestors = new Set()) {
   });
 }
 
-// Self-contained document inliner shared by snapshots and exports: strip scripts →
+// Self-contained document inliner shared by exports: strip scripts →
 // inline same-origin CSS/images + Google Fonts → serialized XHTML.
 async function dcInlineDoc(html, baseHref) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -297,21 +258,9 @@ async function dcInlineDoc(html, baseHref) {
   return new XMLSerializer().serializeToString(doc.documentElement);
 }
 
-async function dcRasterize(html, baseHref, w, h) {
-  const xhtml = await dcInlineDoc(html, baseHref);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%">${xhtml}</foreignObject></svg>`;
-  const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  const img = new Image(); img.src = svgUrl; await img.decode();
-  const k = Math.min(1, DC.snapWidth / w);
-  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
-  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-  ctx.drawImage(img, 0, 0, c.width, c.height);
-  try { return c.toDataURL('image/webp', 0.8); } catch { return svgUrl; }
-}
-
 // Per-artboard export from the kebab menu (kind: 'png' | 'html'). Reuses the
-// snapshot inliner on the artboard's source file, so it works whether the
-// slot currently shows a live iframe or a snapshot. PNG renders at 2× the
+// inliner on the artboard's source file, so it works whether the slot is
+// live or showing its placeholder. PNG renders at 2× the
 // artboard's natural size via viewBox mapping (an <img>-loaded SVG rasterizes
 // at its intrinsic size, so the SVG itself must be the output resolution).
 async function dcExportArtboard(src, w, h, name, kind) {
@@ -429,15 +378,20 @@ function DCStateCanvas({ children, minScale, maxScale, style, stateFile, lsKey }
     };
   });
 
+  // patchSection and setFocus keep one identity for the life of the canvas, so
+  // the per-slot callbacks built on them survive a state change. Only `state`
+  // and `section` move, and only the components that read them re-render.
+  const patchSection = React.useCallback((id, p) => setState((s) => ({
+    ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
+    sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+  })), []);
+  const setFocus = React.useCallback((slotId) => setState((s) => ({ ...s, focus: slotId })), []);
   const api = React.useMemo(() => ({
     state,
     section: (id) => state.sections[id] || {},
-    patchSection: (id, p) => setState((s) => ({
-      ...s, updatedAt: Math.max(Date.now(), s.updatedAt + 1),
-      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
-    })),
-    setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
-  }), [state]);
+    patchSection,
+    setFocus,
+  }), [state, patchSection, setFocus]);
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') api.setFocus(null); };
@@ -497,13 +451,32 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
+  // Zoom-dependent chrome (header sizes, section gaps, world padding) reads
+  // --dc-inv-zoom. It is an inherited custom property, so writing it makes
+  // Chrome recalculate style for the whole world — 0.4 ms at 10 slots, 1.1 ms
+  // at 40, on every frame of a pinch. It is written once the gesture settles
+  // instead: during the gesture the world is one composited transform, and the
+  // chrome scales with it for a beat before it snaps back to screen size.
+  const invT = React.useRef(0);
+  const lastInv = React.useRef(null);
+  const writeInv = React.useCallback(() => {
+    invT.current = 0;
+    const el = worldRef.current; if (!el) return;
+    const inv = 1 / tf.current.scale;
+    if (lastInv.current === inv) return;
+    lastInv.current = inv;
+    el.style.setProperty('--dc-inv-zoom', String(inv));
+  }, []);
+
   // rAF-coalesced DOM write: many wheel ticks per frame collapse into one transform.
   const flushNow = React.useCallback(() => {
     raf.current = 0;
     const { x, y, scale } = tf.current;
     const el = worldRef.current; if (!el) return;
     el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-    el.style.setProperty('--dc-inv-zoom', String(1 / scale));
+    // First paint writes at once, so the chrome is never wrong before a gesture.
+    if (lastInv.current === null) writeInv();
+    else { clearTimeout(invT.current); invT.current = setTimeout(writeInv, DC.settleMs); }
     dcSetZoom(scale);
     if (lastPostedScale.current !== scale) {
       lastPostedScale.current = scale;
@@ -515,7 +488,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => { try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {} }, 300);
-  }, [tfKey, checkLost]);
+  }, [tfKey, checkLost, writeInv]);
   const apply = React.useCallback((sync) => {
     if (sync) { if (raf.current) cancelAnimationFrame(raf.current); flushNow(); return; }
     if (!raf.current) raf.current = requestAnimationFrame(flushNow);
@@ -577,7 +550,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     // viewport, so they are stopped here and not in the fit effect, which
     // re-runs whenever the content or the scale bounds change.
     return () => {
-      clearTimeout(lostT.current);
+      clearTimeout(lostT.current); clearTimeout(invT.current);
       if (tween.current) cancelAnimationFrame(tween.current);
       window.removeEventListener('pagehide', flush); flush();
     };
@@ -667,7 +640,9 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       stopTween();
       vp.setPointerCapture(e.pointerId);
       drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
-      vp.style.cursor = 'grabbing'; vp.classList.add('dc-moving');
+      // Arm the removal timer with the class, so a click with no move still
+      // clears dc-moving; dcLodRun freezes the whole LOD registry while it is set.
+      vp.style.cursor = 'grabbing'; dcMarkMoving(vp);
     };
     const onPointerMove = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -830,6 +805,44 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
     return { origin: { x: x0, y: y0 }, w: w - x0 + 60, h: h - y0 };
   }, [placed, notePositions, order.join('|'), rest.length, sec.variant]);
 
+  // One stable object of actions, keyed by slot id, instead of eight fresh
+  // closures per slot per render. Without this React.memo on the frame can
+  // never hit: every prop would be a new function on every state change.
+  const patchSection = ctx && ctx.patchSection, setFocus = ctx && ctx.setFocus;
+  const actions = React.useMemo(() => ({
+    size: (k, file) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file)),
+    move: (k, p) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p)),
+    rename: (k, v) => patchSection && patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v)),
+    reorder: (next) => patchSection && patchSection(sid, { order: next }),
+    focus: (k) => setFocus && setFocus(`${sid}/${k}`),
+    resetPosition: (k) => patchSection && patchSection(sid, (x) => {
+      const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n };
+    }),
+    resetArrows: (k) => patchSection && patchSection(sid, (x) => {
+      // Only the end that meets this page: the far page keeps its side.
+      const n = {};
+      Object.entries(x.arrows || {}).forEach(([key, o]) => {
+        const { from, to } = dcFlowKeyParts(key), r = { ...o };
+        if (from === k) delete r.fs;
+        if (to === k) delete r.ts;
+        if (Object.keys(r).length) n[key] = r;
+      });
+      return { arrows: n };
+    }),
+    remove: (k) => patchSection && patchSection(sid, (x) => ({
+      hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey,
+    })),
+  }), [patchSection, setFocus, sid, srcKey]);
+
+  // One size object per slot, kept across renders that did not change a
+  // variant. The artboard elements behind byId are made once by the page and
+  // only rebuilt on a reload, which rebuilds `order` too, so they need no dep.
+  const sizes = React.useMemo(() => {
+    const out = {};
+    order.forEach((k) => { out[k] = dcSize(byId[k].props, (sec.variant || {})[k]); });
+    return out;
+  }, [order.join('|'), sec.variant]);
+
   return (
     <div data-dc-section={sid} style={{ marginBottom: freeBox ? 'calc(400px + 140px * var(--dc-inv-zoom, 1))' : 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
       <div style={{ padding: '0 60px' }}>
@@ -848,28 +861,19 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
           <div key={(n && n.props && n.props.id) || i} data-dc-note={(n && n.props && n.props.id) || i} style={{ position: 'absolute', left: noteAt(n).x - freeBox.origin.x, top: noteAt(n).y - freeBox.origin.y }}>{n}</div>
         ))}
         {order.map((k) => (
-          <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
-            size={sizeOf(k)} onSize={(file) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'variant', k, file))}
-            position={placed && placed[k]} origin={freeBox && freeBox.origin} moved={!!(sec.positions && sec.positions[k])}
-            onMove={(p) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'positions', k, p))}
-            onResetPosition={() => ctx && ctx.patchSection(sid, (x) => { const n = { ...(x.positions || {}) }; delete n[k]; return { positions: n }; })}
+          // byId[k] itself is a new element every render: React.Children.toArray
+          // re-keys by cloning, so the element identity churns even though its
+          // props do not. Passing the element would defeat the memo for every
+          // slot; the props object holds still instead.
+          <DCArtboardFrame key={k} sectionId={sid} artboardProps={byId[k].props} order={order}
+            size={sizes[k]} actions={actions}
+            // freeBox.origin is a fresh object every recompute (any position
+            // patch remakes it), so an object prop here would fail the shallow
+            // compare for every slot and defeat the memo. Two numbers hold
+            // still instead.
+            position={placed && placed[k]} originX={freeBox ? freeBox.origin.x : 0} originY={freeBox ? freeBox.origin.y : 0} moved={!!(sec.positions && sec.positions[k])}
             arrowsMoved={Object.entries(sec.arrows || {}).some(([key, o]) => { const { from, to } = dcFlowKeyParts(key); return (from === k && o.fs) || (to === k && o.ts); })}
-            onResetArrows={() => ctx && ctx.patchSection(sid, (x) => {
-              // Only the end that meets this page: the far page keeps its side.
-              const n = {};
-              Object.entries(x.arrows || {}).forEach(([key, o]) => {
-                const { from, to } = dcFlowKeyParts(key), r = { ...o };
-                if (from === k) delete r.fs;
-                if (to === k) delete r.ts;
-                if (Object.keys(r).length) n[key] = r;
-              });
-              return { arrows: n };
-            })}
-            label={(sec.labels || {})[k] ?? byId[k].props.label}
-            onRename={(v) => ctx && ctx.patchSection(sid, (x) => dcMapPatch(x, 'labels', k, v))}
-            onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
-            onDelete={() => ctx && ctx.patchSection(sid, (x) => ({ hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k], srcKey }))}
-            onFocus={() => ctx && ctx.setFocus(`${sid}/${k}`)} />
+            label={(sec.labels || {})[k] ?? byId[k].props.label} />
         ))}
       </div>
     </div>
@@ -878,39 +882,25 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
 
 function DCArtboard() { return null; }
 
-// Lazy frame with three levels of detail:
-//   live  — a real iframe. Mounted when the slot is within `margin` px of the
-//           viewport AND zoom >= DC.liveScale; dropped again once it drifts
-//           past DC.unmountMargin or zoom falls below the threshold.
-//   snap  — an in-browser snapshot (dcSnap). Shown whenever not live.
-//   placeholder — until a snapshot exists.
-// `eager` forces a live iframe regardless (focus overlay). Mode switches wait
-// DC.settleMs after the last zoom/pan tick so a pinch doesn't thrash iframes.
+// Lazy frame with two levels of detail:
+//   live  — a real iframe. Mounted while the slot is one of the DC.liveBudget
+//           slots nearest the viewport centre and within `margin` px of it;
+//           dropped once it falls out of the budget or past DC.unmountMargin.
+//   placeholder — the striped card, for every slot that is not live.
+// `eager` forces a live iframe regardless (focus overlay). The registry runs
+// one pass for every slot at once, DC.settleMs after the last zoom or pan tick,
+// so a pinch does not thrash iframes.
 function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, href }) {
   const ref = React.useRef(null);
   const [live, setLive] = React.useState(eager);
-  const [snap, setSnap] = React.useState(() => dcSnap.get(src));
-  React.useEffect(() => { if (!eager) return dcSnap.want(src, width, height, setSnap); }, [src, width, height, eager]);
   React.useEffect(() => {
     if (eager || !ref.current) return;
-    let isLive = live;
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const within = (m) => {
-      const r = box.getBoundingClientRect();
-      return r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
-    };
-    const decide = (mayMount = true) => {
-      const zoomOk = dcZoom.scale >= DC.liveScale;
-      const want = isLive ? (zoomOk && within(DC.unmountMargin)) : (zoomOk && within(margin));
-      if (want === isLive) return null;
-      if (want && !mayMount) return 'wait';
-      isLive = want; setLive(want);
-      return want ? 'mount' : null;
-    };
-    decide();
-    return dcLodSubscribe(box, decide);
+    const off = dcLodSubscribe({ box, margin, live: false, set: setLive });
+    dcLodSchedule();
+    return off;
   }, [eager, margin]);
   const on = eager || live;
   // Shield: iframes swallow wheel/pinch, so a transparent layer sits over the
@@ -919,7 +909,6 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
   return (
     <div ref={ref} style={{ width, height, position: 'relative' }}>
       {on ? <iframe src={src} title={title} loading="lazy" style={{ width, height }} />
-        : snap ? <img className="dc-thumb" src={snap} alt={title} decoding="async" draggable={false} />
         : <div className="dc-placeholder">{title}</div>}
       {!eager && <div className="dc-shield" title="Open to edit" onClick={() => { if (href) location.href = href; }} />}
     </div>
@@ -966,12 +955,24 @@ const dcFlowKeyParts = (key) => { const [from, to, label] = key.split(DC_KEY_SEP
 // Patch one entry of a map-shaped section field ({ positions: { [k]: v } }).
 const dcMapPatch = (x, field, key, value) => ({ [field]: { ...(x[field] || {}), [key]: value } });
 
-function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, moved, size, onSize, onMove, onResetPosition, arrowsMoved, onResetArrows, onRename, onReorder, onFocus, onDelete }) {
-  const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboard.props;
+function DCArtboardFrame({ sectionId, artboardProps, label, order, position, originX = 0, originY = 0, moved, size, actions, arrowsMoved }) {
+  DC.renders++;
+  const { id: rawId, label: rawLabel, children: rawChildren, style = {} } = artboardProps;
   const id = rawId ?? rawLabel;
+  // The eight callbacks the body already uses, rebuilt per render from one
+  // stable actions object. They are cheap; the props that reach React.memo are
+  // what has to hold still, and those are actions, size, order and primitives.
+  const onSize = (file) => actions.size(id, file);
+  const onMove = (p) => actions.move(id, p);
+  const onResetPosition = () => actions.resetPosition(id);
+  const onResetArrows = () => actions.resetArrows(id);
+  const onRename = (v) => actions.rename(id, v);
+  const onReorder = (next) => actions.reorder(next);
+  const onFocus = () => actions.focus(id);
+  const onDelete = () => actions.remove(id);
   // With size variants the slot follows the chosen size; `children` may be a
   // function of that size so the host can embed the right file.
-  size = size || dcSize(artboard.props);
+  size = size || dcSize(artboardProps);
   const { width, height, href } = size;
   const children = typeof rawChildren === 'function' ? rawChildren(size.cur, size) : rawChildren;
   const ref = React.useRef(null);
@@ -1040,7 +1041,7 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, 
 
   return (
     <div ref={ref} data-dc-slot={id} style={position
-      ? { position: 'absolute', left: position.x - (origin ? origin.x : 0), top: position.y - (origin ? origin.y : 0) }
+      ? { position: 'absolute', left: position.x - originX, top: position.y - originY }
       : { position: 'relative', flexShrink: 0 }}>
       <div className="dc-header" data-noncommentable="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
         <div className="dc-labelrow">
@@ -1084,6 +1085,9 @@ function DCArtboardFrame({ sectionId, artboard, label, order, position, origin, 
     </div>
   );
 }
+// Every prop the frame takes now holds still through a state change that did
+// not touch this slot, so the default shallow compare is enough.
+DCArtboardFrame = React.memo(DCArtboardFrame);
 
 function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
   const T = tag;

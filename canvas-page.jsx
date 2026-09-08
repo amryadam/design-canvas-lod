@@ -328,7 +328,7 @@ function CanvasFlows({ flows: authored, section }) {
         const t = r.target.nodeType === 1 ? r.target : r.target.parentElement;
         if (!t) continue;
         if (t === world) { zoomed = true; continue; }
-        // Anything inside a card (iframe mounts, snapshot swaps) never changes
+        // Anything inside a card (iframe mounts, placeholder swaps) never changes
         // card geometry, and our own layer's re-render must not re-trigger us.
         if (t.closest('.dc-card') || t.closest('.dc-flows')) continue;
         moved = true;
