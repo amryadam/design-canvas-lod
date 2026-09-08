@@ -15,7 +15,7 @@ const key = (file) => 'dc-state:' + location.pathname + ':' + file;
 const envelope = (title, updatedAt) => ({ sections: { review: { title } }, ...(updatedAt === undefined ? {} : { updatedAt }) });
 const json = (data) => new Response(JSON.stringify(data));
 function Probe() { api = React.useContext(DCCtx); return E('div', { id: 'ready-probe' }); }
-function draw(file, children = E(Probe)) { root.render(E(DesignCanvas, { stateFile: file }, children)); }
+function draw(file, children = E(Probe), props) { root.render(E(DesignCanvas, { stateFile: file, ...props }, children)); }
 async function test(name, fn) {
   root = ReactDOM.createRoot(host); api = null;
   localStorage.removeItem('dc-viewport-v3:' + location.pathname);
@@ -148,6 +148,36 @@ window.canvasTestsDone = (async () => {
     const live = host.querySelectorAll('.dc-card iframe').length;
     check(live <= DC.liveBudget, 'budget exceeded: ' + live + ' live of ' + count);
     check(host.querySelectorAll('.dc-placeholder').length === count - live, 'slots outside the budget lost their placeholder');
+  });
+  await test('the settled --dc-inv-zoom write holds the zoom anchor', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    // A viewport of a known size, so the anchor is the slot below its middle
+    // and not whatever the results pane has pushed on screen. The tall card
+    // keeps that middle inside the slot at any window height.
+    const w = Math.min(900, innerWidth), h = Math.min(700, innerHeight);
+    draw('review-anchor.json',
+      E(DCSection, { id: 'review', title: 'Anchor' }, E(DCArtboard, { id: 'a', width: 600, height: 4000 })),
+      { style: { position: 'fixed', top: 0, left: 0, width: w, height: h } });
+    await until(() => host.querySelector('[data-dc-slot]'));
+    await wait(700); // past the first fit, its 500 ms rescue and the first write
+    const world = host.querySelector('[data-dc-world]');
+    const slot = host.querySelector('[data-dc-slot]');
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    const invOf = () => parseFloat(getComputedStyle(world).getPropertyValue('--dc-inv-zoom')) || 1;
+    const s0 = scaleOf(), inv0 = invOf(), top0 = slot.getBoundingClientRect().top, cy = h / 2;
+    // The host zoom path anchors on the middle of the viewport, as a pinch does.
+    window.postMessage({ type: '__dc_set_zoom', scale: s0 / 2 }, '*');
+    await until(() => scaleOf() !== s0);
+    // Where a transform alone puts the slot. This is what zoomAt guarantees.
+    const want = cy + (top0 - cy) * (scaleOf() / s0);
+    const during = slot.getBoundingClientRect().top;
+    check(Math.abs(during - want) < 1, 'the gesture moved the anchor by ' + (during - want).toFixed(2) + 'px');
+    await wait(DC.settleMs + 250);
+    // Without this the test would also pass if the deferred write were deleted,
+    // or made per-frame again. Both are correct; silently losing it is not.
+    check(invOf() > inv0 * 1.9, '--dc-inv-zoom never settled: ' + invOf());
+    const after = slot.getBoundingClientRect().top;
+    check(Math.abs(after - want) < 1, 'content jumped ' + (after - want).toFixed(2) + 'px when --dc-inv-zoom settled');
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

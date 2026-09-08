@@ -84,6 +84,32 @@ Making its consumers layout-free would recover only about a quarter of the cost.
 The visible consequence is that headers and section gaps keep their old size for
 `DC.settleMs` after a gesture ends, then snap to the right size.
 
+**Correction (F2a).** Three of those consumers change the box model — world
+`padding`, section `marginBottom`, `.dc-sectionhead zoom` — so the settled write
+moves every card in world space. `.dc-header width` does not: the header is
+`position:absolute`, so it adds nothing to any ancestor height or intrinsic
+width. The first version of this change moved the write but left the anchor
+correction in `zoomAt`, where the layout no longer moves. Measured on the
+sample: **0.00 px of error during the gesture, and 32.9 px when the variable
+settled.** A slow mouse-wheel roll puts more than `DC.settleMs` between notches,
+so the write lands between them and every notch gets its own step. That reads as
+a drift through the whole gesture.
+
+`writeInv` now holds an anchor across the write: it measures a slot, writes the
+variable, measures again, and takes the difference out of `tf`. The anchor is
+the slot below the last zoom point, or the nearest slot to it — **not** the
+first slot on screen, because a view zoomed into the gap between two cards has
+no slot on screen, and **not** a section, whose own top does not carry the
+`.dc-sectionhead` zoom and so reports less than the cards inside it move (19 px
+and 87 px respectively, for one notch). Residual error is 0.01 px with the zoom
+point over a card, and about 0.3 px a notch over open canvas, from per-element
+layout rounding. It does not accumulate.
+
+This also makes the drift block in `zoomAt` dead: nothing in the layout moves
+inside `apply(true)` any more. Removing it takes the tick from three forced
+layouts to one, and removes the throttled `elementFromPoint` hit test. The
+"183–192 `Layout` events for 90 ticks" above was that block.
+
 ### F3 — One state patch costs a whole frame
 
 A single variant-chip click — one `patchSection` — takes **6.7 ms** to the next
