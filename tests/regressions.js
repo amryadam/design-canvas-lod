@@ -313,6 +313,25 @@ window.canvasTestsDone = (async () => {
     const m = new DOMMatrix(world.style.transform);
     check(m.a === 1 && m.e === -5000 && m.f === -5000, 'the rescue moved a restored view: ' + world.style.transform);
   });
+  await test('the LOD budget ranks against the viewport, not the window', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    const count = DC.liveBudget + 6, boards = [];
+    for (let i = 0; i < count; i++) boards.push(E(DCArtboard, { key: 'b' + i, id: 'b' + i, width: 300, height: 200 },
+      E(DCLazyFrame, { src: 'about:blank', title: 'b' + i, width: 300, height: 200 })));
+    localStorage.setItem('dc-viewport-v3:' + location.pathname, JSON.stringify({ x: 0, y: 0, scale: 1 }));
+    draw('review-lodvp.json', E(DCSection, { id: 'review', title: 'LOD', gap: 20 }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: 400, height: 400 } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    // The row holds one slot every 320 px from x 60. Only b0, b1 and b2 are
+    // inside the 400 px viewport plus the 600 px margin. The window is 1280 px
+    // wide, so b3 to b5 are inside the window and its margin.
+    await until(() => host.querySelectorAll('.dc-card iframe').length >= 1);
+    await wait(600);
+    const live = [...host.querySelectorAll('[data-dc-slot]')].filter((s) => s.querySelector('iframe')).map((s) => s.dataset.dcSlot);
+    // Slot b0 sits at x 60 in the viewport; it is the nearest to (200, 200) and must be live.
+    check(live.includes('b0'), 'the nearest slot to the viewport centre is not live: ' + live.join(','));
+    check(!live.includes('b5'), 'a slot far from the viewport is live because it is near the window: ' + live.join(','));
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

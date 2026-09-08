@@ -179,8 +179,10 @@ function dcMarkMoving() {
 const dcLod = { scale: 1, subs: new Set(), timer: 0, poll: 0, io: null };
 // Distance from the viewport centre to the nearest point of a slot's box; 0
 // when the centre is inside it. This is what ranks slots for the budget.
-function dcSlotDistance(r) {
-  const cx = innerWidth / 2, cy = innerHeight / 2;
+// `v` is the slot's own viewport box, not the window: a canvas in a panel must
+// rank the slots that its user sees.
+function dcSlotDistance(r, v) {
+  const cx = v.left + v.width / 2, cy = v.top + v.height / 2;
   const dx = Math.max(r.left - cx, 0, cx - r.right);
   const dy = Math.max(r.top - cy, 0, cy - r.bottom);
   return Math.hypot(dx, dy);
@@ -199,11 +201,17 @@ function dcLodRun() {
   // world stops. dcLodSchedule then runs this pass again.
   if (dcMoving()) { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); return; }
   const all = [];
+  // One rect per viewport, not one per slot: all the slots of a canvas share
+  // its box.
+  const vpRects = new Map();
   dcLod.subs.forEach((s) => {
+    const vp = s.vp;
+    let v = vpRects.get(vp);
+    if (!v) { v = vp ? vp.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight }; vpRects.set(vp, v); }
     const r = s.box.getBoundingClientRect();
     const m = s.live ? DC.unmountMargin : s.margin;
-    const near = r.right > -m && r.left < innerWidth + m && r.bottom > -m && r.top < innerHeight + m;
-    all.push({ s, near, d: dcSlotDistance(r) - (s.live ? DC.budgetHysteresis : 0) });
+    const near = r.right > v.left - m && r.left < v.left + v.width + m && r.bottom > v.top - m && r.top < v.top + v.height + m;
+    all.push({ s, near, d: dcSlotDistance(r, v) - (s.live ? DC.budgetHysteresis : 0) });
   });
   const ranked = all.filter((e) => e.near).sort((a, b) => a.d - b.d);
   const winners = new Set(ranked.slice(0, DC.liveBudget).map((e) => e.s));
@@ -219,9 +227,9 @@ function dcLodRun() {
 }
 function dcLodSchedule() { clearTimeout(dcLod.timer); dcLod.timer = setTimeout(dcLodRun, DC.settleMs); }
 function dcSetZoom(scale) { dcLod.scale = scale; dcLodSchedule(); }
-// entry is { box, margin, live, set } — the slot element to measure, the px of
-// screen space that lets it mount, whether it is live now, and the setter that
-// mounts or drops it.
+// entry is { box, vp, margin, live, set } — the slot element to measure, the
+// viewport it lives in, the px of screen space that lets it mount, whether it
+// is live now, and the setter that mounts or drops it.
 function dcLodSubscribe(entry) {
   if (!dcLod.subs.size) {
     dcLod.poll = setInterval(dcLodRun, 500);
@@ -992,7 +1000,7 @@ function DCLazyFrame({ src, title, width, height, eager = false, margin = 600, h
     // Measure the slot, not the inner div: the slot has content-visibility:auto,
     // so reading a descendant's rect would force layout of a skipped subtree.
     const box = ref.current.closest('[data-dc-slot]') || ref.current;
-    const off = dcLodSubscribe({ box, margin, live: false, set: setLive });
+    const off = dcLodSubscribe({ box, vp: box.closest('.design-canvas'), margin, live: false, set: setLive });
     dcLodSchedule();
     return off;
   }, [eager, margin]);
