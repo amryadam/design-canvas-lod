@@ -5,7 +5,7 @@
       "id": 0,
       "subject": "Task 1: Fix the CanvasFlows world lookup",
       "status": "completed",
-      "description": "**Goal:** Arrows render again by finding the transformed world through a stable hook.\n\nComplete \u2014 landed in merge 7276996; see ledger."
+      "description": "**Goal:** Arrows render again by finding the transformed world through a stable hook.\n\nComplete — landed in merge 7276996. `[data-dc-world]` marks the world and `CanvasFlows` queries it. See the Outcomes section of the plan."
     },
     {
       "id": 1,
@@ -14,7 +14,7 @@
       "blockedBy": [
         0
       ],
-      "description": "**Goal:** A pasteable harness that reproduces every number the later tasks are judged against, plus a recorded baseline.\n\nComplete \u2014 see ledger."
+      "description": "**Goal:** A pasteable harness that reproduces every number the later tasks are judged against, plus a recorded baseline.\n\nComplete — `perf/bench.js`, documented in README.md. The baseline table in the plan is filled in. Two corrections came out of it: dragFlowCost withdrew Task 6, and patchCost must be judged on framesRenderedPerPatch, not variantSwitchMs."
     },
     {
       "id": 2,
@@ -23,7 +23,7 @@
       "blockedBy": [
         1
       ],
-      "description": "**Goal:** A pinch stops invalidating style for the whole world on every frame.\n\nComplete \u2014 see ledger."
+      "description": "**Goal:** A pinch stops invalidating style for the whole world on every frame.\n\nComplete — measured `invWrites` 1 for a 90-tick gesture, against 90 before. Criterion was 1–3. The frame-time criteria stay unverified: the only machine available runs headless at a locked 60 Hz. See Outcomes."
     },
     {
       "id": 3,
@@ -32,7 +32,7 @@
       "blockedBy": [
         2
       ],
-      "description": "**Goal:** Snapshots removed; a slot is a live iframe at any zoom, bounded by DC.liveBudget.\n\nComplete \u2014 see ledger."
+      "description": "**Goal:** Snapshots removed; a slot is a live iframe at any zoom, bounded by DC.liveBudget.\n\nComplete — measured `liveByZoom` at most 8 live at every zoom, against 10 before, and 0 `img.dc-thumb`. A new regression check, \"live iframes stay inside the budget\", holds the contract. See Outcomes."
     },
     {
       "id": 4,
@@ -41,7 +41,7 @@
       "blockedBy": [
         3
       ],
-      "description": "**Goal:** One patchSection re-renders only the slots it changed.\n\nComplete \u2014 see ledger."
+      "description": "**Goal:** One patchSection re-renders only the slots it changed.\n\nComplete, but only after the code review. The first build measured `framesRenderedPerPatch` 10, one render per slot, against a criterion of at most 2: the sizes map rebuilt every slot's size object on any variant patch, so React.memo never hit. A per-slot size cache brought it to 1. See Outcomes."
     },
     {
       "id": 5,
@@ -50,7 +50,7 @@
       "blockedBy": [
         4
       ],
-      "description": "**Goal:** Re-route only the arrows a drag moves.\n\nWithdrawn on measurement \u2014 2 cfMeasure calls per drag, not 44. See ledger."
+      "description": "**Goal:** Re-route only the arrows a drag moves.\n\nWithdrawn on measurement — a 40-frame drag makes 2 cfMeasure calls, not 44. The existing debounce already coalesces it. `canvas-page.jsx` carries no change from this task. See Outcomes."
     },
     {
       "id": 6,
@@ -59,8 +59,8 @@
       "blockedBy": [
         5
       ],
-      "description": "**Goal:** The canvas opens fitted every time.\n\nWithdrawn \u2014 already fixed by dev's acbba3e (restoredView/fittedView/hasContent), covered by the regression suite. See ledger."
+      "description": "**Goal:** The canvas opens fitted every time.\n\nWithdrawn — already fixed by dev's acbba3e (restoredView/fittedView/hasContent), covered by the regression suite. See Outcomes."
     }
   ],
-  "lastUpdated": "2026-09-08T02:27:10"
+  "lastUpdated": "2026-09-08T12:40:00"
 }
