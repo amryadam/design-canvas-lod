@@ -70,7 +70,8 @@ function cfSeg(a, c1, c2, b) {
 
 const cfInside = (p, r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
 // Number of sample points that fall inside an obstacle; 0 means the curve is
-// clear. Every candidate is sampled at the same density so counts compare.
+// clear. cfRoute samples every candidate at CF_SAMPLES * 4, so the counts
+// compare. CF_SAMPLES is only the default density.
 const CF_SAMPLES = 24;
 function cfHits(curve, obstacles, n = CF_SAMPLES) {
   let hits = 0;
@@ -162,7 +163,7 @@ function cfPath(a, fs, b, ts, obstacles) {
 function cfRoute(a, fs, b, ts, obstacles) {
   const plain = cfCurve(a, fs, b, ts);
   if (!obstacles.length) return plain;
-  let best = plain, bestHits = cfHits(plain, obstacles);
+  let best = plain, bestHits = cfHits(plain, obstacles, CF_SAMPLES * 4);
   if (!bestHits) return plain;
   const consider = (c) => { const h = cfHits(c, obstacles, CF_SAMPLES * 4); if (h < bestHits) { best = c; bestHits = h; } return h === 0; };
   for (const m of [0.6, 0.35, 0.2, 1.6, 2.4]) if (consider(cfCurve(a, fs, b, ts, m))) return best;
@@ -498,3 +499,6 @@ function CanvasPage({ page, stateFile }) {
 
 window.CanvasPage = CanvasPage;
 window.CanvasFlows = CanvasFlows;
+window.cfRoute = cfRoute;
+window.cfCurve = cfCurve;
+window.cfHits = cfHits;

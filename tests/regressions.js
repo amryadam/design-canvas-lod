@@ -361,6 +361,15 @@ window.canvasTestsDone = (async () => {
       check(calls.length === 1, 'the saved sections were written a second time');
     } finally { delete window.omelette; }
   });
+  await test('cfRoute picks a candidate that crosses less than the plain curve', async () => {
+    // The obstacle stands against B's left anchor. No route around it is clear.
+    // The router must then draw the candidate that crosses the least.
+    const a = { x: 0, y: 0 }, b = { x: 600, y: 0 }, obs = [{ x: 440, y: -300, w: 160, h: 600 }];
+    const plainHits = cfHits(cfCurve(a, 'r', b, 'l'), obs, 96);
+    const routed = cfRoute(a, 'r', b, 'l', obs);
+    check(plainHits > 0, 'fixture: the plain curve must cross the obstacle');
+    check(cfHits(routed, obs, 96) < plainHits, 'cfRoute kept the plain curve although a clearer candidate exists');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;
