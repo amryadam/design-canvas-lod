@@ -683,6 +683,61 @@ window.canvasTestsDone = (async () => {
     check(subs.filter((s) => s.live).length === DC.liveBudget,
       'the touch pushed the live count past DC.liveBudget: ' + subs.filter((s) => s.live).length);
   });
+  await test('a touched slot off the screen gives its place to a visible one', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    check(dcLod.subs.size === 0, 'previous fixture retained LOD subscriptions');
+    // The safety rule of the mark: it biases the distance only, and the
+    // visible sort runs before the distance. A slot that has left the screen
+    // must give its place up although the user touched it a moment ago. The
+    // check above touches a slot that is already on the screen, where the rule
+    // cannot be broken.
+    const count = DC.liveBudget * 2;
+    const boards = [];
+    for (let i = 0; i < count; i++) {
+      boards.push(E(DCArtboard, { key: 't' + i, id: 't' + i, width: 40, height: 40 },
+        E(DCLazyFrame, { src: 'about:blank', title: 't' + i, width: 40, height: 40 })));
+    }
+    draw('review-stickyrank.json', E(DCSection, { id: 'review', title: 'Sticky rank' }, boards),
+      { style: { position: 'fixed', top: 0, left: 0, width: 900, height: 700 } });
+    await until(() => host.querySelectorAll('[data-dc-slot]').length === count);
+    await until(() => dcLod.subs.size === count);
+    // The first fit and its DC.rescueMs nudge both arm the moving flag, and a
+    // pass refuses to run while it is set.
+    await wait(DC.rescueMs + 200);
+    await until(() => !dcMoving());
+    // Controlled screen rects, as the reclaim check above uses. These slots
+    // rank against their own canvas box and not the window, so the rects below
+    // are built from that box. The touched slots sit just under its bottom
+    // edge, inside their unmount margin. The others sit inside it.
+    const vr = host.querySelector('.design-canvas').getBoundingClientRect();
+    const subs = [...dcLod.subs];
+    const touched = subs.slice(0, DC.liveBudget), onScreen = subs.slice(DC.liveBudget);
+    const place = (s, top, live) => {
+      const left = vr.left + vr.width / 2;
+      s.box.getBoundingClientRect = () => ({ left, top, right: left + 50, bottom: top + 50 });
+      s.live = live;
+    };
+    touched.forEach((s) => place(s, vr.bottom + 10, true));
+    onScreen.forEach((s) => place(s, vr.bottom - 100, false));
+    // The boxes above replace the ones the registry holds, so drop the held
+    // copies. Without this the next pass ranks the layout the fixture had.
+    dcLodInvalidate();
+    // A real gesture on each off-screen slot: dcTouch reads the events and
+    // writes the mark, so this check covers the mark and the ranking together.
+    touched.forEach((s, i) => {
+      const opts = { pointerId: 30 + i, clientX: 0, clientY: 0, button: 0, buttons: 1, bubbles: true, cancelable: true };
+      s.box.dispatchEvent(new PointerEvent('pointerdown', opts));
+      s.box.dispatchEvent(new PointerEvent('pointerup', { ...opts, buttons: 0 }));
+    });
+    check(touched.every((s) => s.touchedAt !== undefined), 'the fixture gesture marked no slot');
+    check(onScreen.every((s) => s.touchedAt === undefined), 'the fixture gesture marked a slot it never reached');
+    for (let pass = 0; pass < count + 4; pass++) dcLodRun();
+    const visibleLive = onScreen.filter((s) => s.live).length;
+    const touchedLive = touched.filter((s) => s.live).length;
+    check(visibleLive === DC.liveBudget,
+      visibleLive + '/' + DC.liveBudget + ' slots on the screen are live; the touched slots kept the budget');
+    check(touchedLive === 0, touchedLive + ' touched slots off the screen kept their place');
+  });
   await test('a hanging state read gives up after DC.stateTimeoutMs', async () => {
     window.fetch = (url, opts) => new Promise((resolve, reject) => { opts && opts.signal && opts.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); });
     draw('review-hang.json'); await wait(DC.stateTimeoutMs + 300);
