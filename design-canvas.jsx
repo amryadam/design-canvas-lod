@@ -269,11 +269,20 @@ async function dcInlineDoc(html, baseHref) {
   return new XMLSerializer().serializeToString(doc.documentElement);
 }
 
-// Per-artboard export from the kebab menu (kind: 'png' | 'html'). Reuses the
-// inliner on the artboard's source file, so it works whether the slot is
-// live or showing its placeholder. PNG renders at 2× the
-// artboard's natural size via viewBox mapping (an <img>-loaded SVG rasterizes
-// at its intrinsic size, so the SVG itself must be the output resolution).
+// The <foreignObject> wrapper for a rasterized artboard, and its data URL.
+// `px` is the output scale. An <img>-loaded SVG rasterizes at its intrinsic
+// size, so the SVG must carry the output resolution and map the artboard
+// through viewBox. tests/regressions.js rasterizes through these two, so the
+// check cannot pass while the export path drifts.
+function dcArtboardSvg(xhtml, w, h, px = 1) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w * px}" height="${h * px}" viewBox="0 0 ${w} ${h}"><foreignObject width="${w}" height="${h}">${xhtml}</foreignObject></svg>`;
+}
+const dcSvgUrl = (svg) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+
+// Per-artboard export from the kebab menu (kind: 'png' | 'html'). It uses the
+// inliner on the artboard's source file. The export thus works whether the
+// slot is live or shows its placeholder. The PNG is 2× the artboard's natural
+// size.
 async function dcExportArtboard(src, w, h, name, kind) {
   try { await document.fonts.ready; } catch {}
   const save = (blob, ext) => {
@@ -286,9 +295,8 @@ async function dcExportArtboard(src, w, h, name, kind) {
   const xhtml = await dcInlineDoc(html, new URL(src, location.href).href);
   if (kind === 'html') return save(new Blob(['<!doctype html>\n' + xhtml], { type: 'text/html' }), 'html');
   const px = 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * px}" height="${h * px}" viewBox="0 0 ${w} ${h}"><foreignObject width="${w}" height="${h}">${xhtml}</foreignObject></svg>`;
   const img = new Image();
-  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  img.src = dcSvgUrl(dcArtboardSvg(xhtml, w, h, px));
   await img.decode();
   const c = document.createElement('canvas'); c.width = w * px; c.height = h * px;
   const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);

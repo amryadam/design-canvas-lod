@@ -122,11 +122,11 @@ window.canvasTestsDone = (async () => {
       return new Response('', { status: 404 });
     };
     const html = '<html><head><link rel="stylesheet" href="/styles/main.css"></head><body></body></html>';
-    // Same path as Download PNG: inline the document, wrap it in a
-    // foreignObject, and rasterize that.
+    // Download PNG's own wrapper, at its own 2x scale, so this check fails if
+    // the export path changes under it.
     const xhtml = await dcInlineDoc(html, location.href);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><foreignObject width="100" height="100">${xhtml}</foreignObject></svg>`;
-    const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); await image.decode();
+    const image = new Image(); image.src = dcSvgUrl(dcArtboardSvg(xhtml, 100, 100, 2)); await image.decode();
+    check(image.naturalWidth === 200, 'export SVG did not rasterize at 2x, got ' + image.naturalWidth);
     ctx.drawImage(image, 0, 0, 10, 10); const pixel = ctx.getImageData(5, 5, 1, 1).data;
     check(pixel[0] > 240 && pixel[1] < 20, 'background rasterized white instead of red');
     check(calls.includes('/styles/red.png'), 'CSS URL resolved against wrong base');
