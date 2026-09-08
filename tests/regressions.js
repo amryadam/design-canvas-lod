@@ -431,6 +431,20 @@ window.canvasTestsDone = (async () => {
     check(dcExportName('صفحة عربية', 'x') === 'صفحة عربية', 'Arabic label collapsed: ' + dcExportName('صفحة عربية', 'x'));
     check(dcExportName('a/b:c', 'x') === 'a_b_c', 'separators kept');
   });
+  await test('the lost pill costs no rect reads per frame', async () => {
+    window.fetch = async () => new Response('', { status: 404 });
+    draw('review-lostcost.json', E(DCSection, { id: 'review', title: 'Lost' }, E(DCArtboard, { id: 'a', width: 300, height: 200 })));
+    await until(() => host.querySelector('[data-dc-slot]')); await wait(DC.rescueMs + 200);
+    const vp = host.querySelector('.design-canvas');
+    const pan = (dx) => vp.dispatchEvent(new WheelEvent('wheel', { deltaX: dx + 0.001, deltaY: 0.001, deltaMode: 0, clientX: 300, clientY: 300, bubbles: true, cancelable: true }));
+    pan(6000); await until(() => host.querySelector('.dc-backto'));
+    const orig = Element.prototype.getBoundingClientRect; let reads = 0;
+    Element.prototype.getBoundingClientRect = function () { reads++; return orig.call(this); };
+    try { for (let i = 0; i < 10; i++) { pan(5); await new Promise((r) => requestAnimationFrame(r)); } }
+    finally { Element.prototype.getBoundingClientRect = orig; }
+    check(reads === 0, reads + ' rect reads during 10 frames with the pill up');
+    check(host.querySelector('.dc-backto'), 'the pill went away while still off content');
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

@@ -501,6 +501,10 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   const [lost, setLost] = React.useState(false);
   const lostRef = React.useRef(false);
   const lostT = React.useRef(0);
+  // The content box in world units, and the viewport size in px. checkLost
+  // caches both. flushNow then tests the box with arithmetic only.
+  const lostBox = React.useRef(null);
+  const vpSize = React.useRef({ w: 0, h: 0 });
   const tween = React.useRef(0);
 
   // What counts as content: the section (its header too), every slot and every
@@ -509,17 +513,23 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
   // reading its rect would lay out a skipped subtree.
   const boxes = (vp) => vp.querySelectorAll('[data-dc-section], [data-dc-slot], [data-dc-note]');
 
-  // A few rects, read on settle — and, while the pill is up, on every flushed
-  // frame, so panning back onto the pages hides it at once instead of 150 ms on.
+  // A few rects, read on settle only. The pass also caches the world-space box
+  // of the content. flushNow tests that box with arithmetic in each frame, so
+  // panning back onto the pages hides the pill at once and reads no rect.
   const checkLost = React.useCallback(() => {
     const vp = vpRef.current; if (!vp) return;
     const els = boxes(vp);
     let next = els.length > 0;
-    const r = vp.getBoundingClientRect();
+    const r = vp.getBoundingClientRect(), s = tf.current.scale;
+    vpSize.current = { w: r.width, h: r.height };
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const el of els) {
       const b = el.getBoundingClientRect();
       if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { next = false; break; }
+      x0 = Math.min(x0, (b.left - r.left - tf.current.x) / s); y0 = Math.min(y0, (b.top - r.top - tf.current.y) / s);
+      x1 = Math.max(x1, (b.right - r.left - tf.current.x) / s); y1 = Math.max(y1, (b.bottom - r.top - tf.current.y) / s);
     }
+    lostBox.current = next ? { x0, y0, x1, y1 } : null;
     if (lostRef.current !== next) { lostRef.current = next; setLost(next); }
   }, []);
 
@@ -560,7 +570,12 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
       window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
     }
     dcMarkMoving();
-    if (lostRef.current) checkLost();
+    // With the pill up, test the cached content box with arithmetic only.
+    if (lostRef.current && lostBox.current) {
+      const b = lostBox.current, v = vpSize.current;
+      const onScreen = b.x1 * scale + x > 0 && b.x0 * scale + x < v.w && b.y1 * scale + y > 0 && b.y0 * scale + y < v.h;
+      if (onScreen) { lostRef.current = false; lostBox.current = null; setLost(false); }
+    }
     clearTimeout(lostT.current);
     lostT.current = setTimeout(checkLost, DC.settleMs);
     clearTimeout(saveT.current);
