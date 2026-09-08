@@ -910,6 +910,8 @@ function DCSection({ id, title, subtitle, children, gap = 48, positions, notePos
       out[k] = hit && hit.mark === mark ? hit.size : dcSize(byId[k].props, (sec.variant || {})[k]);
       cache.set(k, { mark, size: out[k] });
     });
+    // A removed slot must not hold its size in the cache for the life of the page.
+    for (const k of [...cache.keys()]) if (!(k in out)) cache.delete(k);
     return out;
   }, [marks]);
   // Persisted moves override the authored positions.
