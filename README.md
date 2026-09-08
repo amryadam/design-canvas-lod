@@ -24,7 +24,9 @@ screens are placeholders.
 - Every page is a window: a header with a live dot, the name, the variant
   chips, the ⋯ menu and ↗ (open the screen in a new tab), then the screen inset
   in the body (`DC.winHead`, `DC.winPad`, `DC.winBody`). Every option is in the
-  header at all times — no drawer, no hover to reveal. The ⋯ menu holds Open
+  header at all times — no drawer, no hover to reveal. The header drags the
+  page; Ctrl+left click (⌘ on a Mac) drags it from anywhere on it, the screen
+  included. The ⋯ menu holds Open
   screen, Reset position, Reset arrow sides, Download PNG, Download HTML and
   Delete.
   The chrome is world px, so it grows and shrinks with the card, as the flow

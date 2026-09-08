@@ -70,6 +70,10 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-card *::-webkit-scrollbar{display:none}
 .dc-card iframe{display:block;border:0;background:#fff}
 .dc-moving .dc-card iframe{pointer-events:none}
+/* Ctrl (or ⌘) held: the whole page is a grip. The screen iframe stops taking
+   the pointer, so a Ctrl+click on it reaches the slot (see onSlotDownCapture). */
+.dc-grab [data-dc-slot]{cursor:grab}
+.dc-grab .dc-card iframe{pointer-events:none}
 .dc-shield{position:absolute;inset:0;cursor:pointer}
 /* One bar at the right of the header: the variant chips, then the actions.
    It is always visible; nothing in it waits for a hover. */
@@ -698,7 +702,18 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     vp.addEventListener('pointermove', onPointerMove);
     vp.addEventListener('pointerup', onPointerUp);
     vp.addEventListener('pointercancel', onPointerUp);
+    // Ctrl (or ⌘ on a Mac) held turns every page into a grip. Keys inside a
+    // screen iframe do not reach this window, so the class also follows the
+    // modifier on pointer events over the viewport, and blur clears it.
+    const setGrab = (on) => vp.classList.toggle('dc-grab', !!on);
+    const onKey = (e) => setGrab(e.ctrlKey || e.metaKey);
+    const onBlur = () => setGrab(false);
+    const onCtx = (e) => { if (e.ctrlKey && e.target.closest('[data-dc-slot]')) e.preventDefault(); };
+    window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKey); window.addEventListener('blur', onBlur);
+    vp.addEventListener('pointermove', onKey); vp.addEventListener('contextmenu', onCtx);
     return () => {
+      window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); window.removeEventListener('blur', onBlur);
+      vp.removeEventListener('pointermove', onKey); vp.removeEventListener('contextmenu', onCtx);
       window.removeEventListener('message', onHostMsg);
       vp.removeEventListener('wheel', onWheel);
       vp.removeEventListener('gesturestart', onGestureStart);
@@ -1083,11 +1098,15 @@ function DCArtboardFrame({ sectionId, artboardProps, label, order, position, ori
     });
   };
 
+  // Ctrl+left click (⌘ on a Mac) anywhere on the page moves it, as the header
+  // does. Capture phase, so the title, the chips and the menu do not stop it.
+  const onSlotDownCapture = (e) => { if (e.button === 0 && (e.ctrlKey || e.metaKey)) onGripDown(e); };
+
   const fileName = String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_');
   const save = (kind) => dcExportArtboard(href, width, height, fileName, kind)
     .catch((err) => console.error('[design-canvas] export failed:', err));
   return (
-    <div ref={ref} data-dc-slot={id} style={position
+    <div ref={ref} data-dc-slot={id} onPointerDownCapture={onSlotDownCapture} style={position
       ? { position: 'absolute', left: position.x - originX - DC.winPad, top: position.y - originY - DC.winHead - DC.winPad }
       : { position: 'relative', flexShrink: 0 }}>
       <div className="dc-win" style={{ width: width + DC.winPad * 2 }}>
