@@ -484,6 +484,30 @@ window.canvasTestsDone = (async () => {
     const after = slot.getBoundingClientRect().top;
     check(Math.abs(after - want) < 1, 'content jumped ' + (after - want).toFixed(2) + 'px when --dc-inv-zoom settled');
   });
+  await test('--dc-inv-zoom tracks the zoom during the gesture', async () => {
+    // Before: the variable held its pre-gesture value through the whole pinch
+    // and onSettle snapped it DC.settleMs after the last notch, so the section
+    // head, the arrowheads and the dashes jumped to size at once -- a flicker
+    // after a zoom. Now a coarse step writes it during the gesture, so the
+    // chrome tracks the zoom and never snaps late. Layout still never reads it
+    // ("the world layout does not read the zoom"), so this moves no card.
+    window.fetch = async () => new Response('', { status: 404 });
+    const w = Math.min(900, innerWidth), h = Math.min(700, innerHeight);
+    draw('review-invtrack.json',
+      E(DCSection, { id: 'review', title: 'Track' }, E(DCArtboard, { id: 'a', width: 600, height: 4000 })),
+      { style: { position: 'fixed', top: 0, left: 0, width: w, height: h } });
+    await until(() => host.querySelector('[data-dc-slot]'));
+    await wait(DC.rescueMs + 200);
+    const world = host.querySelector('[data-dc-world]');
+    const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+    const invOf = () => parseFloat(getComputedStyle(world).getPropertyValue('--dc-inv-zoom')) || 1;
+    const s0 = scaleOf(), inv0 = invOf();
+    // Zoom well out. Read the variable while the scale is only half way there,
+    // so the read lands inside the gesture, before any settle timer could fire.
+    window.postMessage({ type: '__dc_set_zoom', scale: s0 / 4 }, '*');
+    await until(() => scaleOf() <= s0 * 0.5);
+    check(invOf() > inv0 * 1.4, '--dc-inv-zoom stayed near ' + invOf().toFixed(2) + ' during the gesture; it still snaps late');
+  });
   await test('the world layout does not read the zoom', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     draw('review-worldunits.json',

@@ -46,6 +46,12 @@ const DC = {
                         // written, and the lost-pill check runs. A larger value
                         // also delays the mount of an iframe. It does not move
                         // the view: nothing in the world's layout reads the zoom
+  invZoomStep: 1.25,    // --dc-inv-zoom is also written during a zoom, not on
+                        // settle alone, so the chrome (section head, arrowheads,
+                        // dashes) tracks the zoom and never snaps 150 ms late.
+                        // A write only each 1.25x change, not every frame: the
+                        // variable is inherited, so each write recalculates the
+                        // whole world's style (0.4 ms at 10 slots, 1.1 ms at 40)
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
   stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
@@ -672,10 +678,26 @@ function dcUseZoomSettle(worldRef, tf) {
   // Each flushed frame arms the callback. The first paint writes at once, so
   // the chrome is never wrong before a gesture.
   const armSettle = React.useCallback(() => {
+    // First paint writes at once, so the chrome is never wrong before a gesture.
     if (lastInv.current === null) { onSettle(); return; }
+    // Coarse mid-gesture write. onSettle still lands the exact value, but the
+    // variable used to hold its pre-gesture value through the whole pinch and
+    // snap DC.settleMs after the last notch, so the section head, the arrowheads
+    // and the dashes jumped to size at once -- a flicker after a zoom. A write
+    // each DC.invZoomStep factor tracks the zoom without the per-frame full-world
+    // style recalc the inherited variable would force. Layout reads none of it
+    // ("the world layout does not read the zoom"), so this moves no card.
+    const el = worldRef.current;
+    if (el) {
+      const inv = 1 / tf.current.scale;
+      if (inv >= lastInv.current * DC.invZoomStep || lastInv.current >= inv * DC.invZoomStep) {
+        lastInv.current = inv;
+        el.style.setProperty('--dc-inv-zoom', String(inv));
+      }
+    }
     clearTimeout(invT.current);
     invT.current = setTimeout(onSettle, DC.settleMs);
-  }, [onSettle]);
+  }, [onSettle, worldRef, tf]);
   const stopSettle = React.useCallback(() => { clearTimeout(invT.current); }, []);
   const repost = React.useCallback(() => { lastPostedScale.current = undefined; }, []);
   return { armSettle, stopSettle, repost };
