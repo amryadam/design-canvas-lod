@@ -1102,6 +1102,39 @@ window.canvasTestsDone = (async () => {
     const want = 100 / dcView.scale, got = api.section('review').positions.A.x;
     check(Math.abs(got - want) <= 10, 'the drag moved the card ' + got + ' world px, not ' + want.toFixed(1));
   });
+  await test('the world drops its GPU layer above the size limit', async () => {
+    // The world is one composited layer. A GPU stops drawing a layer past its
+    // max texture size, so a tall page's bottom blanks as a zoom-in crosses the
+    // line. Past DC.maxLayerPx the world must not be promoted: no will-change,
+    // and a 2D transform (matrix, not matrix3d), so the content paints tiled.
+    window.fetch = async () => new Response('', { status: 404 });
+    const saved = DC.maxLayerPx;
+    try {
+      draw('review-layerlimit.json',
+        E(DCSection, { id: 'review', title: 'Layer' },
+          E(DCArtboard, { id: 'a', width: 1440, height: 4000 }),
+          E(DCArtboard, { id: 'b', width: 1440, height: 4000 })));
+      await until(() => host.querySelector('[data-dc-world]'));
+      await wait(DC.rescueMs + 200);
+      const world = host.querySelector('[data-dc-world]');
+      const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
+      const promoted = () => getComputedStyle(world).willChange === 'transform'
+        && world.style.transform.startsWith('translate3d');
+      const s0 = scaleOf();
+      // Under the limit: keep the GPU layer (translate3d + will-change).
+      DC.maxLayerPx = 1e9;
+      window.postMessage({ type: '__dc_set_zoom', scale: s0 * 0.9 }, '*');
+      await until(() => Math.abs(scaleOf() - s0 * 0.9) < s0 * 0.05); await wait(40);
+      check(promoted(), 'under the limit the world lost its GPU layer: '
+        + getComputedStyle(world).willChange + ' / ' + world.style.transform.slice(0, 12));
+      // Over the limit: drop the layer (2D transform, no will-change).
+      DC.maxLayerPx = 10;
+      window.postMessage({ type: '__dc_set_zoom', scale: s0 * 1.1 }, '*');
+      await until(() => Math.abs(scaleOf() - s0 * 1.1) < s0 * 0.05); await wait(40);
+      check(!promoted(), 'over the limit the world kept its GPU layer: '
+        + getComputedStyle(world).willChange + ' / ' + world.style.transform.slice(0, 12));
+    } finally { DC.maxLayerPx = saved; }
+  });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;
   return results;

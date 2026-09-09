@@ -52,6 +52,14 @@ const DC = {
                         // A write only each 1.25x change, not every frame: the
                         // variable is inherited, so each write recalculates the
                         // whole world's style (0.4 ms at 10 slots, 1.1 ms at 40)
+  maxLayerPx: 16384,    // the world is one composited layer (its transform). A
+                        // GPU stops drawing a layer past its max texture size --
+                        // commonly 16384 CSS px, lower on some GPUs and Safari --
+                        // so the part beyond it drops out. That is the tall-page
+                        // "bottom half flickers on zoom-in". Past this size the
+                        // world drops its promotion and paints tiled instead
+                        // (see flushNow). The block below lowers it to the real
+                        // GPU limit at load.
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
   stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
@@ -66,6 +74,17 @@ const DC = {
                         // below gives the arithmetic
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
+
+// Lower DC.maxLayerPx to this GPU's real max texture size, held a margin below
+// the edge so a zoom that lands exactly on the limit still has room.
+if (typeof document !== 'undefined') {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    const m = gl && gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (m) DC.maxLayerPx = Math.min(DC.maxLayerPx, Math.floor(m * 0.95));
+  } catch {}
+}
 
 if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   const s = document.createElement('style');
@@ -949,7 +968,18 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     raf.current = 0;
     const { x, y, scale } = tf.current;
     const el = worldRef.current; if (!el) return;
-    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    // The world is one composited layer. Above DC.maxLayerPx in either axis a
+    // GPU stops drawing the layer and the far edge blanks, so past the limit
+    // drop the promotion (no will-change, a 2D transform) and let the content
+    // paint tiled into the viewport surface -- content-visibility already keeps
+    // only the visible cards painted. scrollWidth/scrollHeight are the unscaled
+    // layout size and a transform does not dirty layout, so this reads clean.
+    const promote = el.scrollWidth * scale <= DC.maxLayerPx
+                 && el.scrollHeight * scale <= DC.maxLayerPx;
+    el.style.willChange = promote ? 'transform' : 'auto';
+    el.style.transform = promote
+      ? `translate3d(${x}px, ${y}px, 0) scale(${scale})`
+      : `translate(${x}px, ${y}px) scale(${scale})`;
     armSettle();
     // A new view changes which slots are near the viewport centre. The camera
     // is this world, and dcSetCamera schedules the pass that ranks against it.
@@ -1043,7 +1073,7 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     <div ref={vpRef} className="design-canvas"
       style={{ height: '100vh', width: '100vw', background: DC.bg, overflow: 'hidden', overscrollBehavior: 'none', touchAction: 'none', position: 'relative', fontFamily: DC.font, boxSizing: 'border-box', ...style }}>
       <div style={{ position: 'absolute', inset: 0, backgroundImage: `radial-gradient(${DC.dot} 1px, transparent 1px)`, backgroundSize: `${DC.dotSize}px ${DC.dotSize}px`, pointerEvents: 'none' }} />
-      <div ref={worldRef} data-dc-world="" style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', willChange: 'transform', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: '72px 0 80px' }}>
+      <div ref={worldRef} data-dc-world="" style={{ position: 'absolute', top: 0, left: 0, transformOrigin: '0 0', width: 'max-content', minWidth: '100%', minHeight: '100%', padding: '72px 0 80px' }}>
         {children}
       </div>
       {lost && (
