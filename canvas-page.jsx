@@ -420,7 +420,7 @@ function CanvasFlows({ flows: authored, section }) {
           const ink = on ? CF.hover : CF.stroke;
           return (
             <g key={p.key} fill="none" stroke={ink} strokeWidth={CF.width} strokeLinecap="round" strokeLinejoin="round"
-              opacity={dim ? 0.3 : 1} style={{ transition: 'opacity .15s' }}>
+              opacity={dim ? 0.3 : 1}>
               <path d={p.d} style={{ strokeWidth: CF.strokeW, strokeDasharray: p.dashed ? CF.dashW : undefined }} />
               <polygon points={cfArrow(p.end, p.angle)} fill={ink} stroke="none"
                 style={{ transform: `scale(${CF.inv})`, transformOrigin: `${p.end.x}px ${p.end.y}px` }} />
@@ -443,7 +443,7 @@ function CanvasFlows({ flows: authored, section }) {
           font: CF.pill.font, color: hover === i ? CF.hover : CF.pill.color, background: CF.pill.bg,
           border: hover === i ? `1px solid ${CF.hover}` : CF.pill.border, opacity: hover != null && hover !== i ? 0.35 : 1,
           borderRadius: 999, padding: '8px 16px', boxShadow: CF.pill.shadow, whiteSpace: 'nowrap',
-          pointerEvents: 'auto', transition: 'opacity .15s, color .15s, border-color .15s',
+          pointerEvents: 'auto',
         }}>{p.label}</div>
       ))}
     </div>,

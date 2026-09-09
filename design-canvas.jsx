@@ -73,8 +73,15 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
    screen inset in the body. The chrome is world px, so it grows and shrinks
    with the card, as the flow labels do. */
 [data-dc-slot].dc-dragging .dc-win{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}
-.dc-win{position:relative;background:#fff;border-radius:18px;overflow:hidden;transition:box-shadow .18s ease,transform .18s ease;box-shadow:0 1px 3px rgba(40,32,22,.08),0 12px 30px -14px rgba(40,32,22,.35)}
-[data-dc-slot]:hover:not(.dc-dragging) .dc-win{transform:translateY(-3px);box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)}
+.dc-win{position:relative;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 1px 3px rgba(40,32,22,.08),0 12px 30px -14px rgba(40,32,22,.35)}
+/* The card hover is the same bug as the dot, but larger. A transition or a
+   transform on a card runs in the world layer and repaints the whole world
+   on each frame. During a pan the pointer stays still while the world moves,
+   so :hover jumps from card to card and the repaint runs the whole gesture.
+   So the hover keeps a box-shadow only: no transition, no transform, and the
+   .dc-moving guard removes it during a pan. "hover chrome in the world starts
+   no transition" in tests/regressions.js guards this. */
+.design-canvas:not(.dc-moving) [data-dc-slot]:hover:not(.dc-dragging) .dc-win{box-shadow:0 2px 6px rgba(40,32,22,.08),0 26px 50px -18px rgba(40,32,22,.4)}
 .dc-winhead{display:flex;align-items:center;gap:14px;padding:0 22px;cursor:grab;user-select:none;border-bottom:1px solid rgba(40,32,22,.07)}
 .dc-winhead:active{cursor:grabbing}
 /* No transition on the dot. It sits in the world layer, and a transition
@@ -104,15 +111,15 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
 .dc-bar hr{flex:0 0 1px;width:1px;height:20px;margin:0 2px;border:0;background:rgba(40,32,22,.12)}
 .dc-chips{flex:0 0 auto;display:flex;gap:6px}
 .dc-sizes{flex:0 0 auto;display:inline-flex;gap:2px;padding:2px;background:#fff;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
-.dc-size{border:0;padding:6px 10px;border-radius:6px;background:transparent;font:600 12px/1 inherit;font-family:inherit;color:rgba(60,50,40,.65);cursor:pointer;letter-spacing:.02em;transition:background .12s,color .12s}
+.dc-size{border:0;padding:6px 10px;border-radius:6px;background:transparent;font:600 12px/1 inherit;font-family:inherit;color:rgba(60,50,40,.65);cursor:pointer;letter-spacing:.02em}
 .dc-size:hover{color:#2a251f}
 .dc-size.dc-on{background:#12a594;color:#fff}
 .dc-btns{flex:0 0 auto;display:flex;gap:2px;align-items:center}
 [data-dc-slot]:has(.dc-menu){z-index:10}
-.dc-kebab,.dc-openbtn{width:28px;height:28px;border-radius:7px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.65);display:flex;align-items:center;justify-content:center;font:inherit;transition:background .12s,color .12s}
+.dc-kebab,.dc-openbtn{width:28px;height:28px;border-radius:7px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.65);display:flex;align-items:center;justify-content:center;font:inherit}
 .dc-kebab:hover,.dc-openbtn:hover{background:#fff;color:#1e1b16;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
 .dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:5px;min-width:180px;z-index:10}
-.dc-menu button{display:block;width:100%;padding:9px 12px;border:0;background:transparent;border-radius:6px;font-family:inherit;font-size:14px;font-weight:500;line-height:1.2;color:#29261b;cursor:pointer;text-align:left;transition:background .12s;white-space:nowrap}
+.dc-menu button{display:block;width:100%;padding:9px 12px;border:0;background:transparent;border-radius:6px;font-family:inherit;font-size:14px;font-weight:500;line-height:1.2;color:#29261b;cursor:pointer;text-align:left;white-space:nowrap}
 .dc-menu button:hover{background:rgba(0,0,0,.05)}
 .dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:5px 3px}
 .dc-menu .dc-danger{color:#c96442}

@@ -185,6 +185,35 @@ window.canvasTestsDone = (async () => {
     }
     check(seen.size === 0, 'a mount ran ' + [...seen].join(', ') + '; each frame of it repaints the whole world');
   });
+  await test('hover chrome in the world starts no transition', async () => {
+    // The dot fix removed one world-layer transition; the hover lift on
+    // .dc-win is the same bug, larger. [data-dc-slot]:hover ran a transform
+    // and a box-shadow over .18s on a node inside the world, so a pointer
+    // sweep -- or a pan, where :hover hops card to card as the world slides
+    // under a still pointer -- repainted the whole world every frame of the
+    // hover. Guard the invariant the dot test guards, but for hover: world
+    // chrome carries no transition, and no hover rule moves a world node.
+    window.fetch = async () => new Response('', { status: 404 });
+    const w = 300 - DC.winPad * 2, h = 200 - DC.winHead - DC.winPad * 2;
+    draw('review-hover-anim.json', E(DCSection, { id: 'review', title: 'Hover' },
+      E(DCArtboard, { id: 'b0', width: w, height: h },
+        E(DCLazyFrame, { src: 'about:blank', title: 'b0', width: w, height: h }))));
+    await until(() => host.querySelector('.dc-win'));
+    const win = host.querySelector('.dc-win');
+    check(getComputedStyle(win).transitionDuration === '0s',
+      '.dc-win transitions ' + getComputedStyle(win).transitionProperty + ' over ' +
+      getComputedStyle(win).transitionDuration + '; every hover then repaints the whole world');
+    // A transform on .dc-win paints the world layer on hover-in and hover-out.
+    let moved = '';
+    for (const sheet of document.styleSheets) {
+      let rules; try { rules = sheet.cssRules; } catch { continue; }
+      for (const r of rules)
+        if (r.selectorText && r.selectorText.includes(':hover') &&
+            r.selectorText.includes('.dc-win') && r.style && r.style.transform)
+          moved += r.selectorText + '{transform:' + r.style.transform + '}';
+    }
+    check(!moved, 'a hover rule moves .dc-win: ' + moved);
+  });
   await test('the settled pass ranks without measuring every slot', async () => {
     window.fetch = async () => new Response('', { status: 404 });
     const count = DC.liveBudget + 4;
