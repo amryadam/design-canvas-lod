@@ -1102,13 +1102,15 @@ window.canvasTestsDone = (async () => {
     const want = 100 / dcView.scale, got = api.section('review').positions.A.x;
     check(Math.abs(got - want) <= 10, 'the drag moved the card ' + got + ' world px, not ' + want.toFixed(1));
   });
-  await test('the world drops its GPU layer above the size limit', async () => {
-    // The world is one composited layer. A GPU stops drawing a layer past its
-    // max texture size, so a tall page's bottom blanks as a zoom-in crosses the
-    // line. Past DC.maxLayerPx the world must not be promoted: no will-change,
-    // and a 2D transform (matrix, not matrix3d), so the content paints tiled.
+  await test('the world drops its GPU layer above the memory budget', async () => {
+    // While the world is on its own GPU layer (will-change: transform), Chrome
+    // keeps the raster scale it had when zoomed in. A zoom-out then puts the
+    // whole world on screen at that scale: 3.8 GB of GPU memory on a 29-board
+    // page at DPR 2, and the GPU drops whole frames (the tab blinks). So the
+    // world keeps its layer only while all of it, at the current scale, fits
+    // DC.maxLayerMB; above that it takes a 2D transform and no will-change.
     window.fetch = async () => new Response('', { status: 404 });
-    const saved = DC.maxLayerPx;
+    const saved = DC.maxLayerMB;
     try {
       draw('review-layerlimit.json',
         E(DCSection, { id: 'review', title: 'Layer' },
@@ -1120,20 +1122,23 @@ window.canvasTestsDone = (async () => {
       const scaleOf = () => new DOMMatrix(getComputedStyle(world).transform).a;
       const promoted = () => getComputedStyle(world).willChange === 'transform'
         && world.style.transform.startsWith('translate3d');
+      // GPU memory of the whole world drawn at scale s, in MB.
+      const mb = (s) => world.scrollWidth * world.scrollHeight * (s * devicePixelRatio) ** 2 * 4 / 1048576;
       const s0 = scaleOf();
-      // Under the limit: keep the GPU layer (translate3d + will-change).
-      DC.maxLayerPx = 1e9;
+      // The whole world fits the budget: keep the GPU layer.
+      DC.maxLayerMB = mb(s0 * 0.9) * 1.5;
       window.postMessage({ type: '__dc_set_zoom', scale: s0 * 0.9 }, '*');
       await until(() => Math.abs(scaleOf() - s0 * 0.9) < s0 * 0.05); await wait(40);
-      check(promoted(), 'under the limit the world lost its GPU layer: '
+      check(promoted(), 'inside the budget the world lost its GPU layer: '
         + getComputedStyle(world).willChange + ' / ' + world.style.transform.slice(0, 12));
-      // Over the limit: drop the layer (2D transform, no will-change).
-      DC.maxLayerPx = 10;
+      // The whole world at this scale is over the budget, though each side is
+      // far below any texture size: drop the layer.
+      DC.maxLayerMB = mb(s0 * 1.1) * 0.5;
       window.postMessage({ type: '__dc_set_zoom', scale: s0 * 1.1 }, '*');
       await until(() => Math.abs(scaleOf() - s0 * 1.1) < s0 * 0.05); await wait(40);
-      check(!promoted(), 'over the limit the world kept its GPU layer: '
+      check(!promoted(), 'over the budget the world kept its GPU layer: '
         + getComputedStyle(world).willChange + ' / ' + world.style.transform.slice(0, 12));
-    } finally { DC.maxLayerPx = saved; }
+    } finally { DC.maxLayerMB = saved; }
   });
   document.title = results.every((r) => r.pass) ? 'PASS: canvas regressions' : 'FAIL: canvas regressions';
   window.canvasTestResults = results;

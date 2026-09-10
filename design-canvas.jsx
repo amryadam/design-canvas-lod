@@ -52,14 +52,14 @@ const DC = {
                         // A write only each 1.25x change, not every frame: the
                         // variable is inherited, so each write recalculates the
                         // whole world's style (0.4 ms at 10 slots, 1.1 ms at 40)
-  maxLayerPx: 16384,    // the world is one composited layer (its transform). A
-                        // GPU stops drawing a layer past its max texture size --
-                        // commonly 16384 CSS px, lower on some GPUs and Safari --
-                        // so the part beyond it drops out. That is the tall-page
-                        // "bottom half flickers on zoom-in". Past this size the
-                        // world drops its promotion and paints tiled instead
-                        // (see flushNow). The block below lowers it to the real
-                        // GPU limit at load.
+  maxLayerMB: 256,      // GPU memory the world's own layer may take. On its own
+                        // layer (will-change: transform) the world keeps the
+                        // raster scale it had when zoomed in, so a zoom-in and
+                        // then a zoom-out draws the whole world at the zoomed-in
+                        // resolution: 3.8 GB on "Users and roles" at DPR 2. The
+                        // GPU then drops whole frames and the tab blinks. The
+                        // world keeps its layer only while all of it, at the
+                        // current scale, fits this budget (see flushNow).
   mountGapMs: 60,       // gap between two iframe mounts; two in one frame make it long
   rescueMs: 500,        // after the fit: if no slot is on screen, nudge slot 0 into view
   stateTimeoutMs: 1500,  // give up on the state file read; the browser copy then wins
@@ -75,16 +75,6 @@ const DC = {
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
 };
 
-// Lower DC.maxLayerPx to this GPU's real max texture size, held a margin below
-// the edge so a zoom that lands exactly on the limit still has room.
-if (typeof document !== 'undefined') {
-  try {
-    const c = document.createElement('canvas');
-    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-    const m = gl && gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    if (m) DC.maxLayerPx = Math.min(DC.maxLayerPx, Math.floor(m * 0.95));
-  } catch {}
-}
 
 if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
   const s = document.createElement('style');
@@ -968,14 +958,15 @@ function DCViewport({ children, minScale = 0.05, maxScale = 4, style = {} }) {
     raf.current = 0;
     const { x, y, scale } = tf.current;
     const el = worldRef.current; if (!el) return;
-    // The world is one composited layer. Above DC.maxLayerPx in either axis a
-    // GPU stops drawing the layer and the far edge blanks, so past the limit
-    // drop the promotion (no will-change, a 2D transform) and let the content
-    // paint tiled into the viewport surface -- content-visibility already keeps
-    // only the visible cards painted. scrollWidth/scrollHeight are the unscaled
-    // layout size and a transform does not dirty layout, so this reads clean.
-    const promote = el.scrollWidth * scale <= DC.maxLayerPx
-                 && el.scrollHeight * scale <= DC.maxLayerPx;
+    // The world keeps its GPU layer only while all of it, drawn at this scale,
+    // fits DC.maxLayerMB. On that layer Chrome keeps the raster scale it had
+    // when zoomed in, and a zoom-out would then hold the whole world at that
+    // resolution. Above the budget the world takes a 2D transform and no
+    // will-change: it paints into the viewport's layer at the current scale,
+    // and only the tiles on screen use memory. scrollWidth/scrollHeight are the
+    // unscaled layout size, and a transform does not dirty layout.
+    const px = scale * devicePixelRatio;
+    const promote = el.scrollWidth * el.scrollHeight * px * px * 4 <= DC.maxLayerMB * 1048576;
     el.style.willChange = promote ? 'transform' : 'auto';
     el.style.transform = promote
       ? `translate3d(${x}px, ${y}px, 0) scale(${scale})`
