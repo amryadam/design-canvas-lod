@@ -1,7 +1,7 @@
 # React Flow screen and journey workspace
 
 Date: 2026-09-14
-Status: Design agreed in conversation; written specification awaiting review.
+Status: Written specification approved by the user on 2026-09-14.
 
 ## Purpose and scope
 
