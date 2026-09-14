@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React Flow host probe</title>
+    <style>html, body, #workspace { height: 100%; margin: 0; }</style>
+  </head>
+  <body>
+    <main id="workspace"></main>
+    <script type="module">
+      import { mountWorkspace } from '../../../src/workspace.tsx';
+      mountWorkspace(document.querySelector('#workspace'), { baseUrl: '/', host: 'standalone' });
+    </script>
+  </body>
+</html>

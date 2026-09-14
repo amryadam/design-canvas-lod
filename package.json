@@ -1,0 +1,25 @@
+{
+  "name": "design-canvas-react-flow-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build --config vite.app.config.ts && vite build --config vite.lib.config.ts",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.11.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "^24.10.7",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "tsx": "4.23.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.1",
+    "vitest": "4.1.0"
+  }
+}
