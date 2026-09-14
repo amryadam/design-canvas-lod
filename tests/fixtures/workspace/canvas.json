@@ -1,0 +1,343 @@
+{
+  "version": 1,
+  "workspaceId": "sample-invoices",
+  "pages": [
+    {
+      "id": "page-9",
+      "name": "Invoices · ZATCA"
+    }
+  ],
+  "screens": [
+    {
+      "id": "screen:page-9:ZatcaProfile.dc.html",
+      "pageId": "page-9",
+      "title": "01 Set up ZATCA · company profile · 1440×1000",
+      "position": {
+        "x": 0,
+        "y": 990
+      },
+      "defaultVariantId": "variant:page-9:ZatcaProfile.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:ZatcaProfile.dc.html",
+          "file": "ZatcaProfile.dc.html",
+          "label": "01 Set up ZATCA · company profile · 1440×1000",
+          "width": 1440,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:ZatcaCode.dc.html",
+      "pageId": "page-9",
+      "title": "02 Set up ZATCA · code · 1440×900",
+      "position": {
+        "x": 2880,
+        "y": 1040
+      },
+      "defaultVariantId": "variant:page-9:ZatcaCode.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:ZatcaCode.dc.html",
+          "file": "ZatcaCode.dc.html",
+          "label": "02 Set up ZATCA · code · 1440×900",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:ZatcaProgress.dc.html",
+      "pageId": "page-9",
+      "title": "03 Set up ZATCA · connecting · 1440×900",
+      "position": {
+        "x": 5760,
+        "y": 1040
+      },
+      "defaultVariantId": "variant:page-9:ZatcaProgress.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:ZatcaProgress.dc.html",
+          "file": "ZatcaProgress.dc.html",
+          "label": "03 Set up ZATCA · connecting · 1440×900",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:ZatcaFailed.dc.html",
+      "pageId": "page-9",
+      "title": "03e Set up ZATCA · stopped · 1440×900",
+      "position": {
+        "x": 8640,
+        "y": 230
+      },
+      "defaultVariantId": "variant:page-9:ZatcaFailed.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:ZatcaFailed.dc.html",
+          "file": "ZatcaFailed.dc.html",
+          "label": "03e Set up ZATCA · stopped · 1440×900",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:ZatcaDone.dc.html",
+      "pageId": "page-9",
+      "title": "03d Set up ZATCA · connected · 1440×900",
+      "position": {
+        "x": 8640,
+        "y": 1850
+      },
+      "defaultVariantId": "variant:page-9:ZatcaDone.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:ZatcaDone.dc.html",
+          "file": "ZatcaDone.dc.html",
+          "label": "03d Set up ZATCA · connected · 1440×900",
+          "width": 1440,
+          "height": 900
+        },
+        {
+          "id": "variant:page-9:ZatcaDonePhone.dc.html",
+          "file": "ZatcaDonePhone.dc.html",
+          "label": "03d Set up ZATCA · connected · phone · 390×844",
+          "width": 390,
+          "height": 844
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:Invoices.dc.html",
+      "pageId": "page-9",
+      "title": "04 Invoices · 1440×1100",
+      "position": {
+        "x": 11520,
+        "y": 940
+      },
+      "defaultVariantId": "variant:page-9:Invoices.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:Invoices.dc.html",
+          "file": "Invoices.dc.html",
+          "label": "04 Invoices · 1440×1100",
+          "width": 1440,
+          "height": 1100
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:InvoiceNewType.dc.html",
+      "pageId": "page-9",
+      "title": "05 New invoice · type first · 1440×900",
+      "position": {
+        "x": 14400,
+        "y": 1040
+      },
+      "defaultVariantId": "variant:page-9:InvoiceNewType.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:InvoiceNewType.dc.html",
+          "file": "InvoiceNewType.dc.html",
+          "label": "05 New invoice · type first · 1440×900",
+          "width": 1440,
+          "height": 900
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:InvoiceNewUpload.dc.html",
+      "pageId": "page-9",
+      "title": "06 New invoice · from a document · 1440×1100",
+      "position": {
+        "x": 17280,
+        "y": 0
+      },
+      "defaultVariantId": "variant:page-9:InvoiceNewUpload.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:InvoiceNewUpload.dc.html",
+          "file": "InvoiceNewUpload.dc.html",
+          "label": "06 New invoice · from a document · 1440×1100",
+          "width": 1440,
+          "height": 1100
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:InvoiceNewManual.dc.html",
+      "pageId": "page-9",
+      "title": "07 New invoice · by hand · 1440×1000",
+      "position": {
+        "x": 17280,
+        "y": 1980
+      },
+      "defaultVariantId": "variant:page-9:InvoiceNewManual.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:InvoiceNewManual.dc.html",
+          "file": "InvoiceNewManual.dc.html",
+          "label": "07 New invoice · by hand · 1440×1000",
+          "width": 1440,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "screen:page-9:InvoiceView.dc.html",
+      "pageId": "page-9",
+      "title": "08 Issued invoice · 1440×1100",
+      "position": {
+        "x": 20160,
+        "y": 940
+      },
+      "defaultVariantId": "variant:page-9:InvoiceView.dc.html",
+      "variants": [
+        {
+          "id": "variant:page-9:InvoiceView.dc.html",
+          "file": "InvoiceView.dc.html",
+          "label": "08 Issued invoice · 1440×1100",
+          "width": 1440,
+          "height": 1100
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "id": "inv-note",
+      "pageId": "page-9",
+      "text": "Invoices module, drawn from the product map you sent (RABE / Fatoora): التأهيل · الملف → 01, رمز الزكاة → 02, جارٍ → 03, فشل → 03e (إعادة returns to 02, دخول التطبيق skips to 04), تم → 03d, قاعدة الفواتير → 04, فاتورة جديدة → 05 النوع أولاً, رفع/مسح → 06, يدوي → 07, إصدار → 08 عرض الفاتورة.\nBuilt as Seaturtle's own Invoices module (the dashboard already reports to ZATCA): same shell, tokens and components, Marasy as the company, English first. The onboarding runs inside the app as a three-step wizard, once per company and then per issuing device.\nZATCA facts used: standard invoices are cleared before they are valid, simplified ones reported within 24 hours; the OTP comes from the Fatoora portal and lasts 1 hour; numbers are sequential and never reused; each invoice carries a QR code, UUID, counter and hash chain, and ships as PDF/A-3 with the signed XML.\nNot drawn yet: Arabic RTL variants, the credit-note form, the rejected-invoice fix-and-reissue flow, tablet and phone.",
+      "width": 980,
+      "position": {
+        "x": 0,
+        "y": -300
+      }
+    }
+  ],
+  "journeys": [
+    {
+      "id": "journey:page-9:ZatcaProfile.dc.html-ZatcaCode.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaProfile.dc.html",
+      "target": "screen:page-9:ZatcaCode.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Next",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:ZatcaCode.dc.html-ZatcaProgress.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaCode.dc.html",
+      "target": "screen:page-9:ZatcaProgress.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Connect",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:ZatcaProgress.dc.html-ZatcaDone.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaProgress.dc.html",
+      "target": "screen:page-9:ZatcaDone.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Connected",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:ZatcaProgress.dc.html-ZatcaFailed.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaProgress.dc.html",
+      "target": "screen:page-9:ZatcaFailed.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Failed",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:ZatcaFailed.dc.html-ZatcaCode.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaFailed.dc.html",
+      "target": "screen:page-9:ZatcaCode.dc.html",
+      "sourceSide": "b",
+      "targetSide": "r",
+      "label": "Try again",
+      "dashed": true
+    },
+    {
+      "id": "journey:page-9:ZatcaDone.dc.html-Invoices.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:ZatcaDone.dc.html",
+      "target": "screen:page-9:Invoices.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Enter the app · Invoices",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:Invoices.dc.html-InvoiceNewType.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:Invoices.dc.html",
+      "target": "screen:page-9:InvoiceNewType.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "New invoice",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:InvoiceNewType.dc.html-InvoiceNewUpload.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:InvoiceNewType.dc.html",
+      "target": "screen:page-9:InvoiceNewUpload.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "From a document",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:InvoiceNewType.dc.html-InvoiceNewManual.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:InvoiceNewType.dc.html",
+      "target": "screen:page-9:InvoiceNewManual.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "By hand",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:InvoiceNewUpload.dc.html-InvoiceView.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:InvoiceNewUpload.dc.html",
+      "target": "screen:page-9:InvoiceView.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Issue",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:InvoiceNewManual.dc.html-InvoiceView.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:InvoiceNewManual.dc.html",
+      "target": "screen:page-9:InvoiceView.dc.html",
+      "sourceSide": "r",
+      "targetSide": "l",
+      "label": "Issue",
+      "dashed": false
+    },
+    {
+      "id": "journey:page-9:InvoiceView.dc.html-Invoices.dc.html-0",
+      "pageId": "page-9",
+      "source": "screen:page-9:InvoiceView.dc.html",
+      "target": "screen:page-9:Invoices.dc.html",
+      "sourceSide": "b",
+      "targetSide": "r",
+      "label": "Open a row",
+      "dashed": true
+    }
+  ]
+}

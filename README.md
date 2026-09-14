@@ -64,6 +64,13 @@ by 400 ms. Changing `stateFile` starts a fresh restoration and focus lifecycle.
 Editing and initial fitting wait for restoration. If the state request fails or
 takes more than five seconds, the canvas falls back to browser state.
 
+The React Flow workspace baseline is a versioned document with stable IDs. Use
+`npx tsx scripts/migrate-canvas.ts --input sample/canvas.json --output tests/fixtures/workspace/canvas.json --workspace-id sample-invoices`
+to produce one without modifying the source file. The legacy custom-canvas
+browser key (`dc-state:<pathname>:<stateFile>`) remains untouched and is never
+imported automatically. The workspace override namespace is
+`design-workspace:overrides:<workspaceId>`.
+
 ## Run the sample
 
 ```

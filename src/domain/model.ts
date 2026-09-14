@@ -1,0 +1,12 @@
+export type Side = 'l' | 'r' | 't' | 'b';
+export type Point = { x: number; y: number };
+export type Variant = { id: string; file: string; label: string; width: number; height: number };
+export type Screen = { id: string; pageId: string; title: string; position: Point; defaultVariantId: string; variants: Variant[] };
+export type Note = { id: string; pageId: string; text: string; width: number; position: Point };
+export type Journey = { id: string; pageId: string; source: string; target: string; sourceSide: Side; targetSide: Side; label: string; dashed: boolean };
+export type Baseline = { version: 1; workspaceId: string; pages: { id: string; name: string }[]; screens: Screen[]; notes: Note[]; journeys: Journey[] };
+export type ScreenPatch = { position?: Point; variantId?: string; deleted?: boolean };
+export type NotePatch = Partial<Omit<Note, 'id'>> & { deleted?: boolean };
+export type JourneyPatch = Partial<Omit<Journey, 'id'>> & { deleted?: boolean };
+export type Overrides = { version: 1; workspaceId: string; revision: number; screens: Record<string, ScreenPatch>; notes: Record<string, NotePatch>; journeys: Record<string, JourneyPatch>; addedNotes: Note[]; addedJourneys: Journey[] };
+export type Resolved = { screens: (Screen & { variantId: string })[]; notes: Note[]; journeys: Journey[] };
