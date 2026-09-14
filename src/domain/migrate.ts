@@ -45,16 +45,6 @@ export function migrateLegacy(input: unknown, workspaceId: string): Baseline {
         if (board.variantOf == null) return undefined;
         const parent = byFile.get(board.variantOf);
         if (!parent) throw new ValidationError(`$.artboards[${source.artboards.indexOf(board)}].variantOf`, 'must identify an artboard on the same page');
-        const seen = new Set([board.file]);
-        let next: LegacyArtboard | undefined = parent;
-        while (next && Object.hasOwn(next, 'variantOf') && next.variantOf != null) {
-          if (seen.has(next.file)) throw new ValidationError(`$.artboards[${source.artboards.indexOf(board)}].variantOf`, 'variant relationship contains a cycle');
-          seen.add(next.file);
-          next = byFile.get(next.variantOf);
-          if (!next) throw new ValidationError(`$.artboards[${source.artboards.indexOf(board)}].variantOf`, 'must identify an artboard on the same page');
-          if (seen.has(next.file)) throw new ValidationError(`$.artboards[${source.artboards.indexOf(board)}].variantOf`, 'variant relationship contains a cycle');
-          throw new ValidationError(`$.artboards[${source.artboards.indexOf(board)}].variantOf`, 'explicit variant chains are not supported');
-        }
         return parent;
       }
       const directory = board.file.includes('/') ? board.file.slice(0, board.file.lastIndexOf('/') + 1) : '';
@@ -78,7 +68,7 @@ export function migrateLegacy(input: unknown, workspaceId: string): Baseline {
     const roots = boards.filter((board) => rootByFile.get(`${pageId}\u0000${board.file}`) === board);
     roots.forEach((root) => {
       const variants: Variant[] = boards.filter((board) => rootByFile.get(`${pageId}\u0000${board.file}`) === root).map((board) => ({
-        id: board.variantId ?? generatedId('variant', pageId, board.file), file: board.file, label: labelOf(board, root), width: board.w, height: board.h,
+        id: board.variantId ?? (board === root ? generatedId('variant', pageId, board.file) : board.id ?? generatedId('variant', pageId, board.file)), file: board.file, label: labelOf(board, root), width: board.w, height: board.h,
       }));
       const screenId = root.id ?? generatedId('screen', pageId, root.file);
       screenIdByFile.set(`${pageId}\u0000${root.file}`, screenId);

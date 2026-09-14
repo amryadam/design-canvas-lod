@@ -19,6 +19,11 @@ function string(value: unknown, path: string): string {
   return value;
 }
 
+function editableText(value: unknown, path: string): string {
+  if (typeof value !== 'string') throw new ValidationError(path, 'must be a string');
+  return value;
+}
+
 function finite(value: unknown, path: string, positive = false): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || (positive && value <= 0)) {
     throw new ValidationError(path, positive ? 'must be a positive finite number' : 'must be a finite number');
@@ -64,7 +69,7 @@ function parseScreen(value: unknown, path: string): Screen {
 
 function parseNote(value: unknown, path: string): Note {
   const input = record(value, path);
-  return { id: string(input.id, `${path}.id`), pageId: string(input.pageId, `${path}.pageId`), text: string(input.text, `${path}.text`), width: finite(input.width, `${path}.width`, true), position: parsePoint(input.position, `${path}.position`) };
+  return { id: string(input.id, `${path}.id`), pageId: string(input.pageId, `${path}.pageId`), text: editableText(input.text, `${path}.text`), width: finite(input.width, `${path}.width`, true), position: parsePoint(input.position, `${path}.position`) };
 }
 
 function side(value: unknown, path: string): Side {
@@ -75,7 +80,7 @@ function side(value: unknown, path: string): Side {
 function parseJourney(value: unknown, path: string): Journey {
   const input = record(value, path);
   if (typeof input.dashed !== 'boolean') throw new ValidationError(`${path}.dashed`, 'must be a boolean');
-  return { id: string(input.id, `${path}.id`), pageId: string(input.pageId, `${path}.pageId`), source: string(input.source, `${path}.source`), target: string(input.target, `${path}.target`), sourceSide: side(input.sourceSide, `${path}.sourceSide`), targetSide: side(input.targetSide, `${path}.targetSide`), label: string(input.label, `${path}.label`), dashed: input.dashed };
+  return { id: string(input.id, `${path}.id`), pageId: string(input.pageId, `${path}.pageId`), source: string(input.source, `${path}.source`), target: string(input.target, `${path}.target`), sourceSide: side(input.sourceSide, `${path}.sourceSide`), targetSide: side(input.targetSide, `${path}.targetSide`), label: editableText(input.label, `${path}.label`), dashed: input.dashed };
 }
 
 export function parseBaseline(value: unknown): Baseline {

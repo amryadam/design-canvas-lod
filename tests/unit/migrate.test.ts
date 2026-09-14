@@ -22,7 +22,7 @@ describe('migrateLegacy', () => {
       pages: [{ id: 'p', name: 'Page' }],
       artboards: [
         { id: 'screen-a', file: 'A.dc.html', x: 0, y: 0, w: 100, h: 100, title: 'A', page: 'p', variantId: 'a-default' },
-        { id: 'variant-b', file: 'AB.dc.html', x: 0, y: 0, w: 200, h: 100, title: 'AB', page: 'p', variantOf: 'A.dc.html', variantId: 'a-wide' },
+        { id: 'variant-b', file: 'AB.dc.html', x: 0, y: 0, w: 200, h: 100, title: 'AB', page: 'p', variantOf: 'A.dc.html' },
       ],
       annotations: [{ id: 'note-a', page: 'p', x: 4, y: 5, w: 120, text: 'Remember this' }],
       flows: [
@@ -32,7 +32,7 @@ describe('migrateLegacy', () => {
     }, 'workspace');
 
     expect(migrated.screens[0]).toMatchObject({ id: 'screen-a', defaultVariantId: 'a-default' });
-    expect(migrated.screens[0].variants.map((variant) => variant.id)).toEqual(['a-default', 'a-wide']);
+    expect(migrated.screens[0].variants.map((variant) => variant.id)).toEqual(['a-default', 'variant-b']);
     expect(migrated.notes[0].id).toBe('note-a');
     expect(migrated.journeys[0].id).toBe('journey-a');
     expect(new Set(migrated.journeys.map((journey) => journey.id)).size).toBe(2);
@@ -62,6 +62,16 @@ describe('parseBaseline', () => {
   ])('rejects invalid baseline data at %s', (input, path) => {
     expect(() => parseBaseline(input)).toThrow(path);
   });
+
+  test('allows empty note text and journey labels', () => {
+    const input = {
+      ...valid,
+      notes: [{ id: 'note', pageId: 'page', text: '', width: 100, position: { x: 0, y: 0 } }],
+      journeys: [{ id: 'journey', pageId: 'page', source: 'screen', target: 'screen', sourceSide: 'r', targetSide: 'l', label: '', dashed: false }],
+    };
+
+    expect(parseBaseline(input)).toEqual(input);
+  });
 });
 
 describe('explicit legacy variants', () => {
@@ -73,12 +83,26 @@ describe('explicit legacy variants', () => {
       { file: 'A.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'B.dc.html' },
       { file: 'B.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'A.dc.html' },
     ], 'cycle'],
-    [[
-      { file: 'A.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'B.dc.html' },
-      { file: 'B.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'C.dc.html' },
-      { file: 'C.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p' },
-    ], 'chains'],
   ])('rejects %s explicit variant relationships', (artboards, message) => {
     expect(() => migrateLegacy({ pages: [{ id: 'p', name: 'Page' }], artboards, annotations: [], flows: [] }, 'workspace')).toThrow(message);
+  });
+
+  test('resolves an explicit chain to its terminal root and keeps an empty legacy flow label', () => {
+    const migrated = migrateLegacy({
+      pages: [{ id: 'p', name: 'Page' }],
+      artboards: [
+        { id: 'variant-a', file: 'A.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'B.dc.html' },
+        { id: 'variant-b', file: 'B.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p', variantOf: 'C.dc.html' },
+        { id: 'screen-c', file: 'C.dc.html', x: 0, y: 0, w: 1, h: 1, page: 'p' },
+      ],
+      annotations: [{ id: 'note', page: 'p', x: 0, y: 0, w: 100, text: '' }],
+      flows: [{ page: 'p', from: 'A.dc.html', to: 'B.dc.html' }],
+    }, 'workspace');
+
+    expect(migrated.screens).toHaveLength(1);
+    expect(migrated.screens[0]).toMatchObject({ id: 'screen-c' });
+    expect(migrated.screens[0].variants.map((variant) => variant.id)).toEqual(['variant-a', 'variant-b', 'variant:p:C.dc.html']);
+    expect(migrated.notes[0].text).toBe('');
+    expect(migrated.journeys[0]).toMatchObject({ source: 'screen-c', target: 'screen-c', label: '' });
   });
 });

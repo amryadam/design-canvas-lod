@@ -14,12 +14,12 @@
   anchor sides, dashed state, note text, and note width.
 - The old `cpVariants` inference is reproduced as a pure function: same-page
   CamelCase prefix matching chooses the longest available parent. Explicit
-  missing parents, chains, and cycles reject with a validation error rather
-  than discarding an artboard.
+  parent chains resolve to their terminal root; missing parents and cycles
+  reject with a validation error rather than discarding an artboard.
 - Added a non-destructive CLI and the migrated workspace fixture. The CLI
   rejects an output path that resolves to the input path.
 - Documented the retained legacy local-storage key and the future workspace
-  override namespace `design-workspace:overrides:<workspaceId>`; no legacy
+  override namespace `rf-workspace:v1:<workspaceId>`; no legacy
   browser state is imported.
 
 ## Migration evidence
@@ -43,7 +43,8 @@ variants, 1 note, and 12 journeys. The only variant group is
 - Green: the same command passes 10 tests. They cover deterministic conversion,
   stable supplied IDs, duplicate legacy journeys, variant endpoint resolution,
   invalid duplicate baseline IDs, coordinates, dimensions, pages, default
-  variants, and invalid explicit parent, cycle, and chain relationships.
+  variants, invalid explicit parents and cycles, terminal explicit chains,
+  child-artboard IDs, and empty editable text.
 - `npm run build` passed, including TypeScript `--noEmit` and both Vite builds.
   Vite reports its existing informational warning that it ignores the
   third-party `use client` directive in `@xyflow/react`.
@@ -57,7 +58,32 @@ variants, 1 note, and 12 journeys. The only variant group is
 The migration deliberately uses generated IDs containing the legacy page and
 file identity, then writes them to the fixture. Future filename changes should
 keep those persisted IDs and update the `file` field. A legacy artboard's `id`
-is treated as its primary screen ID and a dedicated `variantId` is treated as
-the variant ID, avoiding one legacy identifier being reused for two domain
-entities. The current sample lacks those IDs, so the fixture demonstrates the
-generated stable-ID path.
+is treated as its primary screen ID. A child artboard's dedicated `variantId`,
+or its `id` when no dedicated field is present, is the variant ID. This avoids
+one root identifier being reused for two domain entities. The current sample
+lacks those IDs, so the fixture demonstrates the generated stable-ID path.
+
+## Round 1 correction evidence
+
+Controller review clarified that explicit `variantOf` chains are valid legacy
+data. The converter now follows each chain to its terminal root and still
+rejects only missing explicit parents and cycles. Child artboard `id` values
+are retained as variant IDs when `variantId` is absent. Baseline parsing now
+allows empty note text and journey labels while retaining non-empty validation
+for IDs and path-like references. The documented override namespace is
+`rf-workspace:v1:<workspaceId>`.
+
+Commands and fresh output:
+
+```text
+$ npm run test:unit -- tests/unit/migrate.test.ts
+Test Files  1 passed (1)
+Tests  11 passed (11)
+
+$ npm run build
+✓ built in 534ms
+✓ built in 971ms
+```
+
+The build continues to report Vite's informational third-party
+`@xyflow/react` `use client` directive warning. `git diff --check` passed.

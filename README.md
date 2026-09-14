@@ -69,7 +69,7 @@ The React Flow workspace baseline is a versioned document with stable IDs. Use
 to produce one without modifying the source file. The legacy custom-canvas
 browser key (`dc-state:<pathname>:<stateFile>`) remains untouched and is never
 imported automatically. The workspace override namespace is
-`design-workspace:overrides:<workspaceId>`.
+`rf-workspace:v1:<workspaceId>`.
 
 ## Run the sample
 
