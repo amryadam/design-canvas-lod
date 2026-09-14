@@ -36,3 +36,9 @@ The controller's Chrome session contained only `about:blank`. Navigation to `htt
 - The initial renderer is deliberately disposable and keeps test fixtures outside production entry points.
 - The local parent iframe proof does not establish Claude compatibility.
 - Vite reports that React Flow's upstream `"use client"` directive was ignored while bundling. Both emitted artifacts and browser tests succeeded; this is a build warning to revisit only if the target host treats it differently.
+
+## Round 1 documentation fix
+
+- Added the durable evidence record at `docs/test-runs/react-flow-host-check.md`, including artifact revision `aa0ba48`, local source and IIFE results, tool requirements, the unmasked Vite warning, and the exact Claude blocker.
+- Re-ran read-only `npm view` metadata inspection. Node `v26.8.2` satisfies Vite's `^20.19.0 || >=22.12.0`, Playwright's `>=18`, TypeScript's `>=14.17`, and tsx's `>=18` requirements; React DOM's `react ^19.3.0` peer matches installed React 19.3.0; React Flow's React peers are all `>=17`.
+- Documentation-only verification: `git diff --check` completed with no output.
