@@ -1,4 +1,4 @@
-import type { Baseline, Journey, Note, Point, Screen, Side, Variant } from './model';
+import type { Baseline, Journey, JourneyPatch, Note, NotePatch, Overrides, Point, Screen, ScreenPatch, Side, Variant } from './model';
 
 export class ValidationError extends Error {
   constructor(path: string, message: string) {
@@ -105,4 +105,70 @@ export function parseBaseline(value: unknown): Baseline {
     if (!screenIds.has(journey.target)) throw new ValidationError(`$.journeys[${index}].target`, 'must identify a screen');
   });
   return { version: 1, workspaceId: string(input.workspaceId, '$.workspaceId'), pages, screens, notes, journeys };
+}
+
+function optionalPoint(value: unknown, path: string): Point | undefined {
+  return value === undefined ? undefined : parsePoint(value, path);
+}
+
+function boolean(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') throw new ValidationError(path, 'must be a boolean');
+  return value;
+}
+
+function parsePatchRecord<T>(value: unknown, path: string, parser: (value: UnknownRecord, path: string) => T): Record<string, T> {
+  const input = record(value, path);
+  const output = Object.create(null) as Record<string, T>;
+  for (const id of Object.keys(input)) {
+    if (!id) throw new ValidationError(path, 'keys must be non-empty strings');
+    output[id] = parser(record(input[id], `${path}.${id}`), `${path}.${id}`);
+  }
+  return output;
+}
+
+function screenPatch(input: UnknownRecord, path: string): ScreenPatch {
+  const output: ScreenPatch = {};
+  if (input.position !== undefined) output.position = parsePoint(input.position, `${path}.position`);
+  if (input.variantId !== undefined) output.variantId = string(input.variantId, `${path}.variantId`);
+  if (input.deleted !== undefined) output.deleted = boolean(input.deleted, `${path}.deleted`);
+  return output;
+}
+
+function notePatch(input: UnknownRecord, path: string): NotePatch {
+  const output: NotePatch = {};
+  if (input.pageId !== undefined) output.pageId = string(input.pageId, `${path}.pageId`);
+  if (input.text !== undefined) output.text = editableText(input.text, `${path}.text`);
+  if (input.width !== undefined) output.width = finite(input.width, `${path}.width`, true);
+  const position = optionalPoint(input.position, `${path}.position`); if (position) output.position = position;
+  if (input.deleted !== undefined) output.deleted = boolean(input.deleted, `${path}.deleted`);
+  return output;
+}
+
+function journeyPatch(input: UnknownRecord, path: string): JourneyPatch {
+  const output: JourneyPatch = {};
+  if (input.pageId !== undefined) output.pageId = string(input.pageId, `${path}.pageId`);
+  if (input.source !== undefined) output.source = string(input.source, `${path}.source`);
+  if (input.target !== undefined) output.target = string(input.target, `${path}.target`);
+  if (input.sourceSide !== undefined) output.sourceSide = side(input.sourceSide, `${path}.sourceSide`);
+  if (input.targetSide !== undefined) output.targetSide = side(input.targetSide, `${path}.targetSide`);
+  if (input.label !== undefined) output.label = editableText(input.label, `${path}.label`);
+  if (input.dashed !== undefined) output.dashed = boolean(input.dashed, `${path}.dashed`);
+  if (input.deleted !== undefined) output.deleted = boolean(input.deleted, `${path}.deleted`);
+  return output;
+}
+
+export function parseOverrides(value: unknown, workspaceId: string): Overrides {
+  const input = record(value, '$');
+  if (input.version !== 1) throw new ValidationError('$.version', 'must be 1');
+  const parsedWorkspaceId = string(input.workspaceId, '$.workspaceId');
+  if (parsedWorkspaceId !== workspaceId) throw new ValidationError('$.workspaceId', 'must match the active workspace');
+  const revision = finite(input.revision, '$.revision');
+  if (revision < 0) throw new ValidationError('$.revision', 'must be non-negative');
+  const screens = parsePatchRecord(input.screens, '$.screens', screenPatch);
+  const notes = parsePatchRecord(input.notes, '$.notes', notePatch);
+  const journeys = parsePatchRecord(input.journeys, '$.journeys', journeyPatch);
+  const addedNotes = array(input.addedNotes, '$.addedNotes').map((note, index) => parseNote(note, `$.addedNotes[${index}]`));
+  const addedJourneys = array(input.addedJourneys, '$.addedJourneys').map((journey, index) => parseJourney(journey, `$.addedJourneys[${index}]`));
+  unique(addedNotes, '$.addedNotes'); unique(addedJourneys, '$.addedJourneys');
+  return { version: 1, workspaceId: parsedWorkspaceId, revision, screens, notes, journeys, addedNotes, addedJourneys };
 }
