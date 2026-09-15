@@ -75,6 +75,18 @@ function assertJourney(base: Baseline, edits: Overrides, journey: Journey): void
   if (ownPatch(edits.screens, source.id)?.deleted || ownPatch(edits.screens, target.id)?.deleted) throw new Error('journey endpoints must identify available screens');
 }
 
+function sanitizeJourneyPatch(value: JourneyPatch): JourneyPatch {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('journey patch must be an object');
+  const allowed = ['pageId', 'source', 'target', 'sourceSide', 'targetSide', 'label', 'dashed', 'deleted'] as const;
+  const input = value as Record<string, unknown>;
+  const unknown = Object.keys(input).find((field) => !allowed.includes(field as typeof allowed[number]));
+  if (unknown) throw new Error(`journey patch contains unknown field: ${unknown}`);
+  const patch: JourneyPatch = {};
+  const output = patch as Record<string, unknown>;
+  for (const field of allowed) if (Object.hasOwn(input, field)) output[field] = input[field];
+  return patch;
+}
+
 export function applyCommand(base: Baseline, edits: Overrides, command: Command): Overrides {
   if (base.workspaceId !== edits.workspaceId) throw new Error('baseline and overrides workspaceId must match');
   if (command.type === 'clear-all') return emptyOverrides(edits.workspaceId);
@@ -111,9 +123,10 @@ export function applyCommand(base: Baseline, edits: Overrides, command: Command)
   } else if (command.type === 'edit-journey') {
     const current = effectiveJourney(base, next, command.id);
     if (!current) throw new Error('journey id must identify a journey');
-    const changed = { ...current, ...command.patch, id: current.id };
+    const patch = sanitizeJourneyPatch(command.patch);
+    const changed = { ...current, ...patch, id: current.id };
     assertJourney(base, next, changed);
-    setPatch(next.journeys, command.id, command.patch);
+    setPatch(next.journeys, command.id, patch);
   } else if (command.type === 'delete') {
     const additions = command.kind === 'note' ? next.addedNotes : command.kind === 'journey' ? next.addedJourneys : undefined;
     const addedIndex = additions?.findIndex((item) => item.id === command.id) ?? -1;

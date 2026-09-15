@@ -57,6 +57,13 @@ describe('applyCommand', () => {
     } as unknown as Parameters<typeof applyCommand>[2])).toThrow('sourceSide');
   });
 
+  test('rejects undeclared journey patch fields before they can replace stable identity', () => {
+    const original = base.journeys[0];
+    expect(() => applyCommand(base, emptyOverrides(base.workspaceId), {
+      type: 'edit-journey', id: original.id, patch: { id: 'replacement' },
+    } as unknown as Parameters<typeof applyCommand>[2])).toThrow('unknown field');
+  });
+
   test('handles record keys that collide with object prototypes', () => {
     const collisionBase = structuredClone(base);
     collisionBase.screens[0].id = '__proto__';

@@ -50,4 +50,14 @@ describe('reconcile', () => {
     expect(edits.addedNotes[0]).toEqual(note);
     expect(base.notes.some((item) => item.id === note.id)).toBe(false);
   });
+
+  test('retains and reapplies an orphaned journey patch when its baseline journey returns', () => {
+    const journey = base.journeys[0];
+    const edits = applyCommand(base, emptyOverrides(base.workspaceId), { type: 'edit-journey', id: journey.id, patch: { label: 'Retained label' } });
+    const removed = { ...base, journeys: base.journeys.filter((item) => item.id !== journey.id) };
+
+    expect(reconcile(removed, edits).journeys.some((item) => item.id === journey.id)).toBe(false);
+    expect(edits.journeys[journey.id]).toEqual({ label: 'Retained label' });
+    expect(reconcile(base, edits).journeys.find((item) => item.id === journey.id)?.label).toBe('Retained label');
+  });
 });
