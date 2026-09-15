@@ -96,3 +96,31 @@ published at `/tmp/react-flow-real-sample-previews-20260914`.
 - `git diff --check` reported no whitespace errors.
 - The local sample remains blocked by the missing source asset. This task does
   not fabricate `support.js` and does not label partial captures as fresh.
+
+## Round 1 safety follow-up
+
+Publication now resolves symlink paths and existing ancestors before any
+directory is created or renamed. It rejects output paths that are inside the
+asset root, contain the asset root, or contain the baseline canvas, including a
+canvas stored outside the asset root. A nonempty prior output is replaceable
+only when its parsed manifest matches the current workspace and exact variant
+IDs, dimensions, deterministic PNG names, and top-level generated files. Empty
+output directories remain valid destinations, and a verified generated output
+can be regenerated normally.
+
+The capture fixture now displays its delayed SVG and asserts its final visible
+pink pixel. The failed fixture also includes a missing subresource, and the
+test checks both the missing document and missing-resource variant errors.
+
+Verification on 2026-09-15:
+
+```text
+$ PLAYWRIGHT_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/e2e/capture.spec.ts
+5 passed (11.0s)
+
+$ npm run build
+✓ built app and embed artifacts; exit 0
+
+$ git diff --check
+exit 0
+```

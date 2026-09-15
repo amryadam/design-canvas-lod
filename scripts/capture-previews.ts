@@ -5,7 +5,8 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import { chromium, type Browser } from '@playwright/test';
 import { parseBaseline } from '../src/domain/validate';
 import type { Variant } from '../src/domain/model';
-import type { PreviewManifest } from '../src/previews/manifest';
+import { parsePreviewManifest, type PreviewManifest } from '../src/previews/manifest';
+import { validateOutputLocation } from '../src/previews/output-safety';
 
 const deadlineMs = 15_000;
 const settings = { deadlineMs, deviceScaleFactor: 1, fullPage: false, animations: 'disabled' };
@@ -171,15 +172,53 @@ async function publish(temp: string, out: string): Promise<void> {
   }
 }
 
+async function assertGeneratorOwnedOutput(out: string, workspaceId: string, variants: Variant[]): Promise<void> {
+  let directory;
+  try {
+    directory = await stat(out);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  if (!directory.isDirectory()) throw new Error('output path must be a directory');
+  const files = await readdir(out, { withFileTypes: true });
+  if (files.length === 0) return;
+  let manifest: PreviewManifest;
+  try {
+    manifest = parsePreviewManifest(JSON.parse(await readFile(resolve(out, 'manifest.json'), 'utf8')));
+  } catch {
+    throw new Error('refusing to replace non-generator output directory');
+  }
+  const expected = new Map(variants.map((variant) => [variant.id, variant]));
+  const entryIds = Object.keys(manifest.entries);
+  if (manifest.workspaceId !== workspaceId || entryIds.length !== expected.size || entryIds.some((id) => !expected.has(id))) {
+    throw new Error('refusing to replace output with a manifest for different previews');
+  }
+  const allowed = new Set(['manifest.json']);
+  for (const [id, variant] of expected) {
+    const entry = manifest.entries[id];
+    const filename = outputName(id);
+    if (entry.src !== filename || entry.width !== variant.width || entry.height !== variant.height) {
+      throw new Error('refusing to replace output with unexpected generated entries');
+    }
+    allowed.add(filename);
+  }
+  if (files.some((file) => !file.isFile() || !allowed.has(file.name))) {
+    throw new Error('refusing to replace output containing unrelated files');
+  }
+}
+
 export async function generatePreviews(args: Arguments): Promise<PreviewManifest> {
-  const root = await realpath(args.root);
-  const canvasText = await readFile(args.canvas, 'utf8');
+  const locations = await validateOutputLocation(args);
+  const { root, canvas: canvasPath, out } = locations;
+  const canvasText = await readFile(canvasPath, 'utf8');
   const canvas = JSON.parse(canvasText);
   const baseline = parseBaseline(canvas);
-  const parent = dirname(args.out);
+  const variants = baseline.screens.flatMap((screen) => screen.variants);
+  await assertGeneratorOwnedOutput(out, baseline.workspaceId, variants);
+  const parent = dirname(out);
   await mkdir(parent, { recursive: true });
-  const temp = resolve(parent, `.${basename(args.out)}.tmp-${process.pid}-${Date.now()}`);
-  if (inside(root, temp)) throw new Error('output directory must be outside the asset root');
+  const temp = resolve(parent, `.${basename(out)}.tmp-${process.pid}-${Date.now()}`);
   await mkdir(temp);
   const server = await startServer(root);
   let browser: Browser | undefined;
@@ -188,7 +227,7 @@ export async function generatePreviews(args: Arguments): Promise<PreviewManifest
     browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_BROWSER_CHANNEL });
     const entries: PreviewManifest['entries'] = {};
     const inputRevision = digest(JSON.stringify({ root: await treeDigest(root, temp), canvas: digest(canvasText), settings }));
-    for (const screen of baseline.screens) for (const variant of screen.variants) {
+    for (const variant of variants) {
       const filename = outputName(variant.id);
       try {
         await captureVariant(browser, server.origin, root, variant, resolve(temp, filename));
@@ -210,7 +249,7 @@ export async function generatePreviews(args: Arguments): Promise<PreviewManifest
       entries,
     };
     await writeFile(resolve(temp, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-    await publish(temp, args.out);
+    await publish(temp, out);
     return manifest;
   } finally {
     await browser?.close();

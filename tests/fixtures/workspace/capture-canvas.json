@@ -26,6 +26,14 @@
       "position": { "x": 800, "y": 0 },
       "defaultVariantId": "missing-default",
       "variants": [{ "id": "missing-default", "file": "missing.html", "label": "Missing", "width": 320, "height": 180 }]
+    },
+    {
+      "id": "missing-resource",
+      "pageId": "page",
+      "title": "Missing resource",
+      "position": { "x": 1200, "y": 0 },
+      "defaultVariantId": "missing-resource-default",
+      "variants": [{ "id": "missing-resource-default", "file": "capture-missing-resource.html", "label": "Missing resource", "width": 320, "height": 180 }]
     }
   ],
   "notes": [],
