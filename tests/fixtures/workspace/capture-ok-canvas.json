@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "workspaceId": "capture-fixture",
+  "pages": [{ "id": "page", "name": "Capture" }],
+  "screens": [
+    { "id": "desktop", "pageId": "page", "title": "Desktop", "position": { "x": 0, "y": 0 }, "defaultVariantId": "desktop-default", "variants": [{ "id": "desktop-default", "file": "capture.html", "label": "Desktop", "width": 320, "height": 180 }] },
+    { "id": "phone", "pageId": "page", "title": "Phone", "position": { "x": 400, "y": 0 }, "defaultVariantId": "phone-default", "variants": [{ "id": "phone-default", "file": "capture.html", "label": "Phone", "width": 390, "height": 844 }] }
+  ],
+  "notes": [],
+  "journeys": []
+}

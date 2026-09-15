@@ -1,0 +1,1 @@
+This deliberately invalid font is delayed by the fixture server. document.fonts.ready still resolves after it fails.
