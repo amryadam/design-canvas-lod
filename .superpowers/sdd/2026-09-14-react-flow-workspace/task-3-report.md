@@ -124,3 +124,30 @@ $ npm run build
 $ git diff --check
 exit 0
 ```
+
+## Round 2 ownership follow-up
+
+Prior-output ownership is now derived entirely from the prior manifest: it must
+belong to the current workspace, each prior entry must use that entry ID's
+deterministic filename, and the directory must contain exactly the manifest and
+those generated files. The current baseline no longer decides whether an older
+generated directory is owned, so adding, removing, or resizing variants can
+replace a verified output.
+
+The preservation regression now starts from the same two variant IDs and
+dimensions, then changes the phone source to a document with a missing image.
+It asserts the browser capture error and confirms the earlier manifest remains
+byte-for-byte unchanged.
+
+Verification on 2026-09-15:
+
+```text
+$ PLAYWRIGHT_BROWSER_CHANNEL=chrome npm run test:e2e -- tests/e2e/capture.spec.ts
+6 passed (16.2s)
+
+$ npm run build
+✓ built app and embed artifacts; exit 0
+
+$ git diff --check
+exit 0
+```

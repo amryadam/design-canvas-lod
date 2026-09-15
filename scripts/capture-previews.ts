@@ -172,7 +172,7 @@ async function publish(temp: string, out: string): Promise<void> {
   }
 }
 
-async function assertGeneratorOwnedOutput(out: string, workspaceId: string, variants: Variant[]): Promise<void> {
+async function assertGeneratorOwnedOutput(out: string, workspaceId: string): Promise<void> {
   let directory;
   try {
     directory = await stat(out);
@@ -189,21 +189,16 @@ async function assertGeneratorOwnedOutput(out: string, workspaceId: string, vari
   } catch {
     throw new Error('refusing to replace non-generator output directory');
   }
-  const expected = new Map(variants.map((variant) => [variant.id, variant]));
-  const entryIds = Object.keys(manifest.entries);
-  if (manifest.workspaceId !== workspaceId || entryIds.length !== expected.size || entryIds.some((id) => !expected.has(id))) {
-    throw new Error('refusing to replace output with a manifest for different previews');
-  }
+  if (manifest.workspaceId !== workspaceId) throw new Error('refusing to replace output with a manifest for a different workspace');
   const allowed = new Set(['manifest.json']);
-  for (const [id, variant] of expected) {
-    const entry = manifest.entries[id];
+  for (const [id, entry] of Object.entries(manifest.entries)) {
     const filename = outputName(id);
-    if (entry.src !== filename || entry.width !== variant.width || entry.height !== variant.height) {
+    if (entry.src !== filename) {
       throw new Error('refusing to replace output with unexpected generated entries');
     }
     allowed.add(filename);
   }
-  if (files.some((file) => !file.isFile() || !allowed.has(file.name))) {
+  if (files.length !== allowed.size || files.some((file) => !file.isFile() || !allowed.has(file.name))) {
     throw new Error('refusing to replace output containing unrelated files');
   }
 }
@@ -215,7 +210,7 @@ export async function generatePreviews(args: Arguments): Promise<PreviewManifest
   const canvas = JSON.parse(canvasText);
   const baseline = parseBaseline(canvas);
   const variants = baseline.screens.flatMap((screen) => screen.variants);
-  await assertGeneratorOwnedOutput(out, baseline.workspaceId, variants);
+  await assertGeneratorOwnedOutput(out, baseline.workspaceId);
   const parent = dirname(out);
   await mkdir(parent, { recursive: true });
   const temp = resolve(parent, `.${basename(out)}.tmp-${process.pid}-${Date.now()}`);

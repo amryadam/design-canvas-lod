@@ -90,6 +90,19 @@ test('refuses to replace a non-generator output directory', async () => {
   }
 });
 
+test('regenerates a generator-owned output after an authored variant changes', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'capture-previews-changed-'));
+  const out = join(temp, 'previews');
+  try {
+    await capture(join(root, 'capture-ok-canvas.json'), out);
+    await capture(join(root, 'capture-changed-canvas.json'), out);
+    const manifest = JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'));
+    expect(manifest.entries['desktop-default']).toMatchObject({ width: 321, height: 180 });
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
 test('keeps the last complete preview set when a later run fails', async () => {
   const temp = await mkdtemp(join(tmpdir(), 'capture-previews-'));
   const out = join(temp, 'previews');
@@ -98,7 +111,10 @@ test('keeps the last complete preview set when a later run fails', async () => {
     const previousManifest = await readFile(join(out, 'manifest.json'), 'utf8');
     await capture(join(root, 'capture-ok-canvas.json'), out);
     expect(await readFile(join(out, 'manifest.json'), 'utf8')).toBe(previousManifest);
-    await expect(capture(join(root, 'capture-canvas.json'), out)).rejects.toMatchObject({ code: 1 });
+    const failure = await capture(join(root, 'capture-resource-failure-canvas.json'), out).catch((error: unknown) => error as { code?: number; stderr?: string });
+    expect(failure).toMatchObject({ code: 1 });
+    expect(failure.stderr).toContain('phone-default');
+    expect(failure.stderr).toContain('does-not-exist.svg');
     expect(await readFile(join(out, 'manifest.json'), 'utf8')).toBe(previousManifest);
   } finally {
     await rm(temp, { recursive: true, force: true });
