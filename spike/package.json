@@ -1,0 +1,16 @@
+{
+  "name": "rf-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && cp host.html dist/spike.html"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.11.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "vite": "7.3.1"
+  }
+}

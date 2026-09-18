@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rf spike</title>
+<body style="margin:0"><div id="root" style="height:100vh"></div>
+<script src="./tall.js"></script>
+<script src="./dist/spike.js"></script>
+<script>
+  const page = new URLSearchParams(location.search).get('page') || 'page-9';
+  fetch('../sample/canvas.json').then((r) => r.json()).then((s) => RFSpike.mount(
+    document.getElementById('root'),
+    { data: page === 'tall' ? window.spikeTall(s) : s, page, base: '../sample/' }));
+</script>
