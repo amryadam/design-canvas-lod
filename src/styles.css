@@ -18,7 +18,7 @@
 .dc-winhead{display:flex;align-items:center;gap:14px;padding:0 22px;cursor:grab;user-select:none;border-bottom:1px solid rgba(40,32,22,.07)}
 .dc-winhead:active{cursor:grabbing}
 /* No transition on the dot or the card: a transition in the world repaints
-   the whole world on each of its frames (old engine, tests/regressions.js). */
+   the whole world on each of its frames (old engine, tests/regressions.js on main). */
 .dc-dot{flex:0 0 12px;height:12px;border-radius:6px;background:#cfc9bf}
 .dc-win[data-live="1"] .dc-dot{background:#12a594}
 .dc-wintitle{flex:1 1 auto;min-width:0;display:flex;align-items:center;overflow:hidden}
