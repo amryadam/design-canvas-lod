@@ -2,7 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { memo, useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
 import { ReactFlow, Background, Handle, Position, MarkerType, useNodesState, useEdgesState } from '@xyflow/react';
 import rfCss from '@xyflow/react/dist/style.css?inline';
-import { subscribe, isLive, schedule } from './budget.js';
+import { subscribe, isLive, schedule, scheduleSticky, stickyMoveStart, stickyMoveEnd, isOnScreen } from './budget.js';
+import { initDebug, logGesture, logPass, logTick } from './debug.js';
 
 const HEAD = 44;
 const SIDES = { l: Position.Left, r: Position.Right, t: Position.Top, b: Position.Bottom };
@@ -137,11 +138,30 @@ function App({ data, page, base, opts }) {
     .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y, w: n.width, h: n.height }));
   // `iframes` off-flag: budget 0, every window shows its placeholder.
   const budgetOverride = off.has('iframes') ? 0 : undefined;
-  const kick = useCallback(() => schedule(() => {
-    const args = [rf.current.getViewport(), { w: wrap.current.clientWidth, h: wrap.current.clientHeight }, boxes.current];
-    if (budgetOverride !== undefined) args.push(budgetOverride);
-    return args;
-  }), [budgetOverride]);
+  // `sticky=1`: pickLiveSticky + its own 600ms settle timer that never runs
+  // mid-gesture (see onMoveStart/onMoveEnd below). `debug=1`: every pass and
+  // gesture event is logged to the debug.js overlay; passing no onPass (the
+  // default, sticky or not) leaves schedule()/scheduleSticky()'s own timing
+  // exactly as before.
+  const sticky = !!(opts && opts.sticky);
+  const debug = !!(opts && opts.debug);
+  const kick = useCallback(() => {
+    // Real-time header fields (see debug.js's logTick) — every kick() call,
+    // not just the ones that end up running a (debounced) pass, so the
+    // overlay's zoom/visible count never lag behind an in-progress gesture.
+    if (debug && rf.current) {
+      const viewport = rf.current.getViewport();
+      const pane = { w: wrap.current.clientWidth, h: wrap.current.clientHeight };
+      logTick(viewport.zoom, boxes.current.filter((b) => isOnScreen(viewport, pane, b)).length);
+    }
+    const read = () => {
+      const args = [rf.current.getViewport(), { w: wrap.current.clientWidth, h: wrap.current.clientHeight }, boxes.current];
+      if (budgetOverride !== undefined) args.push(budgetOverride);
+      return args;
+    };
+    const onPass = debug ? logPass : undefined;
+    return sticky ? scheduleSticky(read, onPass) : schedule(read, onPass);
+  }, [budgetOverride, sticky, debug]);
   // Task 3d `freeze=1`: mark the root as "in a gesture" imperatively
   // (classList, not React state) for the CSS in buildCss's freezeRule to
   // key off, from onMoveStart to onMoveEnd. Only wired up when the flag is
@@ -149,16 +169,20 @@ function App({ data, page, base, opts }) {
   const freeze = !!(opts && opts.freeze);
   const onMoveStart = useCallback(() => {
     if (freeze) wrap.current.classList.add('sp-gesture');
-  }, [freeze]);
+    if (sticky) stickyMoveStart();
+    if (debug) logGesture('moveStart');
+  }, [freeze, sticky, debug]);
   const onMoveEnd = useCallback(() => {
     if (freeze) wrap.current.classList.remove('sp-gesture');
+    if (sticky) stickyMoveEnd();
+    if (debug) logGesture('moveEnd');
     kick();
-  }, [freeze, kick]);
+  }, [freeze, sticky, debug, kick]);
   return (
     <div ref={wrap} className="sp-root">
       <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={nodeTypes}
         minZoom={0.05} maxZoom={4} panOnScroll zoomOnPinch nodesConnectable={false} fitView
-        onInit={(inst) => { rf.current = inst; window.rf = inst; kick(); }}
+        onInit={(inst) => { rf.current = inst; window.rf = inst; if (debug) initDebug(); kick(); }}
         onMove={kick} onMoveStart={onMoveStart} onMoveEnd={onMoveEnd} onNodeDragStop={kick}>
         {!off.has('bg') && <Background gap={26} />}
       </ReactFlow>
@@ -166,14 +190,21 @@ function App({ data, page, base, opts }) {
   );
 }
 
-// Task 3d's two new flags (`livewc`, `freeze`) are read here, directly from
-// the URL, instead of being added to spike/index.html's own opts-building
-// (like the Task 3b ablation flags off/cis/wc/contain are) — so this file
-// alone is enough to turn them on, and the default page (no query flags)
-// renders exactly as before: params.get(...) is null, so both stay false.
+// Task 3d's two new flags (`livewc`, `freeze`), and this follow-up's two
+// (`debug`, `sticky`), are read here, directly from the URL, instead of
+// being added to spike/index.html's own opts-building (like the Task 3b
+// ablation flags off/cis/wc/contain are) — so this file alone is enough to
+// turn them on, and the default page (no query flags) renders exactly as
+// before: params.get(...) is null, so all four stay false.
 export function mount(el, { data, page, base = './', opts = {} }) {
   const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
-  const merged = { ...opts, livewc: !!opts.livewc || params.get('livewc') === '1', freeze: !!opts.freeze || params.get('freeze') === '1' };
+  const merged = {
+    ...opts,
+    livewc: !!opts.livewc || params.get('livewc') === '1',
+    freeze: !!opts.freeze || params.get('freeze') === '1',
+    debug: !!opts.debug || params.get('debug') === '1',
+    sticky: !!opts.sticky || params.get('sticky') === '1',
+  };
   const style = document.createElement('style');
   style.textContent = rfCss + buildCss(merged);
   document.head.appendChild(style);
