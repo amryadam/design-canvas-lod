@@ -5,6 +5,7 @@ Worktree commit: 6d0312f5a78970ea444b450c1cab863067daebf6
 Machine: Apple M4 Pro
 Chrome: Google Chrome 153.0.8010.48
 Viewport: 1280x800, DPR 2
+Display: idle rAF was 120.4-121.7 fps in this run, about 121 fps (about 120 Hz). See idleFpsBefore and idleFpsAfter in perf/out/frames.json and frames-reversed.json.
 
 `perf/frames.mjs` runs the same zoom and pan gestures on the old sample
 (`sample/index.html`) and the new sample (`sample/index-rf.html`). It runs
@@ -91,11 +92,15 @@ uses: `will-change: transform` on each live iframe. Its zoom p95 ratio
 (new over old) was 1.03 in both engine orders, with 0 dropped frames. Its
 busyMs ratio was 0.81 and 1.03.
 
+This run's idle rAF was about 121 fps, about 120 Hz. The spike ran at
+144 Hz. The two documents do not share a display rate, so this report does
+not compare raw milliseconds across them. It compares ratios only.
+
 This run gets the same good result. In the old-then-new order, the zoom p95
 ratio is 9.3 / 9.3 = 1.00, and the max ratio is 9.4 / 9.3 = 1.01. In the
 new-then-old order, the zoom p95 ratio is 9.3 / 9.3 = 1.00, and the max
 ratio is 9.4 / 9.4 = 1.00. Both pan p95 and max ratios are 1.00 in both
-orders. No run drops a frame. The busyMs ratio is 0.78 and 0.68 in the two
+orders. No run drops a frame. The busyMs ratio is 0.78 and 0.69 in the two
 orders — the new engine uses less main-thread time than the old one on this
 machine, close to the spike's own busyMs win in the first order.
 
