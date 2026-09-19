@@ -161,9 +161,11 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   // A card drag holds the budget like a pan does. The drop saves the place
   // and marks the window as touched, so it keeps its place in the budget.
   // With nodeDragThreshold 0 (see constants.js), React Flow starts the drag
-  // at mousedown and always fires the stop, even for a plain click that
-  // never moved; dragStartPos tells the two apart, so a click alone does not
-  // save a place or mark the window as moved.
+  // at mousedown and reports a drop even when the pointer barely moved or
+  // never moved at all; dragStartPos measures the drop against
+  // DC.dropTolerance (the old canvas's own rule) so a click, or a drag too
+  // small to be one, saves nothing and the card goes back to where it
+  // started.
   const dragStartPos = useRef(null);
   const onNodeDragStart = useCallback((e, node) => { dragStartPos.current = { x: node.position.x, y: node.position.y }; budget.moveStart(); }, [budget]);
   const onNodeDragStop = useCallback((e, node) => {
@@ -171,7 +173,10 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
     budget.moveEnd();
     const start = dragStartPos.current;
     dragStartPos.current = null;
-    if (start && start.x === node.position.x && start.y === node.position.y) return;
+    if (start && Math.hypot(node.position.x - start.x, node.position.y - start.y) < DC.dropTolerance) {
+      setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: start } : n)));
+      return;
+    }
     if (node.type === 'window') update((s) => actions.move(s, node.id, screenOf(node.position)));
     else if (node.type === 'note') update((s) => actions.move(s, node.id, node.position));
   }, [budget, update]);

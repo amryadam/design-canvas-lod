@@ -17,6 +17,10 @@ export const DC = {
   // every button in the header is marked nodrag, so nothing needs the
   // threshold to tell a click from a drag.
   nodeDragThreshold: 0,
+  // A drop under this many world px is not a move: the old canvas's own
+  // rule (design-canvas.jsx:1412, `Math.hypot(dx, dy) < 4`), needed again
+  // now that nodeDragThreshold 0 reports every click as a drag.
+  dropTolerance: 4,
   // View.
   minZoom: 0.05, maxZoom: 4,
   fitPad: 80,           // screen px left around the content by a fit
