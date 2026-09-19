@@ -1,8 +1,9 @@
 # React Flow canvas — design
 
 **Date:** 2026-09-19
-**Status:** design approved; the spike gate (phase 0) is not yet run
-**Plan:** to be written after the spec review
+**Status:** design approved; phase 0 (the spike gate) is done: **GO**
+**Spike report:** `2026-09-19-react-flow-spike-report.md`
+**Plan:** phase 0 `../plans/2026-09-19-react-flow-spike.md`; phase 1 to be written
 
 ## Why
 
@@ -20,7 +21,8 @@ has two problems:
 The decision is to replace the canvas engine with **React Flow**
 (`@xyflow/react` 12, MIT). Its nodes are DOM elements, so a node can hold a
 live iframe. Its viewport is one transformed element without `will-change`,
-so no single GPU layer holds the whole world.
+so no single GPU layer holds the whole world. The spike showed that this
+alone is not enough: see "Requirements from the spike".
 
 ## Decisions made with the user
 
@@ -47,15 +49,38 @@ so no single GPU layer holds the whole world.
 | react-zoom-pan-pinch | Keeps the one-big-layer model that causes the blank. No culling, no edges. |
 | No library (finish the layer-limit fix) | Fixes the blank but not the code size. It is the **fallback** if the spike fails. |
 
-## Known risk
+## Requirements from the spike
 
-React Flow's viewport is also one transformed element. Without
-`will-change`, Chrome must raster again at each zoom step. Thus "frame times
-at or under today's" is not certain. The live iframes stay the largest cost,
-and no library changes that. Phase 0 measures this before the migration
-starts.
+The spike (phase 0) measured the risk that this section named before: without
+`will-change`, Chrome rasters the viewport again at each zoom step, and that
+includes the live iframes. Its results, all in the spike report, make these
+rules binding for phase 1:
+
+1. **No `will-change: transform` on the React Flow viewport, ever.** With it,
+   React Flow is fast and loses its arrows after a zoom-in and zoom-out (the
+   same class of bug as the old engine's blank).
+2. **`will-change: transform` on each live iframe (`live-wc`).** Each live
+   screen is its own small GPU layer, so a zoom does not raster it again. The
+   screens stay visible during a gesture. The user checked this on the real
+   "Users and roles" page: no blank, smooth.
+3. **The `sticky` budget rule.** A live window that is on screen is never
+   dropped by a pass. A pass runs only when nothing has moved for
+   `stickySettleMs` (600 ms), and never between `onMoveStart` and
+   `onMoveEnd`. Without it, a zoom in several pinches swapped visible live
+   screens to their placeholder (18 swaps in the local check; the user saw
+   it). The user checked `live-wc` with `sticky`: the live screens stay live.
+4. **No `freeze`.** Hiding the live iframes during a gesture is fast and
+   clean, but the user rejected the look.
+
+What the spike did not settle: a real pinch was not measured by a bench (only
+synthetic wheel events and the user's eye); `live-wc` had one long frame in
+each zoom on the synthetic tall page (worst frame 1.3–1.6 × the old
+engine's), which the user did not notice on the real page.
 
 ## Phase 0 — the spike gate
+
+**Done: GO.** Results and the user's three checks are in the spike report.
+The text below is the plan as approved before the spike.
 
 A throwaway Vite app in a git worktree off `main`, on the branch
 `spike/react-flow`. It is never merged. Only its report moves forward.
@@ -141,15 +166,22 @@ CDN React scripts go away.
 
 ### liveBudget.js
 
-- One store and one pass. The pass runs `settleMs` (150 ms) after the last
-  `onMove`, node drag or chip change. It does not run between `onMoveStart`
-  and `onMoveEnd`, so no iframe mounts or drops in the middle of a gesture.
+- One store and one pass. The pass runs `stickySettleMs` (600 ms) after the
+  last `onMove`, node drag or chip change. It does not run between
+  `onMoveStart` and `onMoveEnd`, so no iframe mounts or drops in the middle
+  of a gesture.
+- The `sticky` rule: a pass never drops a live window that is on screen. It
+  drops only off-screen live windows, and fills free places by the ranking
+  below. The live count can thus stay above 8 while the extra windows are on
+  screen; they are the first to drop when they leave it.
 - Inputs: the viewport `{x, y, zoom}`, the pane size and the node boxes from
   React Flow's store. Arithmetic only; no DOM rect reads.
 - The ranking rules stay: visible slots first, then the distance from the
   viewport box; a live slot counts 400 px nearer; the touch mark lasts 4 s and
   never outranks a visible slot; a maximum of one mount each `mountGapMs`; a
   live iframe beyond `unmountMargin` is dropped.
+- Each live iframe has `will-change: transform`. The React Flow viewport has
+  none.
 - Each `WindowNode` reads `isLive(id)` through `useSyncExternalStore`, so a
   pass re-renders only the nodes whose state changes.
 - `onlyRenderVisibleElements` stays **off**: it unmounts nodes, and that
@@ -213,7 +245,9 @@ middle of the viewport.
   `lang`/`state` overrides, the chip axes.
 - `liveBudget.js`: the ranking as a pure function. Visible outranks
   off-screen; the hysteresis keeps the last place stable; the touch mark never
-  outranks a visible slot; the budget is 8.
+  outranks a visible slot; the budget is 8; the `sticky` rule never drops an
+  on-screen live window, and the extra ones drop first when they leave the
+  screen.
 - `persist.js`: the newer revision wins; the browser copy wins a tie; the
   timeout fallback; a `localStorage` that throws.
 - `mapping.js`: a flow on a variant moves to the primary; loops, duplicates
@@ -236,15 +270,28 @@ These behaviour checks are ported:
 - the host protocol messages
 - the "Back to content" pill
 
-One new check: on a tall page, at zoom steps from 0.1 to 4, a screenshot of
-the bottom area is not blank.
+- a zoom in several pinches, each at a different point, with 400 ms pauses:
+  no on-screen live window turns into its placeholder (port of
+  `spike/sticky-check.mjs`)
+- the React Flow viewport has no `will-change`; each live iframe has
+  `will-change: transform`
+
+One new check, outside the headless suite because it needs the GPU:
+`tests/blank-check.mjs`, a port of `spike/wc-check.mjs`. It runs a headful
+Chrome with the GPU on, on a synthetic tall page (50 screens, 12,200 ×
+16,200 px): fit, zoom in to 3.5 ×, zoom out, then screenshots at 1 s and
+5 s. It fails if a card frame is missing or cut, if the arrows between the
+cards are gone, or if more than 2% of the pixels differ from the picture
+before the gesture. It is the first check that reproduces the old engine's
+blank outside claude.ai/design.
 
 ### Performance
 
 `perf/bench.js` is rewritten. It keeps `zoomFrames`, `liveByZoom` and
 `patchCost`, and adds `panFrames`. It drops `zoomFrameCost`, `invWrites`,
-`lodPassCost`, `flowCost` and `dragFlowCost`. The spike numbers are the
-baseline.
+`lodPassCost`, `flowCost` and `dragFlowCost`. The baseline is the spike's
+`live-wc` numbers against the old engine, from `spike/frames.mjs` in both
+engine orders.
 
 ### Same look
 
