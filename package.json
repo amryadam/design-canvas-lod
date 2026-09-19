@@ -4,10 +4,10 @@
   "scripts": {
     "build": "vite build --config vite.config.mjs && cp src/canvas.html dist/canvas.html",
     "test:unit": "vitest run --config vitest.config.mjs",
-    "test:browser": "npm run build && node tests/run.mjs --page=tests/rf/regressions.html",
+    "test:browser": "npm run build && node tests/run.mjs",
     "test:blank": "npm run build && node tests/blank-check.mjs && node tests/blank-check.mjs --control",
     "test": "npm run test:unit && npm run test:browser",
-    "perf": "npm run build && node perf/frames.mjs && PERF_ORDER=new,old node perf/frames.mjs"
+    "perf": "npm run build && node perf/frames.mjs"
   },
   "dependencies": {
     "@xyflow/react": "12.11.6",

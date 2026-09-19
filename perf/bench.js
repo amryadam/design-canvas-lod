@@ -1,9 +1,8 @@
 // perf/bench.js — measurement harness for the React Flow canvas. The app
-// never loads it. Open sample/index-rf.html (sample/index.html after the
-// switch-over), wait for the windows, paste this file into the DevTools
-// console and run `await dcBench.all()`. patchCost clicks a variant chip and
-// the canvas saves it: to undo, delete the page's dc2-state: entry in
-// localStorage and reload.
+// never loads it. Open sample/index.html, wait for the windows, paste this
+// file into the DevTools console and run `await dcBench.all()`. patchCost
+// clicks a variant chip and the canvas saves it: to undo, delete the page's
+// dc2-state: entry in localStorage and reload.
 (() => {
   const api = () => {
     const h = DesignCanvas.last();

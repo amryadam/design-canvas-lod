@@ -16,7 +16,7 @@ const GROUP_GAP = 1.2; // × ROW gap between unconnected flow groups
 const ORPHAN_COLS = 4; // artboards that take part in no flow, gridded at the bottom
 
 function layoutPage(data, page) {
-  // Variants share their primary's slot (same rule as canvas-page.jsx: a file
+  // Variants share their primary's slot (same rule as canvas-page.jsx on main: a file
   // whose CamelCase name starts with another file's name folds into it, and
   // `variantOf` overrides the guess): they get no position of their own, and a
   // flow drawn on one lands on the primary.

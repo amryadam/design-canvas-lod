@@ -1,5 +1,5 @@
 // Helpers for the React Flow canvas checks. tests/run.mjs serves the
-// repository and opens tests/rf/regressions.html in headless Chrome. Each
+// repository and opens tests/regressions.html in headless Chrome. Each
 // check registers with test(); run-all.js runs them in order.
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -10,7 +10,7 @@ async function until(fn, ms = 5000) {
 }
 const realFetch = window.fetch.bind(window);
 const host = document.getElementById('fixture');
-const SAMPLE = '../../sample/';
+const SAMPLE = '../sample/';
 const TESTS = [];
 let h = null;   // the mounted canvas of the running check; run-all.js unmounts it
 function test(name, fn) { TESTS.push({ name, fn }); }

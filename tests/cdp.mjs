@@ -12,12 +12,10 @@ export const VIEW = { width: 1280, height: 800, dpr: 2 };
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((r) => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
 
-// The pages the headful scripts open. `old` exists until the switch-over
-// (Task 14 of the phase 1 plan) removes the old canvas.
+// The pages the headful scripts open. tests/blank-check.mjs and
+// perf/frames.mjs both read ENGINES.new.
 export const ENGINES = {
-  old: { sample: '/sample/index.html', target: '.design-canvas',
-    count: `document.querySelectorAll('[data-dc-slot]').length`, zoom: `window.dcView.scale` },
-  new: { sample: '/sample/index-rf.html', tall: '/tests/blank.html', target: '.react-flow__pane',
+  new: { sample: '/sample/index.html', tall: '/tests/blank.html', target: '.react-flow__pane',
     count: `document.querySelectorAll('.react-flow__node-window').length`, zoom: `window.dcCanvas.api.rf.getZoom()` },
 };
 

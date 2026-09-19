@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// node tests/run.mjs [chrome-path] [--page=tests/rf/regressions.html]
+// node tests/run.mjs [chrome-path] [--page=tests/regressions.html]
 const args = process.argv.slice(2);
 const pageArg = args.find((a) => a.startsWith('--page='));
 const suitePage = pageArg ? pageArg.slice('--page='.length) : 'tests/regressions.html';

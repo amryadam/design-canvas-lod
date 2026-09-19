@@ -1,5 +1,6 @@
-// Every number the canvas binds. The old design-canvas.jsx is the source of
-// each one, except the ones the React Flow spike added (see its report).
+// Every number the canvas binds. The old design-canvas.jsx (on main) is the
+// source of each one, except the ones the React Flow spike added (see its
+// report).
 export const DC = {
   // Look.
   bg: '#f0eee9', dot: 'rgba(70,58,46,.16)', dotSize: 26,
@@ -18,7 +19,7 @@ export const DC = {
   // threshold to tell a click from a drag.
   nodeDragThreshold: 0,
   // A drop under this many world px is not a move: the old canvas's own
-  // rule (design-canvas.jsx:1412, `Math.hypot(dx, dy) < 4`), needed again
+  // rule (design-canvas.jsx:1412 on main, `Math.hypot(dx, dy) < 4`), needed again
   // now that nodeDragThreshold 0 reports every click as a drag.
   dropTolerance: 4,
   // View.

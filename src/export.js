@@ -93,8 +93,8 @@ export async function dcInlineDoc(html, baseHref) {
 // The <foreignObject> wrapper for a rasterized artboard, and its data URL.
 // `px` is the output scale. An <img>-loaded SVG rasterizes at its intrinsic
 // size, so the SVG must carry the output resolution and map the artboard
-// through viewBox. tests/regressions.js rasterizes through these two, so the
-// check cannot pass while the export path drifts.
+// through viewBox. tests/checks-window.js rasterizes through these two, so
+// the check cannot pass while the export path drifts.
 export function dcArtboardSvg(xhtml, w, h, px = 1) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w * px}" height="${h * px}" viewBox="0 0 ${w} ${h}"><foreignObject width="${w}" height="${h}">${xhtml}</foreignObject></svg>`;
 }
