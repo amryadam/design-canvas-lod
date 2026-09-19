@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>blank check</title>
+<body style="margin:0"><div id="root" style="height:100vh"></div>
+<script src="../dist/design-canvas.js"></script>
+<script src="./fixtures/tall.js"></script>
+<script>
+  // ?control=1 breaks spike rule 1 on purpose (will-change on the viewport),
+  // so tests/blank-check.mjs --control can show that the check sees the blank.
+  if (new URLSearchParams(location.search).get('control') === '1') {
+    const s = document.createElement('style');
+    s.textContent = '.react-flow__viewport{will-change:transform !important}';
+    document.head.appendChild(s);
+  }
+  fetch('../sample/canvas.json').then((r) => r.json()).then((s) => {
+    window.dcCanvas = DesignCanvas.mount(document.getElementById('root'),
+      { data: window.tallPage(s), page: 'tall', base: '../sample/', stateFile: 'blank-check.json' });
+  });
+</script>
