@@ -22,6 +22,28 @@ async function menuRow(text) {
   await until(() => find());
   return find();
 }
+// mousedown, then (if dx or dy) one mousemove, then mouseup: a click, or a
+// drop too small to be a drag, never the multi-step motion of drag().
+async function pressRelease(el, dx = 0, dy = 0, mods = {}) {
+  const r = el.getBoundingClientRect();
+  const x = r.left + 12, y = r.top + r.height / 2;
+  const ev = (type, cx, cy, target) => target.dispatchEvent(new MouseEvent(type, {
+    clientX: cx, clientY: cy, button: 0, buttons: type === 'mouseup' ? 0 : 1, bubbles: true, cancelable: true, view: window, ...mods,
+  }));
+  ev('mousedown', x, y, el);
+  if (dx || dy) ev('mousemove', x + dx, y + dy, window);
+  ev('mouseup', x + dx, y + dy, window);
+  await wait(200);
+}
+// Opens the ⋯ menu, reports whether "Reset position" shows, then closes it.
+async function hasResetRow(id) {
+  nodeEl(id).querySelector('.dc-kebab').click();
+  await until(() => host.querySelector('.dc-menu'));
+  const has = [...host.querySelectorAll('.dc-menu button')].some((b) => b.textContent === 'Reset position');
+  nodeEl(id).querySelector('.dc-kebab').click();
+  await until(() => !host.querySelector('.dc-menu'));
+  return has;
+}
 const savedCopy = () => {
   const k = Object.keys(localStorage).find((x) => x.startsWith('dc2-state:'));
   return k ? JSON.parse(localStorage.getItem(k)) : null;
@@ -34,8 +56,25 @@ test('a header drag moves the window and saves its place', async () => {
   mount(await sample()); await ready();
   const id = 'ZatcaCode.dc.html';
   await focusOn(id);
+  const head = nodeEl(id).querySelector('.dc-winhead');
+  const start = { ...rf().getNode(id).position }, updatedAt0 = h.api.state().updatedAt;
+
+  // A press and release with no movement is a click, not a drag: it must
+  // save nothing (CanvasPage.jsx's dropTolerance guard on onNodeDragStop).
+  await pressRelease(head);
+  check(h.api.state().updatedAt === updatedAt0, 'a click with no move bumped updatedAt');
+  check(!(id in h.api.state().positions), 'a click with no move saved a place');
+  check(rf().getNode(id).position.x === start.x && rf().getNode(id).position.y === start.y, 'a click with no move moved the node');
+  check(!(await hasResetRow(id)), 'Reset position shows after a click with no move');
+
+  // A drop under DC.dropTolerance (4 world px) is the same: at zoom 0.5, a
+  // 1 screen px move is 2 world px, under the 4 px tolerance.
+  await pressRelease(head, 1, 0);
+  check(!(id in h.api.state().positions), 'a 1 px drop saved a place');
+  check(rf().getNode(id).position.x === start.x && rf().getNode(id).position.y === start.y, 'a 1 px drop moved the node');
+
   const before = { ...rf().getNode(id).position }, zoom = rf().getZoom();
-  await drag(nodeEl(id).querySelector('.dc-winhead'), 100, 50);
+  await drag(head, 100, 50);
   const after = rf().getNode(id).position;
   check(Math.abs(after.x - before.x - 100 / zoom) < 2 && Math.abs(after.y - before.y - 50 / zoom) < 2,
     `moved by ${after.x - before.x}, ${after.y - before.y}; want ${100 / zoom}, ${50 / zoom}`);
@@ -83,9 +122,18 @@ test('an arrow side change is saved, and the menu resets it', async () => {
   await until(() => rf().getEdge(e.id).sourceHandle === 'b');
   const sides = Object.values(h.api.state().arrowSides);
   check(sides.length === 1 && sides[0].fs === 'b' && !('ts' in sides[0]), JSON.stringify(h.api.state().arrowSides));
-  h.api.reconnect(e.id, { source: from, target: 'Invoices.dc.html', sourceHandle: 'b', targetHandle: 'l' });
+  const beforeSides = JSON.stringify(h.api.state().arrowSides);
+  const beforeHandles = { sourceHandle: rf().getEdge(e.id).sourceHandle, targetHandle: rf().getEdge(e.id).targetHandle };
+  // 't'/'t' differ from the current 'b'/'l' sides, so a reconnect wrongly
+  // accepted would show up in arrowSides; canvas.json's own target ('to')
+  // never changes, so that alone cannot prove the guard ran.
+  h.api.reconnect(e.id, { source: from, target: 'Invoices.dc.html', sourceHandle: 't', targetHandle: 't' });
   await wait(100);
   check(rf().getEdge(e.id).target === to, 'a reconnect to another window was accepted');
+  check(rf().getEdge(e.id).sourceHandle === beforeHandles.sourceHandle && rf().getEdge(e.id).targetHandle === beforeHandles.targetHandle,
+    'a reconnect to another window changed the edge sides: ' + JSON.stringify(rf().getEdge(e.id)));
+  check(JSON.stringify(h.api.state().arrowSides) === beforeSides,
+    'a reconnect to another window changed arrowSides: ' + JSON.stringify(h.api.state().arrowSides));
   await focusOn(from);
   nodeEl(from).querySelector('.dc-kebab').click();
   (await menuRow('Reset arrow sides')).click();
