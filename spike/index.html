@@ -5,8 +5,18 @@
 <script src="./tall.js"></script>
 <script src="./dist/spike.js"></script>
 <script>
-  const page = new URLSearchParams(location.search).get('page') || 'page-9';
+  // Task 3b ablation flags, read from the URL so no rebuild is needed per
+  // variant. Absent (the default page), opts.off is empty and opts.cis/wc/
+  // contain are false — main.jsx's mount() then behaves exactly as before.
+  const params = new URLSearchParams(location.search);
+  const page = params.get('page') || 'page-9';
+  const opts = {
+    off: new Set((params.get('off') || '').split(',').map((s) => s.trim()).filter(Boolean)),
+    cis: params.get('cis') === '1',
+    wc: params.get('wc') === '1',
+    contain: params.get('contain') === '1',
+  };
   fetch('../sample/canvas.json').then((r) => r.json()).then((s) => RFSpike.mount(
     document.getElementById('root'),
-    { data: page === 'tall' ? window.spikeTall(s) : s, page, base: '../sample/' }));
+    { data: page === 'tall' ? window.spikeTall(s) : s, page, base: '../sample/', opts }));
 </script>
