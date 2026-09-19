@@ -46,12 +46,12 @@
     {
       "id": 6,
       "subject": "Task 6: The user's check in claude.ai/design, and the go/no-go",
-      "status": "in_progress",
+      "status": "completed",
       "description": "**Goal:** The user loads the spike bundle on the real \"Users and roles\" page in claude.ai/design, zooms from the fit to the maximum, and says whether the bottom of the page blanks; then the user gives the go/no-go.\n\n> **USER-ORDERED GATE — NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it \"verified inline\", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.\n\n**Files:**\n- Read: `spike/dist/spike.js`, `spike/dist/spike.html` (the user copies both into the claude.ai/design project, beside its `canvas.json`)\n- Modify: `docs/superpowers/specs/2026-09-19-react-flow-spike-report.md` — add `## User check`\n\n**Acceptance Criteria:**\n- [ ] The user has opened `spike.html?page=<the id of \"Users and roles\">` in claude.ai/design and has answered, in the conversation: does the bottom of the page blank or flicker at any zoom from the fit to 4? (yes / no)\n- [ ] The user has answered: does pan and zoom feel as smooth as the current canvas? (yes / no / worse where)\n- [ ] The user has said GO or NO-GO in the conversation.\n- [ ] The report has a `## User check` section with the three answers, quoted, and the date. It is committed with a path-limited commit.\n\n**Verify:** `grep -A6 '^## User check' docs/superpowers/specs/2026-09-19-react-flow-spike-report.md` → shows the three quoted answers\n\n**Plan section:** `docs/superpowers/plans/2026-09-19-react-flow-spike.md` → Task 6: The user's check in claude.ai/design, and the go/no-go (the steps and the full code are there)\n\n```json:metadata\n{\"files\": [\"docs/superpowers/specs/2026-09-19-react-flow-spike-report.md\"], \"verifyCommand\": \"grep -A6 '^## User check' docs/superpowers/specs/2026-09-19-react-flow-spike-report.md\", \"modelTier\": \"standard\", \"userGate\": true, \"tags\": [\"user-gate\"], \"gateScope\": \"before phase 1\", \"failurePolicy\": \"stop\", \"acceptanceCriteria\": [\"The user has opened `spike.html?page=<the id of \\\"Users and roles\\\">` in claude.ai/design and has answered, in the conversation: does the bottom of the page blank or flicker at any zoom from the fit to 4? (yes / no)\", \"The user has answered: does pan and zoom feel as smooth as the current canvas? (yes / no / worse where)\", \"The user has said GO or NO-GO in the conversation.\", \"The report has a `## User check` section with the three answers, quoted, and the date. It is committed with a path-limited commit.\"]}\n```",
       "blockedBy": [
         5
       ]
     }
   ],
-  "lastUpdated": "2026-09-19T06:27:13"
+  "lastUpdated": "2026-09-19T15:14:40"
 }
