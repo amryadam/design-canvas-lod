@@ -1,83 +1,22 @@
-// perf/bench.js — measurement harness for the canvas.
-//
-// Not loaded by the app. Paste the whole file into the page (DevTools console,
-// or evaluate_script over the chrome-devtools MCP) with the sample open, then
-// run `await dcBench.all()`. Every number the performance plan is judged
-// against comes from here, so the same numbers can be taken before and after
-// a change on the same machine.
-//
-//   python3 -m http.server 8000   →   http://localhost:8000/sample/
-//
-// Wait until the cards are on screen before you paste. The sample loads the two
-// .jsx files through Babel standalone, which fetches and transforms them after
-// the page load. window.DC and window.cfMeasure appear only after that.
-//
-// WARNING: `all()` runs dragFlowCost and patchCost, and both edit saved state,
-// not just the DOM. dragFlowCost does a real grip drag of about (533, 266)
-// world px, past the 4 px move threshold, so a card is actually moved and its
-// new position is persisted. patchCost clicks real .dc-size variant chips, and
-// each click is a persisted sec.variant patch. After `all()`, the sample page
-// is left with a card moved and its variant chips switched. To undo, delete
-// the page's `dc-state:` entry from localStorage and reload.
+// perf/bench.js — measurement harness for the React Flow canvas. The app
+// never loads it. Open sample/index-rf.html (sample/index.html after the
+// switch-over), wait for the windows, paste this file into the DevTools
+// console and run `await dcBench.all()`. patchCost clicks a variant chip and
+// the canvas saves it: to undo, delete the page's dc2-state: entry in
+// localStorage and reload.
 (() => {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const api = () => {
+    const h = DesignCanvas.last();
+    if (!h || !h.api || !h.api.fitted) throw new Error('dcBench: no mounted canvas yet');
+    return h.api;
+  };
   const frame = () => new Promise((r) => requestAnimationFrame(r));
-  const vp = () => document.querySelector('.design-canvas');
-  const world = () => document.querySelector('[data-dc-world]');
-  const slots = () => [...document.querySelectorAll('[data-dc-slot]')];
-  const iframes = () => document.querySelectorAll('.dc-card iframe').length;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const round = (n) => +n.toFixed(2);
-
-  // Screen-space box around every slot, so a fit can put the whole page on screen.
-  const bbox = () => {
-    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-    slots().forEach((el) => {
-      const q = el.getBoundingClientRect();
-      l = Math.min(l, q.left); t = Math.min(t, q.top);
-      r = Math.max(r, q.right); b = Math.max(b, q.bottom);
-    });
-    return { l, t, r, b, w: r - l, h: b - t };
-  };
-
-  // Fit through the canvas's own zoom and pan paths, so dcView stays in step
-  // with the DOM and the next gesture does not jump.
-  const fit = async (fill = 0.9) => {
-    // design-canvas.jsx publishes the view transform. Without that name the
-    // scale below reads as undefined and every number after it is nonsense.
-    if (!window.dcView) throw new Error('window.dcView is missing');
-    let box = bbox();
-    const cur = window.dcView.scale;
-    const target = cur * Math.min((innerWidth * fill) / box.w, (innerHeight * fill) / box.h);
-    window.postMessage({ type: '__dc_set_zoom', scale: target }, '*');
-    await sleep(400);
-    box = bbox();
-    const dx = (innerWidth - box.w) / 2 - box.l, dy = (innerHeight - box.h) / 2 - box.t;
-    // Fractional deltas keep this on the pan branch instead of the wheel-zoom one.
-    vp().dispatchEvent(new WheelEvent('wheel', {
-      deltaX: -dx - 0.001, deltaY: -dy + 0.001, deltaMode: 0,
-      clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true,
-    }));
-    await sleep(300);
-    return { scale: window.dcView.scale, onScreen: onScreenCount() };
-  };
-
-  const onScreenCount = () => slots().filter((el) => {
-    const r = el.getBoundingClientRect();
-    return r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
-  }).length;
-
-  // 90 pinch ticks, one per frame: in for the first half, out for the second.
-  const gesture = async (n = 90) => {
-    const cx = innerWidth / 2, cy = innerHeight / 2;
-    for (let i = 0; i < n; i++) {
-      vp().dispatchEvent(new WheelEvent('wheel', {
-        deltaY: i < n / 2 ? -6 : 6, deltaMode: 0, ctrlKey: true,
-        clientX: cx, clientY: cy, bubbles: true, cancelable: true,
-      }));
-      await frame();
-    }
-  };
-
+  const iframes = () => document.querySelectorAll('.dc-card iframe').length;
+  const wheel = (o) => document.querySelector('.react-flow__pane').dispatchEvent(new WheelEvent('wheel', {
+    deltaMode: 0, clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true, ...o,
+  }));
   const frameStats = async (fn) => {
     const times = [];
     let last = performance.now(), stop = false;
@@ -85,227 +24,42 @@
     requestAnimationFrame(tick);
     await fn();
     stop = true;
-    const s = times.slice(2).sort((a, b) => a - b);
-    const q = (p) => round(s[Math.floor(s.length * p)]);
-    return {
-      frames: s.length, median: q(0.5), p90: q(0.9), max: round(s[s.length - 1]),
-      over8: s.filter((f) => f > 8.3).length, over16: s.filter((f) => f > 16.7).length,
-    };
+    const s = times.slice(2).sort((a, b) => a - b), q = (p) => round(s[Math.floor(s.length * p)]);
+    return { frames: s.length, median: q(0.5), p95: q(0.95), max: round(s[s.length - 1]),
+      dropped: s.filter((f) => f > 1.5 * q(0.5)).length, over16: s.filter((f) => f > 16.7).length };
   };
-
-  // Frame times through one pinch with the whole page on screen.
-  const zoomFrames = async () => {
-    await fit();
-    await sleep(2500);
-    const live = iframes();
-    return { ...(await frameStats(() => gesture())), liveAtStart: live, onScreen: onScreenCount() };
-  };
-
-  // How often the zoom-compensation property is written during one gesture.
-  // Every write invalidates style for the whole world subtree.
-  const invWrites = async () => {
-    const w = world();
-    let writes = 0, lastValue = w.style.getPropertyValue('--dc-inv-zoom');
-    const mo = new MutationObserver(() => {
-      const v = w.style.getPropertyValue('--dc-inv-zoom');
-      if (v !== lastValue) { lastValue = v; writes++; }
-    });
-    mo.observe(w, { attributes: true, attributeFilter: ['style'] });
-    await fit();
-    await sleep(600);
-    writes = 0;
-    await gesture();
-    await sleep(400);
-    mo.disconnect();
-    return { ticks: 90, invWrites: writes };
-  };
-
-  // The cost of one zoom frame, split by what the frame writes. Forcing layout
-  // after a transform-only write is nearly free; after a custom-property write
-  // it is not, whether or not any CSS reads the property.
-  const zoomFrameCost = (n = 60) => {
-    const w = world();
-    const force = () => document.body.getBoundingClientRect().height;
-    const bench = (write) => {
-      for (let i = 0; i < 8; i++) { w.style.transform = 'translate3d(0px,0px,0) scale(0.4)'; write(2.5); force(); }
-      const t0 = performance.now();
-      for (let i = 0; i < n; i++) {
-        const s = 0.35 + (i % 20) * 0.005;
-        w.style.transform = `translate3d(0px, 0px, 0) scale(${s})`;
-        write(1 / s);
-        force();
-      }
-      return round((performance.now() - t0) / n);
-    };
-    const best = (write) => Math.min(bench(write), bench(write));
-    const out = {
-      transformOnly: best(() => {}),
-      withInvZoom: best((v) => w.style.setProperty('--dc-inv-zoom', String(v))),
-      withUnusedProp: best((v) => w.style.setProperty('--dc-unused', String(v))),
-      slots: slots().length,
-      nodes: document.querySelectorAll('.design-canvas *').length,
-    };
-    w.style.removeProperty('--dc-unused');
-    return out;
-  };
-
-  // How many iframes are live at each zoom. The budget must hold at every step.
-  const liveByZoom = async (list = [0.05, 0.15, 0.3, 0.5, 0.8]) => {
-    const out = [];
-    await fit();
-    for (const s of list) {
-      window.postMessage({ type: '__dc_set_zoom', scale: s }, '*');
-      await sleep(3000);
-      out.push({ zoom: s, live: iframes(), onScreen: onScreenCount() });
-    }
-    return out;
-  };
-
-  // Every flow on this page whose two ends are slots in the DOM.
-  const pageFlows = async () => {
-    const data = await (await fetch('./canvas.json')).json();
-    const files = new Set(slots().map((el) => el.dataset.dcSlot));
-    return (data.flows || []).filter((f) => files.has(f.from) && files.has(f.to));
-  };
-
-  // Milliseconds for one full re-route of every arrow.
-  const flowCost = async (n = 20) => {
-    // canvas-page.jsx publishes the router. Without that name there is no
-    // route to time, and the call below throws a type error instead.
-    if (typeof window.cfMeasure !== 'function') throw new Error('window.cfMeasure is not patchable');
-    const flows = await pageFlows();
-    const fn = window.__cfOrig || window.cfMeasure;
-    const w = world();
-    fn(w, flows); fn(w, flows);
-    const t0 = performance.now();
-    for (let i = 0; i < n; i++) fn(w, flows);
-    return { flows: flows.length, slots: slots().length, msPerCall: round((performance.now() - t0) / n) };
-  };
-
-  // Drag a card by its grip and count what the arrows cost over the drag.
-  const dragFlowCost = async (frames = 40) => {
-    // The count comes from a patch on window.cfMeasure. Without that name the
-    // patch is silent and the run reports 0 calls, which reads as a win.
-    // canvas-page.jsx publishes it; a page without that file has no arrows.
-    if (typeof window.cfMeasure !== 'function') throw new Error('window.cfMeasure is not patchable');
-    if (!window.__cfOrig) window.__cfOrig = window.cfMeasure;
-    const acc = { calls: 0, ms: 0 };
-    window.cfMeasure = function (...a) {
-      const t0 = performance.now();
-      const r = window.__cfOrig.apply(this, a);
-      acc.calls++; acc.ms += performance.now() - t0;
-      return r;
-    };
-    await fit();
-    window.postMessage({ type: '__dc_set_zoom', scale: 0.3 }, '*');
+  const center = async (zoom) => {
+    const { rf } = api();
+    const b = rf.getNodesBounds(rf.getNodes().filter((n) => n.type === 'window'));
+    const z = zoom || Math.min(innerWidth * 0.9 / b.width, innerHeight * 0.9 / b.height);
+    rf.setViewport({ zoom: z, x: innerWidth / 2 - (b.x + b.width / 2) * z, y: innerHeight / 2 - (b.y + b.height / 2) * z });
     await sleep(1500);
-    const slot = slots().find((el) => {
-      const r = el.getBoundingClientRect();
-      return r.left > 0 && r.right < innerWidth && r.top > 0 && r.bottom < innerHeight;
-    }) || slots()[0];
-    const grip = slot.querySelector('.dc-winhead');
-    const r = grip.getBoundingClientRect();
-    let x = r.left + r.width / 2, y = r.top + r.height / 2;
-    const ev = (type, el) => (el || document).dispatchEvent(new PointerEvent(type, {
-      pointerId: 7, isPrimary: true, button: 0, buttons: 1,
-      clientX: x, clientY: y, bubbles: true, cancelable: true,
-    }));
-    acc.calls = 0; acc.ms = 0;
-    ev('pointerdown', grip);
-    await frame();
-    const stats = await frameStats(async () => {
-      for (let i = 0; i < frames; i++) { x += 4; y += 2; ev('pointermove'); await frame(); }
-    });
-    ev('pointerup');
-    await sleep(600);
-    window.cfMeasure = window.__cfOrig;
-    return { dragged: slot.dataset.dcSlot, dragFrames: frames, cfCalls: acc.calls, cfMs: round(acc.ms), frameStats: stats };
+    return z;
   };
-
-  // What one settled level-of-detail pass costs, and how many slot rects it
-  // reads. The pass runs directly, so nothing else is in the sample.
-  // slotRectsPerPass is the structural number and it is exact. msPerPass is
-  // indicative only: a pass over a clean layout is cheap whatever it reads, so
-  // read it beside the count and not on its own.
-  // dcLodRun returns at its first statement while the world moves. A page
-  // still inside its moving window would thus report zero rects and no time
-  // for a pass that never ranked, which is the same headline as a pass that
-  // read no rects. Two guards separate the cases. The check below refuses to
-  // report at all while the world moves, and rankedPasses counts the passes
-  // that reached the ranking loop. One viewport rect is read in that loop, and
-  // it is cached for the rest of the pass, so the count is one for each pass.
-  const lodPassCost = async (n = 40) => {
-    await fit();
-    await sleep(600);
-    if (window.dcMoving && window.dcMoving()) return { error: 'the world still moves; a pass would not run' };
-    const original = Element.prototype.getBoundingClientRect;
-    const viewport = vp();
-    let reads = 0, ranked = 0;
-    Element.prototype.getBoundingClientRect = function () {
-      if (this.hasAttribute('data-dc-slot')) reads++;
-      else if (this === viewport) ranked++;
-      return original.apply(this, arguments);
-    };
-    try {
-      window.dcLodRun();   // settle a pending mount first, then start clean
-      reads = 0; ranked = 0;
-      const t0 = performance.now();
-      for (let i = 0; i < n; i++) window.dcLodRun();
-      return {
-        slots: slots().length,
-        passes: n,
-        rankedPasses: ranked,
-        msPerPass: round((performance.now() - t0) / n),
-        slotRectsPerPass: round(reads / n),
-      };
-    } finally { Element.prototype.getBoundingClientRect = original; }
+  // 90 pinch ticks, one per frame: in for the first half, out for the second.
+  // deltaY 4.3281 is one tick of e^0.06, the old engine's tick (spike bench).
+  const zoomFrames = async () => { await center(); return frameStats(async () => {
+    for (let i = 0; i < 90; i++) { wheel({ deltaY: i < 45 ? -4.3281 : 4.3281, ctrlKey: true }); await frame(); }
+  }); };
+  // 60 trackpad scroll frames of 40 screen px at zoom 1.
+  const panFrames = async () => { await center(1); return frameStats(async () => {
+    for (let i = 0; i < 60; i++) { wheel({ deltaX: i < 30 ? 40 : -40, deltaY: i % 2 ? 0.5 : -0.5 }); await frame(); }
+  }); };
+  const liveByZoom = async () => {
+    const out = {};
+    for (const z of [0.05, 0.1, 0.25, 0.5, 1]) { await center(z); out[z] = iframes(); }
+    return out;
   };
-
-  // What one state patch costs. The control is a click on something inert, so
-  // the difference is the React render plus the layout it causes.
-  const patchCost = async (n = 8) => {
-    const chips = [...document.querySelectorAll('.dc-size')];
-    if (!chips.length) return { error: 'no variant chips on this page' };
-    const inert = document.querySelector('.dc-sectionhead');
-    const timeClick = async (el) => {
-      await frame();
-      const before = window.DC && window.DC.renders;
-      const t0 = performance.now();
-      el.click();
-      await frame();
-      const ms = performance.now() - t0;
-      const after = window.DC && window.DC.renders;
-      return { ms, renders: before == null ? null : after - before };
-    };
-    const med = (a) => round(a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)]);
-    const control = [], real = [], renders = [];
-    for (let i = 0; i < n; i++) { control.push((await timeClick(inert)).ms); await sleep(80); }
-    for (let i = 0; i < n; i++) {
-      const r = await timeClick(chips[i % chips.length]);
-      real.push(r.ms);
-      if (r.renders != null) renders.push(r.renders);
-      await sleep(200);
-    }
-    return {
-      slots: slots().length,
-      controlMs: med(control),
-      variantSwitchMs: med(real),
-      framesRenderedPerPatch: renders.length ? med(renders) : null,
-    };
+  // One variant chip click: the windows it renders and the time to the next frame.
+  const patchCost = async () => {
+    await center();
+    const chip = [...document.querySelectorAll('.dc-size')].find((b) => !b.classList.contains('dc-on'));
+    if (!chip) return null;
+    const r0 = DesignCanvas.test.renders.count, t0 = performance.now();
+    chip.click();
+    await frame(); await frame();
+    return { ms: round(performance.now() - t0), renders: DesignCanvas.test.renders.count - r0 };
   };
-
-  const all = async () => ({
-    env: { viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, slots: slots().length },
-    zoomFrameCost: zoomFrameCost(),
-    invWrites: await invWrites(),
-    zoomFrames: await zoomFrames(),
-    liveByZoom: await liveByZoom(),
-    lodPassCost: await lodPassCost(),
-    flowCost: await flowCost(),
-    dragFlowCost: await dragFlowCost(),
-    patchCost: await patchCost(),
-  });
-
-  window.dcBench = { fit, gesture, frameStats, zoomFrames, zoomFrameCost, invWrites, liveByZoom, lodPassCost, flowCost, dragFlowCost, patchCost, all };
-  console.log('[dcBench] ready — run: await dcBench.all()');
+  const all = async () => ({ zoomFrames: await zoomFrames(), panFrames: await panFrames(), liveByZoom: await liveByZoom(), patchCost: await patchCost() });
+  window.dcBench = { frameStats, zoomFrames, panFrames, liveByZoom, patchCost, all };
 })();
