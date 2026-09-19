@@ -172,8 +172,8 @@ CDN React scripts go away.
   of a gesture.
 - The `sticky` rule: a pass never drops a live window that is on screen. It
   drops only off-screen live windows, and fills free places by the ranking
-  below. The live count can thus stay above 8 while the extra windows are on
-  screen; they are the first to drop when they leave it.
+  below. The kept windows are a subset of the previous live set, so the live
+  count never goes above 8.
 - Inputs: the viewport `{x, y, zoom}`, the pane size and the node boxes from
   React Flow's store. Arithmetic only; no DOM rect reads.
 - The ranking rules stay: visible slots first, then the distance from the
