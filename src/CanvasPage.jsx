@@ -65,7 +65,17 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   const built = useMemo(() => (state ? buildNodes(page, state, cache.current) : null), [page, state]);
   const edges = useMemo(() => (state ? buildEdges(page, state) : []), [page, state]);
   const [nodes, setNodes] = useState([]);
-  useEffect(() => { if (built) setNodes(built); }, [built]);
+  // A node object without `measured` makes React Flow measure the node again
+  // and hide it and its arrows until then: a blink on each edit. The rebuilt
+  // nodes keep the last measure; a new size reaches React Flow through its
+  // resize observer.
+  useEffect(() => {
+    if (!built) return;
+    setNodes((prev) => {
+      const last = new Map(prev.map((n) => [n.id, n.measured]));
+      return built.map((n) => (last.get(n.id) ? { ...n, measured: last.get(n.id) } : n));
+    });
+  }, [built]);
   const onNodesChange = useCallback((changes) => setNodes((ns) => applyNodeChanges(changes, ns)), []);
 
   // The view.
