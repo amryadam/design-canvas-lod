@@ -39,17 +39,33 @@ test('no iframe mounts or drops during a wheel gesture', async () => {
 });
 
 test('a zoom in several pinches keeps each on-screen live window live', async () => {
-  // Spike rule 3. The spike's plain budget turned 18 live screens into their
-  // placeholder in this gesture (report, "Second check").
+  // Spike rule 3 as wired: a pass runs after each pinch, and no pass turns an
+  // on-screen live window into its placeholder. The spike's plain budget did
+  // that 18 times in a gesture like this (report, "Second check"). The sticky
+  // ranking itself has its own unit test in src/liveBudget.test.js.
   mount(await grid(24));
-  await ready(); await wait(1600);
+  await ready();
+  // Start at zoom 0.1 on the middle of the grid. A tick zooms by 2^0.12 (the
+  // ctrl+wheel delta of React Flow on a Mac), so 6 pinches of 6 ticks zoom in
+  // to 2 and 6 zoom out to 0.1 again: each pinch stays inside 0.05–4.
+  const b = rf().getNodesBounds(rf().getNodes().filter((n) => n.type === 'window'));
+  rf().setViewport({ zoom: 0.1, x: host.clientWidth / 2 - (b.x + b.width / 2) * 0.1, y: host.clientHeight / 2 - (b.y + b.height / 2) * 0.1 });
+  await wait(1600);
+  const budget = h.api.budget;
   const anchors = [[320, 225], [960, 225], [320, 675], [960, 675], [640, 450], [640, 450]];
-  let flips = 0;
+  let flips = 0, n = 0;
   for (const dir of [-1, 1]) {
     for (const [x, y] of anchors) {
+      n++;
       const before = liveIds().filter((id) => onScreen(nodeEl(id)));
-      for (let i = 0; i < 12; i++) { wheel({ deltaY: dir * 6, ctrlKey: true, clientX: x, clientY: y }); await frame(); }
-      await wait(900);   // longer than DC.stickySettleMs: a pass runs between the pinches
+      const z0 = rf().getZoom();
+      for (let i = 0; i < 6; i++) { if (i) await frame(); wheel({ deltaY: dir * 6, ctrlKey: true, clientX: x, clientY: y }); }
+      // The last tick has started a move, and no pass runs during a move:
+      // a pass counted from here ran after the pinch.
+      const p0 = budget.passes();
+      check(rf().getZoom() !== z0, `pinch ${n} did not change the zoom (${z0})`);
+      await until(() => budget.passes() > p0, 2000).catch(() => { throw new Error(`no budget pass ran after pinch ${n}`); });
+      await wait(500);   // the mounts after the pass, one each DC.mountGapMs
       const now = new Set(liveIds());
       flips += before.filter((id) => nodeEl(id) && onScreen(nodeEl(id)) && !now.has(id)).length;
     }

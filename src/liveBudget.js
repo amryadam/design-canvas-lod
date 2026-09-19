@@ -54,11 +54,12 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
   const live = new Set();
   const touched = new Map();
   const subs = new Set();
-  let moving = false, timer = 0;
+  let moving = false, timer = 0, passes = 0;
   const emit = () => subs.forEach((fn) => fn());
   const run = () => {
     timer = 0;
     if (moving) return;
+    passes++;
     const { view, pane, boxes } = read();
     const target = rankLive(live, view, pane, boxes, touched, now(), cfg);
     const want = new Set(target);
@@ -81,5 +82,8 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
     moveEnd: () => { moving = false; schedule(); },
     touch: (id) => { touched.set(id, now()); },
     dispose: () => { clearTimeout(timer); timer = 0; subs.clear(); },
+    // Read by the browser suite only: the number of passes that ran. A pass
+    // that changes nothing emits nothing, so this is its only trace.
+    passes: () => passes,
   };
 }
