@@ -367,3 +367,19 @@ Task 2 (the user's deploy-and-check) should use the same in-out gesture,
 because this spike shows the fix as committed does not survive it here. In
 both cases `spike/wc-check.mjs` is worth keeping as a regression check: it
 is the first check that reproduces the blank outside claude.ai/design.
+
+## User check
+
+**Date:** 2026-09-19. The user ran `spike-freeze.html` on the real "Users and
+roles" page in claude.ai/design, with a zoom-in and then a zoom-out.
+
+| Question | Answer |
+|---|---|
+| a. Does the bottom of the page blank or flicker in the spike? | "no" |
+| b. Is it acceptable that live screens show their name on white during a gesture? | "no" |
+| c. GO or NO-GO? | "go" |
+
+Result: **GO.** The spike removes the blank on the real page. The `freeze`
+look is rejected, so phase 1 must keep the live screens visible during a
+gesture. `freeze` cannot be the answer as it is. The replacement is decided
+before the phase 1 plan is written.
