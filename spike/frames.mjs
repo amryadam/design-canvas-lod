@@ -6,6 +6,9 @@
 // SPIKE_ALLOW_THROTTLED=1 is the pre-existing escape hatch for a throttled
 // machine (see the idle-rAF guard); numbers from a run with it set are not
 // valid results.
+// Task 3f: SPIKE_OLD=old-fixed (default old) swaps in the old engine + the
+// world-GPU-layer-budget fix (main's 08b443c/e5b6fa4) as the baseline for
+// this run, recorded as out.oldEngine and folded into the output file name.
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { launch, sleep, ENGINES, outDir } from './cdp.mjs';
@@ -21,14 +24,34 @@ if (!(ORDER.length === 2 && ORDER.includes('old') && ORDER.includes('new') && OR
   console.error(`SPIKE_ORDER must be "old,new" or "new,old" (got "${process.env.SPIKE_ORDER}")`);
   process.exit(2);
 }
+// Task 3f: SPIKE_OLD picks WHICH old engine plays the "old" role throughout
+// this script — `old` (default, unfixed, as on main) or `old-fixed` (main's
+// 08b443c/e5b6fa4 world-GPU-layer-budget fix, cdp.mjs's ENGINES['old-fixed']).
+// Every `name === 'old'` branch below is old-engine BEHAVIOR (window.dcView,
+// dcBench.fit(), the postMessage zoom hook) — identical between the two, so
+// only the URL lookup (ENGINE_FOR) changes; recorded in the JSON as
+// out.oldEngine and folded into the output file name below.
+const OLD_ENGINE = process.env.SPIKE_OLD || 'old';
+if (!ENGINES[OLD_ENGINE] || !['old', 'old-fixed'].includes(OLD_ENGINE)) {
+  console.error(`SPIKE_OLD must be "old" or "old-fixed" (got "${process.env.SPIKE_OLD}")`);
+  process.exit(2);
+}
+const ENGINE_FOR = { old: OLD_ENGINE, new: 'new' };
 // I8 (Task 3e): SPIKE_NEW_FLAGS is appended as the new engine's URL query
 // string (e.g. "freeze=1") and recorded in the output JSON (out.newFlags).
 // SPIKE_OUT_TAG names the output file's tag directly, for a run (e.g. a
 // re-run of the plain baseline) that wants its own file without a
 // SPIKE_NEW_FLAGS value to derive one from. With both unset the output file
 // name is exactly what it always was — frames.json / frames-reversed.json.
+// Task 3f: the default tag also folds in SPIKE_OLD when it is not the
+// default `old`, so an old-fixed run never overwrites the matching old run's
+// file (e.g. freeze=1 + old-fixed writes frames-freeze-1-old-fixed.json, not
+// frames-freeze-1.json).
 const NEW_FLAGS = process.env.SPIKE_NEW_FLAGS || '';
-const OUT_TAG = process.env.SPIKE_OUT_TAG || (NEW_FLAGS ? NEW_FLAGS.replace(/[^a-zA-Z0-9]+/g, '-') : '');
+const defaultTagParts = [];
+if (NEW_FLAGS) defaultTagParts.push(NEW_FLAGS.replace(/[^a-zA-Z0-9]+/g, '-'));
+if (OLD_ENGINE !== 'old') defaultTagParts.push(OLD_ENGINE.replace(/[^a-zA-Z0-9]+/g, '-'));
+const OUT_TAG = process.env.SPIKE_OUT_TAG || defaultTagParts.join('-');
 const outFile = `frames${OUT_TAG ? '-' + OUT_TAG : ''}${ORDER[0] === 'old' ? '' : '-reversed'}.json`;
 
 // Injected into each page. One wheel event for each animation frame.
@@ -83,6 +106,22 @@ const DRIVER = `(() => {
       let hiddenAtMid = null;
       for (let i = 0; i < n; i++) {
         wheel(sel, { deltaY: i < n / 2 ? -dy : dy, ctrlKey: true });
+        await frame();
+        if (i === Math.floor(n / 2) - 1) hiddenAtMid = hiddenCount();
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      return { hiddenAtMid, hiddenAfter: hiddenCount() };
+    },
+    // Task 3f: the same freeze-engagement check as zoomCheckFreeze, but for
+    // the PAN gesture — the same shape as pan() above (fractional deltaY
+    // keeps the old engine on its pan branch; irrelevant here since this is
+    // only ever run for the new engine, but kept for parity).
+    panCheckFreeze: async (sel, dx, n = 60) => {
+      const hiddenCount = () => [...document.querySelectorAll('iframe')]
+        .filter((el) => getComputedStyle(el).visibility === 'hidden').length;
+      let hiddenAtMid = null;
+      for (let i = 0; i < n; i++) {
+        wheel(sel, { deltaX: i < n / 2 ? dx : -dx, deltaY: i % 2 ? 0.5 : -0.5 });
         await frame();
         if (i === Math.floor(n / 2) - 1) hiddenAtMid = hiddenCount();
       }
@@ -144,7 +183,7 @@ const c = await launch();
 const out = {};
 try {
   for (const name of ORDER) {
-    const E = ENGINES[name];
+    const E = ENGINES[ENGINE_FOR[name]];
     // I8: only the new engine's URL takes SPIKE_NEW_FLAGS — the old engine's
     // sample page has no such flags and is unaffected either way.
     const sampleUrl = name === 'new' && NEW_FLAGS ? `${E.sample}?${NEW_FLAGS}` : E.sample;
@@ -292,19 +331,32 @@ try {
     // I8 (Task 3e): does freeze=1 actually hold the live iframes hidden for
     // the duration of a synthetic-wheel gesture? A separate, unscored
     // gesture (not one of the RUNS above) — see zoomCheckFreeze in DRIVER.
-    let freezeCheck = null;
+    let freezeCheckZoom = null;
     if (name === 'new' && /(?:^|[&?])freeze=1(?:&|$)/.test(NEW_FLAGS)) {
       const check = await c.evaluate(`spikeDrive.zoomCheckFreeze('${target}', ${dy})`);
-      freezeCheck = { ...check, liveAtFit };
-      console.log(`freeze engagement: hidden at mid tick=${check.hiddenAtMid} (liveAtFit=${liveAtFit}), hidden 1.5s after=${check.hiddenAfter}`);
+      freezeCheckZoom = { ...check };
+      console.log(`freeze engagement (zoom): hidden at mid tick=${check.hiddenAtMid} (liveAtFit=${liveAtFit}), hidden 1.5s after=${check.hiddenAfter}`);
       if (check.hiddenAtMid === 0) {
-        console.error('WARNING: freeze=1 did not engage — hiddenAtMid=0. onMoveStart likely did not fire for the synthetic wheel events. These are NOT a freeze result.');
+        console.error('WARNING: freeze=1 did not engage on zoom — hiddenAtMid=0. onMoveStart likely did not fire for the synthetic wheel events. These are NOT a freeze result.');
       }
       await fit();
     }
 
     const { panScale, liveAtPan } = await zoomOne();
     const pan = await measure(`pan('${target}', ${panDx})`);
+
+    // Task 3f: the same freeze-engagement check, extended to the PAN
+    // gesture — see panCheckFreeze in DRIVER.
+    let freezeCheckPan = null;
+    if (name === 'new' && /(?:^|[&?])freeze=1(?:&|$)/.test(NEW_FLAGS)) {
+      const checkP = await c.evaluate(`spikeDrive.panCheckFreeze('${target}', ${panDx})`);
+      freezeCheckPan = { ...checkP };
+      console.log(`freeze engagement (pan): hidden at mid tick=${checkP.hiddenAtMid}, hidden 1.5s after=${checkP.hiddenAfter}`);
+      if (checkP.hiddenAtMid === 0) {
+        console.error('WARNING: freeze=1 did not engage on pan — hiddenAtMid=0. onMoveStart likely did not fire for the synthetic wheel events. These are NOT a freeze result.');
+      }
+      await fit();
+    }
 
     const idleAfter = await c.evaluate(IDLE_PROBE);
     checkIdle(idleAfter, 'after gestures');
@@ -314,7 +366,9 @@ try {
       panScale, liveAtPan, zoom, pan,
       idleFpsBefore: +idleBefore.fps.toFixed(1), visibilityBefore: idleBefore.visibility,
       idleFpsAfter: +idleAfter.fps.toFixed(1), visibilityAfter: idleAfter.visibility,
-      ...(freezeCheck ? { freezeCheck } : {}),
+      ...((freezeCheckZoom || freezeCheckPan) ? { freezeCheck: {
+        liveAtFit, ...(freezeCheckZoom ? { zoom: freezeCheckZoom } : {}), ...(freezeCheckPan ? { pan: freezeCheckPan } : {}),
+      } } : {}),
     };
   }
 
@@ -351,6 +405,7 @@ try {
   }
 
   out.order = ORDER;
+  out.oldEngine = OLD_ENGINE;
   if (NEW_FLAGS) out.newFlags = NEW_FLAGS;
   out.verdict = {
     fitParity: fitAgree, zoomParity: zoomAgree, panParity: panAgree, panScaleParity: panScaleAgree, clampOk,

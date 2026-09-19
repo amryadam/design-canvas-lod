@@ -15,6 +15,14 @@ const freePort = () => new Promise((r) => { const s = createServer(); s.listen(0
 export const ENGINES = {
   old: { sample: '/sample/index.html', tall: '/sample/old-tall.html', target: '.design-canvas',
     count: `document.querySelectorAll('[data-dc-slot]').length`, zoom: `window.dcView.scale` },
+  // Task 3f (gap 2): the old engine + the world-GPU-layer-budget fix from
+  // main's 08b443c/e5b6fa4, loaded from design-canvas.fixed.jsx (a copy of
+  // design-canvas.jsx at that commit; the original file is untouched) via
+  // sample/index-fixed.html and sample/old-tall-fixed.html. Same selectors
+  // and zoom expression as `old` — the fix only changes the world's
+  // transform/will-change logic, not the DOM shape or window.dcView.
+  'old-fixed': { sample: '/sample/index-fixed.html', tall: '/sample/old-tall-fixed.html', target: '.design-canvas',
+    count: `document.querySelectorAll('[data-dc-slot]').length`, zoom: `window.dcView.scale` },
   new: { sample: '/spike/index.html', tall: '/spike/index.html?page=tall', target: '.react-flow__pane',
     count: `document.querySelectorAll('.react-flow__node-window').length`, zoom: `window.rf.getZoom()` },
 };

@@ -24,8 +24,20 @@ function buildCss(opts) {
   // `visibility:hidden` and their placeholder (normally hidden, kept
   // mounted alongside the iframe) shows instead. The iframe itself stays
   // mounted throughout, so it never reloads.
+  // Task 3f fix (reviewer gap 1): the placeholder is a normal-flow sibling
+  // AFTER the full-height iframe in the DOM. A hidden iframe (visibility:
+  // hidden, not display:none) keeps its layout box, so the placeholder was
+  // pushed below the card body and clipped by .sp-win's overflow:hidden —
+  // during a gesture a live card showed blank white instead of its
+  // placeholder. Pin it over the body instead (.sp-body is position:
+  // relative, same pattern .sp-shield already uses), so it actually covers
+  // the iframe it is standing in for. It stays under .sp-shield (the last
+  // child, painted last) so the shield still owns pointer events. Scoped to
+  // `.sp-freeze-ph`, not the shared `.sp-ph` rule the non-live placeholder
+  // also uses, and only emitted when opts.freeze is set — the default page
+  // (no flags) is unchanged.
   const freezeRule = opts && opts.freeze
-    ? '.sp-freeze-ph{display:none}\n.sp-gesture .sp-live-if{visibility:hidden}\n.sp-gesture .sp-freeze-ph{display:grid}\n'
+    ? '.sp-freeze-ph{display:none;position:absolute;inset:0}\n.sp-gesture .sp-live-if{visibility:hidden}\n.sp-gesture .sp-freeze-ph{display:grid}\n'
     : '';
   return `
 .sp-root{width:100%;height:100%;background:#f0eee9}

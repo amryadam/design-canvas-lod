@@ -31,11 +31,28 @@
 //
 // Run three times, one Chrome launch per run (see the task brief's machine-
 // condition rule): `node spike/wc-check.mjs 1`, then `2`, then `3`. Each run
-// writes spike/out/wc-check-r<N>.json and spike/out/wc3-<variant>-r<N>-
+// writes spike/out/wc-check-f<N>.json and spike/out/wc4-<variant>-f<N>-
 // {base,in,mid,out,out5}.png, and prints that run's tables. Once all three
-// r1/r2/r3 files exist on disk, the run also prints the median-of-3 summary
+// f1/f2/f3 files exist on disk, the run also prints the median-of-3 summary
 // table (whichever invocation happens to complete the set — normally the
 // third — prints it; the other two see files missing and skip it).
+//
+// Task 3f (reviewer gap 2) adds a second control, `old-fixed`: the old
+// engine plus the world-GPU-layer-budget fix from main's 08b443c/e5b6fa4
+// (design-canvas.fixed.jsx, loaded via sample/index-fixed.html and
+// sample/old-tall-fixed.html; the original design-canvas.jsx/canvas-page.jsx
+// are untouched). Its speed ratios are computed against `old`, same as every
+// other row. The world's computed will-change (getComputedStyle([data-dc-
+// world]).willChange) is recorded at base/in(peak)/out for both `old` rows.
+// The file-name tag moves from r<N>/wc3- to f<N>/wc4- so this run's evidence
+// cannot silently overwrite Task 3d's r1-r3 files already on disk (spike/out
+// is git-ignored and nothing in it is deleted).
+//
+// Task 3f part B also adds, for the `freeze` variant only: the zoom-in is
+// split at its geometric-mean midpoint scale so a screenshot can be taken at
+// the MID tick of the zoom-in gesture (wc4-freeze-f<N>-gesture.png, gap 1's
+// bug showed here first), plus a blank-white count over the live cards in
+// that shot (gestureBlank in the JSON).
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { launch, sleep, ENGINES, VIEW, outDir } from './cdp.mjs';
@@ -56,7 +73,7 @@ async function ensureView(c, name, v, wantView, label, allowRefit) {
   let got = await c.evaluate(read);
   if (viewMatches(got, wantView)) return { view: got, refit: false, invalid: false };
   if (allowRefit) {
-    if (name === 'old') await fitOld(c); else await fitNew(c, v.url);
+    if (name === 'old') await fitOld(c, v.url); else await fitNew(c, v.url);
     got = await c.evaluate(read);
     if (viewMatches(got, wantView)) return { view: got, refit: true, invalid: false };
   }
@@ -93,8 +110,10 @@ async function checkIdle(c, label) {
   return idle;
 }
 
-async function fitOld(c) {
-  await c.open(ENGINES.old.tall, "try { localStorage.clear(); } catch {}");
+// Task 3f: parameterised on `url`, same reason as fitNew below — this
+// script now has a second old-engine URL (ENGINES['old-fixed'].tall).
+async function fitOld(c, url = ENGINES.old.tall) {
+  await c.open(url, "try { localStorage.clear(); } catch {}");
   await c.until(`${ENGINES.old.count} >= 10`, 60000);
   await sleep(500);
   if (!(await c.evaluate('!!window.dcBench'))) await c.evaluate(`fetch('/perf/bench.js').then((r) => r.text()).then((t) => { (0, eval)(t); })`);
@@ -179,6 +198,48 @@ const INOUT_TARGET_SCALE = 3.5, INOUT_MAX_TICKS = 120;
 // Task 3c's report: the old engine's bottom-row loss landed on indices
 // 45-49, i.e. row 9).
 const allRectsOf = (sel) => `[...document.querySelectorAll('${sel}')].map((el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; })`;
+
+// Task 3f part B: each React Flow window card's rect plus whether it is
+// "live" (its dot has the `on` class — spike/src/main.jsx's WindowNode).
+// Read live from the DOM at the same moment as the mid-gesture screenshot
+// (new-engine specific; only used for the `freeze` variant).
+const LIVE_CARD_RECTS = `[...document.querySelectorAll('.react-flow__node-window')].map((el) => {
+  const r = el.getBoundingClientRect();
+  const win = el.querySelector('.sp-win');
+  const live = !!win && !!win.querySelector('.sp-dot.on');
+  return { l: r.left, t: r.top, w: r.width, h: r.height, live };
+})`;
+const HEAD_PX = 44; // spike/src/main.jsx's HEAD — the card header height, excluded from the body sample below.
+
+// Task 3f part B: "blank white" — a live card's BODY (below its header) is
+// (near-)entirely pure white with nothing drawn on it: gap 1's bug (the
+// freeze placeholder laid out below the hidden iframe and clipped by
+// .sp-win's overflow:hidden) looked exactly like this — neither the hidden
+// iframe nor the placeholder painted anything into the visible body rect, so
+// what showed through was plain white. After the fix, a live card's body
+// during the gesture shows the placeholder's title text/pattern instead, so
+// it is no longer (near-)uniformly white. >99.5% near-white pixels (all
+// channels > 250) counts as blank; only live cards are checked (a non-live
+// card's placeholder was never affected by the bug).
+const BLANK_WHITE = (b64, cards) => `(async () => {
+  const img = new Image(); img.src = 'data:image/png;base64,${b64}'; await img.decode();
+  const k = img.width / innerWidth;
+  const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+  const cards = ${JSON.stringify(cards)};
+  const results = cards.filter((c) => c.live).map((c) => {
+    const x0 = Math.max(0, Math.round(c.l * k)), y0 = Math.max(0, Math.round((c.t + ${HEAD_PX}) * k));
+    const x1 = Math.min(img.width, Math.round((c.l + c.w) * k)), y1 = Math.min(img.height, Math.round((c.t + c.h) * k));
+    const w = x1 - x0, h = y1 - y0;
+    if (w < 2 || h < 2) return { n: 0, whiteFrac: 0, blank: false };
+    const data = g.getImageData(x0, y0, w, h).data;
+    let n = 0, white = 0;
+    for (let i = 0; i < data.length; i += 4) { n++; if (data[i] > 250 && data[i + 1] > 250 && data[i + 2] > 250) white++; }
+    const whiteFrac = n > 0 ? +(white / n).toFixed(4) : 0;
+    return { n, whiteFrac, blank: whiteFrac > 0.995 };
+  });
+  return { liveCount: results.length, blankCount: results.filter((r) => r.blank).length, perCard: results };
+})()`;
 
 // Per-card "edge" metric (unchanged approach from Task 3c): samples a
 // ~2-CSS-px band just inside each card's rect and reports the fraction of
@@ -368,11 +429,21 @@ async function diffVsBaseOf(c, baseB64, outB64) { return c.evaluate(DIFF_VS_BASE
 // tick-dispatch work only (screenshot decode+sample calls are diagnostic
 // overhead, excluded from the busy delta by bracketing busy() tightly around
 // each TICKS call).
+// Task 3f (gap 2): the world's own computed will-change, read only for the
+// old engine (both `old` and `old-fixed` share engine:'old' and the same
+// [data-dc-world] element; the new engine has no such element). On `old`
+// this is always 'transform' (unconditional in design-canvas.jsx). On
+// `old-fixed` it flips with scale — see design-canvas.fixed.jsx's promote
+// check against DC.maxLayerMB — so sampling it at base/in/out shows exactly
+// when the fix's GPU-layer budget engages on the tall page.
+const WORLD_WC = `(() => { const el = document.querySelector('[data-dc-world]'); return el ? getComputedStyle(el).willChange : null; })()`;
+async function worldWC(c, name) { return name === 'old' ? c.evaluate(WORLD_WC) : null; }
+
 async function inoutProbe(c, v, RUN) {
   const name = v.engine;
   const zoomExpr = ZOOM_EXPR[name];
   let target, dy;
-  if (name === 'old') { await fitOld(c); target = ENGINES.old.target; dy = OLD_DY; }
+  if (name === 'old') { await fitOld(c, v.url); target = ENGINES.old.target; dy = OLD_DY; }
   else { await fitNew(c, v.url); ({ target, dy } = await calibrateNewDy(c, v.url)); }
 
   await checkIdle(c, `${v.key} before`);
@@ -380,19 +451,42 @@ async function inoutProbe(c, v, RUN) {
   const cx = VIEW.width / 2, cy = VIEW.height / 2;
   const shot = async (tag, withCards) => {
     const cardRects = withCards ? await c.evaluate(allRectsOf(EL[name])) : null;
-    const b64 = await c.screenshot(`wc3-${v.key}-r${RUN}-${tag}.png`);
+    const b64 = await c.screenshot(`wc4-${v.key}-f${RUN}-${tag}.png`);
     const edges = withCards ? await c.evaluate(EDGE(b64, cardRects)) : null;
     return { cardRects, edges, b64 };
   };
 
   const baseView = await c.evaluate(READ_VIEW(name));
   const base = await shot('base', true);
+  const wcBase = await worldWC(c, name);
 
+  // Task 3f part B: for `freeze` only, split the zoom-in into two TICKS
+  // calls (same shape zoom-out already uses for its own mid screenshot) so a
+  // screenshot can be taken at the MID tick of the zoom-in gesture — this is
+  // where gap 1's bug showed a live card as blank white. The split point is
+  // the geometric mean of the fit scale and INOUT_TARGET_SCALE: each tick
+  // multiplies scale by ~a constant factor, so this lands close to the
+  // tick-count midpoint without a throwaway dry run. Every other variant
+  // keeps the original single-call zoom-in, unchanged.
+  let gestureBlank = null;
   let b0 = await c.busy();
-  const zin = await c.evaluate(TICKS(target, zoomExpr, -dy, INOUT_MAX_TICKS, INOUT_TARGET_SCALE, cx, cy));
+  let zin;
+  if (v.key === 'freeze') {
+    const midTarget = Math.sqrt(baseView.scale * INOUT_TARGET_SCALE);
+    const zinA = await c.evaluate(TICKS(target, zoomExpr, -dy, INOUT_MAX_TICKS, midTarget, cx, cy));
+    const cardsAtMid = await c.evaluate(LIVE_CARD_RECTS);
+    const gestureB64 = await c.screenshot(`wc4-freeze-f${RUN}-gesture.png`);
+    gestureBlank = await c.evaluate(BLANK_WHITE(gestureB64, cardsAtMid));
+    const zinB = await c.evaluate(TICKS(target, zoomExpr, -dy, Math.max(0, INOUT_MAX_TICKS - zinA.n), INOUT_TARGET_SCALE, cx, cy));
+    zin = { n: zinA.n + zinB.n, timeSegments: [zinA.times, zinB.times] };
+  } else {
+    zin = await c.evaluate(TICKS(target, zoomExpr, -dy, INOUT_MAX_TICKS, INOUT_TARGET_SCALE, cx, cy));
+    zin.timeSegments = [zin.times];
+  }
   let b1 = await c.busy();
   const busyIn = b1 - b0;
   await shot('in', false);
+  const wcIn = await worldWC(c, name);
 
   const nOut = zin.n, half1 = Math.floor(nOut / 2), half2 = nOut - half1;
   b0 = await c.busy();
@@ -409,6 +503,7 @@ async function inoutProbe(c, v, RUN) {
   await sleep(1000);
   const outCheck = await ensureView(c, name, v, baseView, 'out', true);
   const out = await shot('out', true);
+  const wcOut = await worldWC(c, name);
 
   await sleep(5000);
   const out5Check = await ensureView(c, name, v, baseView, 'out5', false);
@@ -416,7 +511,7 @@ async function inoutProbe(c, v, RUN) {
 
   await checkIdle(c, `${v.key} after`);
 
-  const inStats = statsOf(zin.times.slice(2));
+  const inStats = statsOf(zin.timeSegments.flatMap((t) => t.slice(2)));
   const outStats = statsOf([...batch1.times.slice(2), ...batch2.times.slice(2)]);
 
   const gutterRects = gutterRectsOf(base.cardRects, gutterPairsOf(base.cardRects));
@@ -435,13 +530,20 @@ async function inoutProbe(c, v, RUN) {
     zoomOut: { ...outStats, busyMs: +busyOut.toFixed(1) },
     out: { scale: +batch2.scale.toFixed(4), view: outCheck.view, refit: outCheck.refit, invalid: outCheck.invalid, ...outMetrics },
     out5: { view: out5Check.view, invalid: out5Check.invalid, ...out5Metrics },
+    ...(name === 'old' ? { worldWillChange: { base: wcBase, in: wcIn, out: wcOut } } : {}),
+    ...(gestureBlank ? { gestureBlank } : {}),
   };
-  console.log(`wc-check ${v.key} r${RUN}: baseEdgeMean=${baseEdgeMean} out(missing=${outMetrics.missing},partial=${outMetrics.partial},skipped=${outMetrics.skipped},edgesVsBase=${outMetrics.edgesVsBase},diffVsBase=${outMetrics.diffVsBase})=${outMetrics.verdict} out5(missing=${out5Metrics.missing},partial=${out5Metrics.partial},edgesVsBase=${out5Metrics.edgesVsBase},diffVsBase=${out5Metrics.diffVsBase})=${out5Metrics.verdict}`);
+  console.log(`wc-check ${v.key} f${RUN}: baseEdgeMean=${baseEdgeMean} out(missing=${outMetrics.missing},partial=${outMetrics.partial},skipped=${outMetrics.skipped},edgesVsBase=${outMetrics.edgesVsBase},diffVsBase=${outMetrics.diffVsBase})=${outMetrics.verdict} out5(missing=${out5Metrics.missing},partial=${out5Metrics.partial},edgesVsBase=${out5Metrics.edgesVsBase},diffVsBase=${out5Metrics.diffVsBase})=${out5Metrics.verdict}`);
+  if (result.worldWillChange) console.log(`wc-check ${v.key} f${RUN}: world will-change base=${wcBase} in(peak)=${wcIn} out=${wcOut}`);
+  if (gestureBlank) console.log(`wc-check ${v.key} f${RUN}: gesture mid-zoom-in live=${gestureBlank.liveCount} blankWhite=${gestureBlank.blankCount}`);
   return result;
 }
 
 const VARIANTS = [
   { key: 'old', engine: 'old', url: ENGINES.old.tall, label: 'old engine (control)' },
+  // Task 3f (gap 2): old engine + the world-GPU-layer-budget fix (main's
+  // 08b443c/e5b6fa4) — the cheapest competing option, never measured before.
+  { key: 'old-fixed', engine: 'old', url: ENGINES['old-fixed'].tall, label: 'old engine + layer budget fix (control)' },
   { key: 'plain', engine: 'new', url: ENGINES.new.tall, label: 'React Flow, no flags' },
   { key: 'wc', engine: 'new', url: ENGINES.new.tall + '&wc=1', label: 'React Flow, wc=1' },
   { key: 'no-iframes', engine: 'new', url: ENGINES.new.tall + '&off=iframes', label: 'React Flow, off=iframes' },
@@ -526,11 +628,11 @@ try {
     };
   });
 
-  writeFileSync(path.join(outDir, `wc-check-r${RUN}.json`), JSON.stringify({ run: RUN, variants: VARIANTS, rows }, null, 2));
+  writeFileSync(path.join(outDir, `wc-check-f${RUN}.json`), JSON.stringify({ run: RUN, variants: VARIANTS, rows }, null, 2));
 
   printRunTable(RUN, rows);
 
-  const files = [1, 2, 3].map((n) => path.join(outDir, `wc-check-r${n}.json`));
+  const files = [1, 2, 3].map((n) => path.join(outDir, `wc-check-f${n}.json`));
   if (files.every((f) => existsSync(f))) {
     const allRuns = files.map((f) => JSON.parse(readFileSync(f, 'utf8')));
     printMedianTable(allRuns);
