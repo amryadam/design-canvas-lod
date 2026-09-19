@@ -15,7 +15,7 @@ import { launch, sleep, ENGINES, root } from '../tests/cdp.mjs';
 const outDir = path.join(root, 'perf', 'out');
 mkdirSync(outDir, { recursive: true });
 
-const RUNS = 3, OLD_DY = 6, TICK = 0.06; // dy is calibrated below so its per-tick zoom ratio matches this reference tick (see perf/results.md)
+const RUNS = 3, CAL_DY = 6, TICK = 0.06; // dy is calibrated below so its per-tick zoom ratio matches this reference tick (see perf/results.md)
 const PAN_PROBE_DX = 40, PAN_PX = 40; // C1: the pan gesture must travel PAN_PX screen px per frame
 const MIN_IDLE_FPS = 50;
 const ALLOW_THROTTLED = process.env.PERF_ALLOW_THROTTLED === '1';
@@ -168,7 +168,7 @@ try {
   let target = E.target;
   const tryTarget = async (sel) => {
     const z0 = await c.evaluate(E.zoom);
-    await c.evaluate(`(async () => { spikeDrive.wheel('${sel}', { deltaY: -${OLD_DY}, ctrlKey: true }); await spikeDrive.frame(); await spikeDrive.frame(); })()`);
+    await c.evaluate(`(async () => { spikeDrive.wheel('${sel}', { deltaY: -${CAL_DY}, ctrlKey: true }); await spikeDrive.frame(); await spikeDrive.frame(); })()`);
     const ratio = (await c.evaluate(E.zoom)) / z0;
     return ratio;
   };
@@ -186,7 +186,7 @@ try {
     target = fallback;
     ratio = ratio2;
   }
-  const dy = OLD_DY * TICK / Math.log(ratio);
+  const dy = CAL_DY * TICK / Math.log(ratio);
   await fit();
 
   // C1: calibrate the pan gesture exactly as the zoom gesture above —
