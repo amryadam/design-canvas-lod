@@ -21,7 +21,15 @@ if (!(ORDER.length === 2 && ORDER.includes('old') && ORDER.includes('new') && OR
   console.error(`SPIKE_ORDER must be "old,new" or "new,old" (got "${process.env.SPIKE_ORDER}")`);
   process.exit(2);
 }
-const outFile = ORDER[0] === 'old' ? 'frames.json' : 'frames-reversed.json';
+// I8 (Task 3e): SPIKE_NEW_FLAGS is appended as the new engine's URL query
+// string (e.g. "freeze=1") and recorded in the output JSON (out.newFlags).
+// SPIKE_OUT_TAG names the output file's tag directly, for a run (e.g. a
+// re-run of the plain baseline) that wants its own file without a
+// SPIKE_NEW_FLAGS value to derive one from. With both unset the output file
+// name is exactly what it always was — frames.json / frames-reversed.json.
+const NEW_FLAGS = process.env.SPIKE_NEW_FLAGS || '';
+const OUT_TAG = process.env.SPIKE_OUT_TAG || (NEW_FLAGS ? NEW_FLAGS.replace(/[^a-zA-Z0-9]+/g, '-') : '');
+const outFile = `frames${OUT_TAG ? '-' + OUT_TAG : ''}${ORDER[0] === 'old' ? '' : '-reversed'}.json`;
 
 // Injected into each page. One wheel event for each animation frame.
 const DRIVER = `(() => {
@@ -63,6 +71,24 @@ const DRIVER = `(() => {
       }
       return { travel30: +travel30.toFixed(2) };
     }),
+    // Task 3e verification, not part of the scored zoom/pan measurement: the
+    // same symmetric 90-tick zoom gesture as zoom() above, but instead of
+    // frame timing it samples the count of iframes with computed visibility:hidden
+    // at the gesture's mid tick (the last zoom-in tick, i === n/2 - 1) and
+    // again 1.5s after the gesture ends — whether freeze=1's hide/restore
+    // actually held for the duration of a synthetic-wheel gesture.
+    zoomCheckFreeze: async (sel, dy, n = 90) => {
+      const hiddenCount = () => [...document.querySelectorAll('iframe')]
+        .filter((el) => getComputedStyle(el).visibility === 'hidden').length;
+      let hiddenAtMid = null;
+      for (let i = 0; i < n; i++) {
+        wheel(sel, { deltaY: i < n / 2 ? -dy : dy, ctrlKey: true });
+        await frame();
+        if (i === Math.floor(n / 2) - 1) hiddenAtMid = hiddenCount();
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      return { hiddenAtMid, hiddenAfter: hiddenCount() };
+    },
   };
 })()`;
 
@@ -119,7 +145,10 @@ const out = {};
 try {
   for (const name of ORDER) {
     const E = ENGINES[name];
-    await c.open(E.sample, 'try { localStorage.clear(); } catch {}');
+    // I8: only the new engine's URL takes SPIKE_NEW_FLAGS — the old engine's
+    // sample page has no such flags and is unaffected either way.
+    const sampleUrl = name === 'new' && NEW_FLAGS ? `${E.sample}?${NEW_FLAGS}` : E.sample;
+    await c.open(sampleUrl, 'try { localStorage.clear(); } catch {}');
     // Deviation from the brief: the old page compiles design-canvas.jsx and
     // canvas-page.jsx with Babel standalone, in the browser, after load. The
     // default 30s `until` timeout was not enough on this machine; give the
@@ -259,6 +288,21 @@ try {
       return fold(rows);
     };
     const zoom = await measure(`zoom('${target}', ${dy})`);
+
+    // I8 (Task 3e): does freeze=1 actually hold the live iframes hidden for
+    // the duration of a synthetic-wheel gesture? A separate, unscored
+    // gesture (not one of the RUNS above) — see zoomCheckFreeze in DRIVER.
+    let freezeCheck = null;
+    if (name === 'new' && /(?:^|[&?])freeze=1(?:&|$)/.test(NEW_FLAGS)) {
+      const check = await c.evaluate(`spikeDrive.zoomCheckFreeze('${target}', ${dy})`);
+      freezeCheck = { ...check, liveAtFit };
+      console.log(`freeze engagement: hidden at mid tick=${check.hiddenAtMid} (liveAtFit=${liveAtFit}), hidden 1.5s after=${check.hiddenAfter}`);
+      if (check.hiddenAtMid === 0) {
+        console.error('WARNING: freeze=1 did not engage — hiddenAtMid=0. onMoveStart likely did not fire for the synthetic wheel events. These are NOT a freeze result.');
+      }
+      await fit();
+    }
+
     const { panScale, liveAtPan } = await zoomOne();
     const pan = await measure(`pan('${target}', ${panDx})`);
 
@@ -270,6 +314,7 @@ try {
       panScale, liveAtPan, zoom, pan,
       idleFpsBefore: +idleBefore.fps.toFixed(1), visibilityBefore: idleBefore.visibility,
       idleFpsAfter: +idleAfter.fps.toFixed(1), visibilityAfter: idleAfter.visibility,
+      ...(freezeCheck ? { freezeCheck } : {}),
     };
   }
 
@@ -306,6 +351,7 @@ try {
   }
 
   out.order = ORDER;
+  if (NEW_FLAGS) out.newFlags = NEW_FLAGS;
   out.verdict = {
     fitParity: fitAgree, zoomParity: zoomAgree, panParity: panAgree, panScaleParity: panScaleAgree, clampOk,
     gestureParity: fitAgree && zoomAgree && panAgree && panScaleAgree && clampOk,
