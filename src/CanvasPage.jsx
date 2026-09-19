@@ -160,10 +160,18 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
 
   // A card drag holds the budget like a pan does. The drop saves the place
   // and marks the window as touched, so it keeps its place in the budget.
-  const onNodeDragStart = useCallback(() => budget.moveStart(), [budget]);
+  // With nodeDragThreshold 0 (see constants.js), React Flow starts the drag
+  // at mousedown and always fires the stop, even for a plain click that
+  // never moved; dragStartPos tells the two apart, so a click alone does not
+  // save a place or mark the window as moved.
+  const dragStartPos = useRef(null);
+  const onNodeDragStart = useCallback((e, node) => { dragStartPos.current = { x: node.position.x, y: node.position.y }; budget.moveStart(); }, [budget]);
   const onNodeDragStop = useCallback((e, node) => {
     budget.touch(node.id);
     budget.moveEnd();
+    const start = dragStartPos.current;
+    dragStartPos.current = null;
+    if (start && start.x === node.position.x && start.y === node.position.y) return;
     if (node.type === 'window') update((s) => actions.move(s, node.id, screenOf(node.position)));
     else if (node.type === 'note') update((s) => actions.move(s, node.id, node.position));
   }, [budget, update]);
@@ -234,6 +242,7 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
           onMoveStart={onMoveStart} onMove={onMove} onMoveEnd={onMoveEnd}
           onNodeDragStart={onNodeDragStart} onNodeDragStop={onNodeDragStop}
           edgesReconnectable onReconnect={onReconnect}
+          nodeDragThreshold={DC.nodeDragThreshold}
           minZoom={DC.minZoom} maxZoom={DC.maxZoom}
           panOnScroll panOnScrollSpeed={1} zoomOnPinch zoomOnDoubleClick={false}
           elementsSelectable={false} nodesFocusable={false} edgesFocusable={false}

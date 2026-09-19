@@ -8,6 +8,15 @@ export const DC = {
   winBody: '#eae7e1',
   sectionHeadMax: 1.75, // the most the section head counter-scales
   sectionHeadGap: 36,   // world px between the head and the content
+  // A node drag starts on the first pixel of movement. React Flow's own
+  // default (1 screen px) waits for that much motion before it starts, then
+  // measures the rest of the drag from there — so the pixels spent crossing
+  // the threshold never reach the node, and a fast first mousemove (a real
+  // one, not only a synthetic one) can drop a visible chunk of the drag. The
+  // header and the ⌘-drag shield are the only drag handles (mapping.js), and
+  // every button in the header is marked nodrag, so nothing needs the
+  // threshold to tell a click from a drag.
+  nodeDragThreshold: 0,
   // View.
   minZoom: 0.05, maxZoom: 4,
   fitPad: 80,           // screen px left around the content by a fit
