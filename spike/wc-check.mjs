@@ -1,41 +1,68 @@
-// node spike/wc-check.mjs — Task 3c: does `wc=1` (will-change: transform on
-// .react-flow__viewport, the fix for the spike's own extra zoom cost found
-// in Task 3b's ablation) bring back the tall-page GPU-layer blank that the
-// OLD engine shows (spike/tall-check.mjs's in-out probe, INOUT old: BLANK)?
-// Also checks a middle way, `wc=1&contain=1` (adds `contain:layout paint`
-// to each card, spike/src/main.jsx's `contain` flag).
+// node spike/wc-check.mjs <1|2|3> — Task 3d: the decisive tall-page measurement.
 //
-// This is a NEW script. It does not edit spike/tall-check.mjs, spike/
-// frames.mjs or spike/ablate.mjs; the pieces below marked "copied from
-// tall-check.mjs" or "copied from ablate.mjs" are verbatim or near-verbatim
-// copies (those scripts have no exports — everything runs at module load —
-// so importing them is not an option; copying is the same approach
-// ablate.mjs itself uses for the bits it needs from frames.mjs).
-import { writeFileSync } from 'node:fs';
+// Task 3c asked "does wc=1 bring the old engine's GPU-layer blank back to
+// React Flow?" and found: no severe blank, but a small reproducible edge
+// softening on 2-3 cards. A reviewer found the conclusion "speed and blank
+// always trade off" is NOT proven — an earlier small-page ablation showed
+// React Flow WITHOUT will-change and with NO live iframes is faster than the
+// old engine, and the blank metric itself had two defects. This script:
+//   (a) adds three variants that isolate the two suspects the ablation
+//       named — no live iframes at all (`no-iframes`), will-change moved
+//       from the world viewport onto each live iframe individually
+//       (`live-wc`), and iframes hidden (not unmounted) for the duration of
+//       a gesture only (`freeze`, spike/src/main.jsx's new flags) — next to
+//       the `old` control, `plain`, and `wc` from Task 3c (drops `wc-contain`,
+//       which added nothing over `wc` alone in Task 3c's numbers);
+//   (b) fixes the blank metric: a card whose sampled edge-band could not be
+//       read (n===0) is skipped, not scored missing; adds a whole-view
+//       diffVsBase pixel metric so a lost SVG edge/arrow (nowhere near a
+//       card's own border band) cannot hide; adds an edgesVsBase metric
+//       sampled in the gutters between cards, replacing the fragile
+//       "count arrow-coloured pixels" approach; takes a second post-gesture
+//       screenshot 5s after the first (out5) so a texture that is only
+//       waiting for a re-raster (transient) is distinguished from lasting
+//       damage (permanent).
+//
+// This is still a NEW script, not an edit to spike/tall-check.mjs, spike/
+// frames.mjs or spike/ablate.mjs (none have exports; everything runs at
+// module load, so importing is not an option) — the pieces below marked
+// "copied from tall-check.mjs" are verbatim or near-verbatim copies, same
+// approach ablate.mjs itself uses for the bits it needs from frames.mjs.
+//
+// Run three times, one Chrome launch per run (see the task brief's machine-
+// condition rule): `node spike/wc-check.mjs 1`, then `2`, then `3`. Each run
+// writes spike/out/wc-check-r<N>.json and spike/out/wc3-<variant>-r<N>-
+// {base,in,mid,out,out5}.png, and prints that run's tables. Once all three
+// r1/r2/r3 files exist on disk, the run also prints the median-of-3 summary
+// table (whichever invocation happens to complete the set — normally the
+// third — prints it; the other two see files missing and skip it).
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { launch, sleep, ENGINES, VIEW, outDir } from './cdp.mjs';
 
 const EL = { old: '[data-dc-slot]', new: '.react-flow__node-window' };
 
 // ---- copied from spike/tall-check.mjs ----
-const unionRectOf = (sel) => `(() => { const a = [...document.querySelectorAll('${sel}')];
-  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-  a.forEach((el) => { const q = el.getBoundingClientRect();
-    l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); });
-  return { l, t, w: r - l, h: b - t }; })()`;
-
-const DRAWN = (b64, r) => `(async () => {
-  const img = new Image(); img.src = 'data:image/png;base64,${b64}'; await img.decode();
-  const k = img.width / innerWidth;
-  const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
-  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
-  const x0 = Math.max(0, ${r.l}), y0 = Math.max(0, ${r.t}), x1 = Math.min(innerWidth, ${r.l + r.w}), y1 = Math.min(innerHeight, ${r.t + r.h});
-  if (x1 - x0 < 4 || y1 - y0 < 4) return -1;
-  const d = g.getImageData(Math.round(x0 * k), Math.round(y0 * k), Math.round((x1 - x0) * k), Math.round((y1 - y0) * k)).data;
-  let n = 0, hit = 0;
-  for (let i = 0; i < d.length; i += 16) { n++; if (Math.abs(d[i] - 240) > 10 || Math.abs(d[i + 1] - 238) > 10 || Math.abs(d[i + 2] - 233) > 10) hit++; }
-  return hit / n;
-})()`;
+// C1 pattern (tall-check.mjs's waitView): read the engine's own view back and
+// assert it landed — scale within 0.5%, x/y within 1px. Reused here (Task
+// 3d) as the base/out "same view" guard the brief asks for: if the gesture's
+// zoom-out did not return to base's exact view, re-fit (deterministic — see
+// fitOld/fitNew below) before the shot; if it still does not match, the row
+// is INVALID rather than silently measured against the wrong view.
+const READ_VIEW = (name) => (name === 'old' ? 'window.dcView' : `(() => { const v = window.rf.getViewport(); return { x: v.x, y: v.y, scale: v.zoom }; })()`);
+const viewMatches = (got, want) => !!got && Math.abs(got.scale / want.scale - 1) <= 0.005 && Math.abs(got.x - want.x) <= 1 && Math.abs(got.y - want.y) <= 1;
+async function ensureView(c, name, v, wantView, label, allowRefit) {
+  const read = READ_VIEW(name);
+  let got = await c.evaluate(read);
+  if (viewMatches(got, wantView)) return { view: got, refit: false, invalid: false };
+  if (allowRefit) {
+    if (name === 'old') await fitOld(c); else await fitNew(c, v.url);
+    got = await c.evaluate(read);
+    if (viewMatches(got, wantView)) return { view: got, refit: true, invalid: false };
+  }
+  console.error(`INVALID: ${v.key} ${label} view ${JSON.stringify(got)} does not match base view ${JSON.stringify(wantView)}${allowRefit ? ' even after re-fit' : ''}`);
+  return { view: got, refit: allowRefit, invalid: true };
+}
 
 const IDLE_PROBE = `(() => new Promise((resolve) => {
   let n = 0; const t0 = performance.now();
@@ -49,6 +76,22 @@ const IDLE_PROBE = `(() => new Promise((resolve) => {
 }))()`;
 const MIN_IDLE_FPS = 50;
 const ALLOW_THROTTLED = process.env.SPIKE_ALLOW_THROTTLED === '1';
+
+// New for Task 3d: the validity guard, now run before AND after each
+// variant (previously once for the whole script), on whatever page is
+// currently loaded (the variant's own page).
+async function checkIdle(c, label) {
+  const idle = await c.evaluate(IDLE_PROBE);
+  console.log(`idle rAF [${label}]: fps=${idle.fps.toFixed(1)} visibility=${idle.visibility}`);
+  if (idle.visibility !== 'visible' || idle.fps < MIN_IDLE_FPS) {
+    if (!ALLOW_THROTTLED) {
+      console.error(`INVALID: screen not visible or rAF throttled at ${label} (fps=${idle.fps.toFixed(1)}, visibility=${idle.visibility})`);
+      c.stop(4);
+    }
+    console.error(`WARNING: numbers are not valid at ${label} (fps=${idle.fps.toFixed(1)}, visibility=${idle.visibility}) — SPIKE_ALLOW_THROTTLED=1 is set, continuing anyway`);
+  }
+  return idle;
+}
 
 async function fitOld(c) {
   await c.open(ENGINES.old.tall, "try { localStorage.clear(); } catch {}");
@@ -66,8 +109,8 @@ const NEW_FIT_EXPR = `(() => {
   return zoom;
 })()`;
 // Deviation from tall-check.mjs's fitNew: parameterised on `url` (this
-// script has several new-engine URL variants — plain/wc/wc-contain — that
-// tall-check.mjs never needed, since it only ever visits ENGINES.new.tall).
+// script has several new-engine URL variants that tall-check.mjs never
+// needed, since it only ever visits ENGINES.new.tall).
 async function fitNew(c, url) {
   if (!(await c.evaluate(`location.pathname + location.search === '${url}' && !!window.rf`))) {
     await c.open(url);
@@ -129,23 +172,23 @@ async function calibrateNewDy(c, url) {
 const INOUT_TARGET_SCALE = 3.5, INOUT_MAX_TICKS = 120;
 // ---- end copied from spike/tall-check.mjs ----
 
-// New for Task 3c: every card's own (unclipped) screen rect, in document
-// order — same order for a variant's base and out shot, so cards are
-// matched by index (cards are static DOM nodes; only the viewport moves).
+// Every card's own (unclipped) screen rect, in document order — same order
+// for a variant's base/out/out5 shots, so cards are matched by index (cards
+// are static DOM nodes; only the viewport moves). Both engines build from
+// the same spikeTall() artboards array in the same r*5+c order (verified in
+// Task 3c's report: the old engine's bottom-row loss landed on indices
+// 45-49, i.e. row 9).
 const allRectsOf = (sel) => `[...document.querySelectorAll('${sel}')].map((el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; })`;
 
-// New for Task 3c: per-card "edge" metric. The union-rect `drawn` number
-// (DRAWN above) cannot tell a blank card from a pale-but-drawn one — see the
-// brief. This instead samples a border band just inside each card's rect
-// and reports the fraction of those pixels that are NOT background colour
-// #f0eee9 (240,238,233): a drawn card has a visible frame (box-shadow /
-// border against the page background) so `edge` is high; a card the
+// Per-card "edge" metric (unchanged approach from Task 3c): samples a
+// ~2-CSS-px band just inside each card's rect and reports the fraction of
+// those pixels that are NOT background colour #f0eee9 — a drawn card has a
+// visible frame (box-shadow / border) so `edge` is high; a card the
 // compositor dropped is indistinguishable from bare background there, so
-// `edge` is ~0; a card cut off part-way through has a partial frame.
-// The band is sampled with 4 small getImageData calls per card (top strip,
-// bottom strip, left strip, right strip minus the corners already counted
-// in top/bottom) rather than a full-card decode, so this stays fast even
-// for ~50 large (1440x900 CSS) cards per screenshot.
+// `edge` is ~0. `n` is the number of band pixels actually sampled; Task 3d
+// fix #1 (reviewer finding): a card whose rect clips to nothing on screen
+// (n===0) cannot be judged and must be SKIPPED, not scored missing — done in
+// cardMetrics() below, not here.
 const EDGE = (b64, rects) => `(async () => {
   const img = new Image(); img.src = 'data:image/png;base64,${b64}'; await img.decode();
   const k = img.width / innerWidth;
@@ -176,6 +219,98 @@ const EDGE = (b64, rects) => `(async () => {
   });
 })()`;
 
+// New for Task 3d (reviewer fix #2): edgesVsBase. Counts non-background
+// pixels in the "gutters" between horizontally-adjacent cards in the same
+// row — spike/tall.js only ever creates a flow edge between same-row
+// neighbours (`if (c > 0) flows.push({ from: artboards[i - 1]... })`), so
+// every arrow + label the tall page draws crosses exactly this region. This
+// replaces "count dark/brown arrow-coloured pixels" (fragile: ties the
+// metric to one engine's arrow colour/theme) with the same background-vs-not
+// test EDGE above already uses (>10 per channel from #f0eee9). Applies
+// identically to the old engine and every React Flow variant.
+const GUTTERS = (b64, gutters) => `(async () => {
+  const img = new Image(); img.src = 'data:image/png;base64,${b64}'; await img.decode();
+  const k = img.width / innerWidth;
+  const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+  const gutters = ${JSON.stringify(gutters)};
+  const bg0 = 240, bg1 = 238, bg2 = 233, half = 4;
+  return gutters.map((gu) => {
+    const x0 = Math.max(0, Math.round(gu.x0 * k)), x1 = Math.min(img.width, Math.round(gu.x1 * k));
+    const yc = Math.round(gu.ymid * k);
+    const y0 = Math.max(0, yc - Math.round(half * k)), y1 = Math.min(img.height, yc + Math.round(half * k));
+    const w = x1 - x0, h = y1 - y0;
+    if (w < 2 || h < 2) return { n: 0, hit: 0 };
+    const data = g.getImageData(x0, y0, w, h).data;
+    let n = 0, hit = 0;
+    for (let i = 0; i < data.length; i += 4) { n++; if (Math.abs(data[i] - bg0) > 10 || Math.abs(data[i + 1] - bg1) > 10 || Math.abs(data[i + 2] - bg2) > 10) hit++; }
+    return { n, hit };
+  });
+})()`;
+
+// New for Task 3d (reviewer fix #3): diffVsBase. A whole-VIEW pixel diff
+// against the base screenshot, computed in the page from the two PNGs, so a
+// card the per-card EDGE metric calls "ok" (its own border band unchanged)
+// but whose body silently went blank, or damage anywhere off a card border /
+// gutter band, still shows up. Sampled every 4th screenshot pixel in x and
+// y, > 24 in any channel, exactly as specified.
+const DIFF_VS_BASE = (baseB64, outB64) => `(async () => {
+  const load = (src) => { const im = new Image(); im.src = src; return im.decode().then(() => im); };
+  const [a, b] = await Promise.all([load('data:image/png;base64,${baseB64}'), load('data:image/png;base64,${outB64}')]);
+  const w = Math.min(a.width, b.width), h = Math.min(a.height, b.height);
+  const ca = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const cb = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ga = ca.getContext('2d', { willReadFrequently: true }); ga.drawImage(a, 0, 0);
+  const gb = cb.getContext('2d', { willReadFrequently: true }); gb.drawImage(b, 0, 0);
+  const da = ga.getImageData(0, 0, w, h).data, db = gb.getImageData(0, 0, w, h).data;
+  let n = 0, hit = 0;
+  for (let y = 0; y < h; y += 4) {
+    const row = y * w;
+    for (let x = 0; x < w; x += 4) {
+      const i = (row + x) * 4;
+      n++;
+      if (Math.abs(da[i] - db[i]) > 24 || Math.abs(da[i + 1] - db[i + 1]) > 24 || Math.abs(da[i + 2] - db[i + 2]) > 24) hit++;
+    }
+  }
+  return n > 0 ? +(hit / n).toFixed(4) : -1;
+})()`;
+
+// Group base cardRects into rows (by rounded top, tolerant of float jitter),
+// sort each row left-to-right, and return adjacent [leftIdx, rightIdx] pairs
+// — exactly the pairs spike/tall.js links with a flow edge.
+function gutterPairsOf(cardRects) {
+  const rows = new Map();
+  cardRects.forEach((r, i) => {
+    const key = Math.round(r.t / 8) * 8;
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(i);
+  });
+  const pairs = [];
+  for (const idxs of rows.values()) {
+    idxs.sort((a, b) => cardRects[a].l - cardRects[b].l);
+    for (let k = 0; k < idxs.length - 1; k++) pairs.push([idxs[k], idxs[k + 1]]);
+  }
+  return pairs;
+}
+function gutterRectsOf(cardRects, pairs) {
+  return pairs
+    .map(([i, j]) => { const a = cardRects[i], b = cardRects[j]; return { x0: a.l + a.w, x1: b.l, ymid: a.t + a.h / 2 }; })
+    .filter((r) => r.x1 - r.x0 >= 2);
+}
+
+async function edgesVsBaseOf(c, baseB64, outB64, gutterRects) {
+  if (!gutterRects.length) return -1;
+  const baseVals = await c.evaluate(GUTTERS(baseB64, gutterRects));
+  const outVals = await c.evaluate(GUTTERS(outB64, gutterRects));
+  const sum = (arr, key) => arr.reduce((a, x) => a + x[key], 0);
+  const baseN = sum(baseVals, 'n'), baseHit = sum(baseVals, 'hit');
+  const outN = sum(outVals, 'n'), outHit = sum(outVals, 'hit');
+  const baseFrac = baseN > 0 ? baseHit / baseN : 0;
+  const outFrac = outN > 0 ? outHit / outN : 0;
+  if (baseFrac > 0) return +(outFrac / baseFrac).toFixed(3);
+  return outFrac > 0 ? -1 : 1; // base had nothing to lose; -1 flags "unexpected pixels appeared"
+}
+
 // Frame-time stats, same shape tall-check.mjs/ablate.mjs use: p50/p95/max
 // from the sorted times, dropped = frames > 1.5x p50.
 function statsOf(times) {
@@ -186,95 +321,122 @@ function statsOf(times) {
   return { p50, p95: q(0.95), max: +s[s.length - 1].toFixed(2), dropped: s.filter((t) => t > 1.5 * p50).length, count: s.length };
 }
 
+// Task 3d fix #1 (reviewer finding): per-card missing/partial classification,
+// now skipping any card whose band could not be sampled (n===0) in EITHER
+// the base or the post-gesture shot, instead of scoring it "missing".
+function cardMetrics(base, shot) {
+  const n = Math.min(base.cardRects.length, shot.cardRects.length);
+  if (base.cardRects.length !== shot.cardRects.length) {
+    console.error(`WARNING: card count changed base=${base.cardRects.length} shot=${shot.cardRects.length}, comparing first ${n}`);
+  }
+  const inViewport = (r) => r.l < VIEW.width && r.l + r.w > 0 && r.t < VIEW.height && r.t + r.h > 0;
+  let cards = 0, missing = 0, partial = 0, skipped = 0;
+  const perCard = [];
+  for (let i = 0; i < n; i++) {
+    const br = base.cardRects[i];
+    if (!(br.w >= 8 && br.h >= 8 && inViewport(br))) continue;
+    const beObj = base.edges[i], oeObj = shot.edges[i];
+    if (beObj.n === 0 || oeObj.n === 0) { skipped++; continue; }
+    cards++;
+    const be = beObj.edge, oe = oeObj.edge;
+    const ratio = be > 0 ? oe / be : (oe > 0 ? 1 : 0);
+    let cls = 'ok';
+    if (ratio < 0.3) { missing++; cls = 'missing'; } else if (ratio < 0.8) { partial++; cls = 'partial'; }
+    if (cls !== 'ok') perCard.push({ i, baseEdge: be, outEdge: oe, ratio: +ratio.toFixed(3), cls });
+  }
+  return { cards, missing, partial, skipped, perCard };
+}
+
+// Verdict per the brief: BLANK if missing+partial>0, or edgesVsBase<0.5, or
+// diffVsBase>0.02 — for whichever shot (out / out5) is passed in.
+async function metricsFor(c, base, shot, gutterRects) {
+  const cm = cardMetrics(base, shot);
+  const edgesVsBase = await edgesVsBaseOf(c, base.b64, shot.b64, gutterRects);
+  const diffVsBase = await diffVsBaseOf(c, base.b64, shot.b64);
+  const blank = (cm.missing + cm.partial > 0) || (edgesVsBase >= 0 && edgesVsBase < 0.5) || (diffVsBase >= 0 && diffVsBase > 0.02);
+  return { ...cm, edgesVsBase, diffVsBase, verdict: blank ? 'BLANK' : 'OK' };
+}
+async function diffVsBaseOf(c, baseB64, outB64) { return c.evaluate(DIFF_VS_BASE(baseB64, outB64)); }
+
 // The in-out probe for one variant: fit -> baseline screenshot (+ per-card
-// rects, for the edge metric) -> zoom in with calibrated ticks to scale >=
-// 3.5 -> screenshot -> zoom out the SAME number of ticks (split around a mid
-// screenshot) -> wait 1s -> screenshot (+ per-card rects again). Records
-// zoom-in AND zoom-out frame times separately (tall-check.mjs's inoutProbe
-// only records the zoom-out leg; the brief for this task asks for both) and
-// main-thread busy ms for the tick-dispatch work only (the base/in/mid/out
-// screenshot decode+sample calls run on the main thread too but are
-// diagnostic overhead, not part of "the in-out gesture", so they are
-// excluded from the busy delta by bracketing busy() around each TICKS call
-// rather than once around the whole probe).
-async function inoutProbe(c, v) {
+// rects for the edge metric, + the view for the base/out equality guard) ->
+// zoom in with calibrated ticks to scale >= 3.5 -> screenshot -> zoom out the
+// SAME number of ticks (split around a mid screenshot) -> wait 1s -> assert
+// the view matches base (re-fit once if not, else INVALID) -> out screenshot
+// -> wait 5s more -> out5 screenshot (permanence). Records zoom-in AND
+// zoom-out frame times separately and main-thread busy ms for the
+// tick-dispatch work only (screenshot decode+sample calls are diagnostic
+// overhead, excluded from the busy delta by bracketing busy() tightly around
+// each TICKS call).
+async function inoutProbe(c, v, RUN) {
   const name = v.engine;
   const zoomExpr = ZOOM_EXPR[name];
   let target, dy;
   if (name === 'old') { await fitOld(c); target = ENGINES.old.target; dy = OLD_DY; }
   else { await fitNew(c, v.url); ({ target, dy } = await calibrateNewDy(c, v.url)); }
 
+  await checkIdle(c, `${v.key} before`);
+
   const cx = VIEW.width / 2, cy = VIEW.height / 2;
   const shot = async (tag, withCards) => {
-    const rect = await c.evaluate(unionRectOf(EL[name]));
     const cardRects = withCards ? await c.evaluate(allRectsOf(EL[name])) : null;
-    const b64 = await c.screenshot(`wc-${v.key}-${tag}.png`);
-    const drawn = +(await c.evaluate(DRAWN(b64, rect))).toFixed(3);
+    const b64 = await c.screenshot(`wc3-${v.key}-r${RUN}-${tag}.png`);
     const edges = withCards ? await c.evaluate(EDGE(b64, cardRects)) : null;
-    return { rect, drawn, cardRects, edges };
+    return { cardRects, edges, b64 };
   };
 
+  const baseView = await c.evaluate(READ_VIEW(name));
   const base = await shot('base', true);
 
   let b0 = await c.busy();
   const zin = await c.evaluate(TICKS(target, zoomExpr, -dy, INOUT_MAX_TICKS, INOUT_TARGET_SCALE, cx, cy));
   let b1 = await c.busy();
   const busyIn = b1 - b0;
-  const inShot = await shot('in', false);
+  await shot('in', false);
 
   const nOut = zin.n, half1 = Math.floor(nOut / 2), half2 = nOut - half1;
   b0 = await c.busy();
   const batch1 = await c.evaluate(TICKS(target, zoomExpr, dy, half1, null, cx, cy));
   b1 = await c.busy();
   const busyOut1 = b1 - b0;
-  const midShot = await shot('mid', false);
+  await shot('mid', false);
   b0 = await c.busy();
   const batch2 = await c.evaluate(TICKS(target, zoomExpr, dy, half2, null, cx, cy));
   b1 = await c.busy();
   const busyOut2 = b1 - b0;
   const busyOut = busyOut1 + busyOut2;
+
   await sleep(1000);
+  const outCheck = await ensureView(c, name, v, baseView, 'out', true);
   const out = await shot('out', true);
+
+  await sleep(5000);
+  const out5Check = await ensureView(c, name, v, baseView, 'out5', false);
+  const out5 = await shot('out5', true);
+
+  await checkIdle(c, `${v.key} after`);
 
   const inStats = statsOf(zin.times.slice(2));
   const outStats = statsOf([...batch1.times.slice(2), ...batch2.times.slice(2)]);
 
-  const outVsBase = base.drawn > 0 ? +(out.drawn / base.drawn).toFixed(3) : -1;
+  const gutterRects = gutterRectsOf(base.cardRects, gutterPairsOf(base.cardRects));
+  const baseEdgeVals = base.edges.filter((e) => e.n > 0).map((e) => e.edge);
+  const baseEdgeMean = baseEdgeVals.length ? +(baseEdgeVals.reduce((a, b) => a + b, 0) / baseEdgeVals.length).toFixed(4) : 0;
 
-  // The per-card edge metric (the actual blank verdict for this task).
-  // Only cards whose BASE rect is >= 8px in both dims and overlaps the
-  // viewport count (per the brief) — a card that was never really on
-  // screen, or a degenerate 0-size rect, cannot be judged "missing".
-  const n = Math.min(base.cardRects.length, out.cardRects.length);
-  if (base.cardRects.length !== out.cardRects.length) {
-    console.error(`WARNING: ${v.key} card count changed base=${base.cardRects.length} out=${out.cardRects.length}, comparing first ${n}`);
-  }
-  const inViewport = (r) => r.l < VIEW.width && r.l + r.w > 0 && r.t < VIEW.height && r.t + r.h > 0;
-  let cards = 0, missing = 0, partial = 0;
-  const perCard = [];
-  for (let i = 0; i < n; i++) {
-    const br = base.cardRects[i], be = base.edges[i].edge;
-    const oe = out.edges[i].edge;
-    const qualifies = br.w >= 8 && br.h >= 8 && inViewport(br);
-    if (!qualifies) continue;
-    cards++;
-    const ratio = be > 0 ? oe / be : (oe > 0 ? 1 : 0);
-    let cls = 'ok';
-    if (ratio < 0.3) { missing++; cls = 'missing'; } else if (ratio < 0.8) { partial++; cls = 'partial'; }
-    perCard.push({ i, baseEdge: be, outEdge: oe, ratio: +ratio.toFixed(3), cls });
-  }
-  const verdict = (missing + partial > 0) ? 'BLANK' : 'OK';
+  const outMetrics = await metricsFor(c, base, out, gutterRects);
+  if (outCheck.invalid) outMetrics.verdict = 'INVALID';
+  const out5Metrics = await metricsFor(c, base, out5, gutterRects);
+  if (out5Check.invalid) out5Metrics.verdict = 'INVALID';
 
   const result = {
     variant: v.key, engine: name, url: v.url, target, dy: +dy.toFixed(4),
-    base: { drawn: base.drawn }, in: { n: zin.n, scale: +zin.scale.toFixed(4), drawn: inShot.drawn },
-    mid: { drawn: midShot.drawn }, out: { n: half1 + half2, scale: +batch2.scale.toFixed(4), drawn: out.drawn },
-    outVsBase,
+    baseEdgeMean,
     zoomIn: { ...inStats, busyMs: +busyIn.toFixed(1) },
     zoomOut: { ...outStats, busyMs: +busyOut.toFixed(1) },
-    cards, missing, partial, verdict, perCard,
+    out: { scale: +batch2.scale.toFixed(4), view: outCheck.view, refit: outCheck.refit, invalid: outCheck.invalid, ...outMetrics },
+    out5: { view: out5Check.view, invalid: out5Check.invalid, ...out5Metrics },
   };
-  console.log(`wc-check ${v.key}: base=${result.base.drawn} in(n=${result.in.n},scale=${result.in.scale})=${result.in.drawn} mid=${result.mid.drawn} out(n=${result.out.n},scale=${result.out.scale})=${result.out.drawn} outVsBase=${outVsBase} cards=${cards} missing=${missing} partial=${partial} -> ${verdict}`);
+  console.log(`wc-check ${v.key} r${RUN}: baseEdgeMean=${baseEdgeMean} out(missing=${outMetrics.missing},partial=${outMetrics.partial},skipped=${outMetrics.skipped},edgesVsBase=${outMetrics.edgesVsBase},diffVsBase=${outMetrics.diffVsBase})=${outMetrics.verdict} out5(missing=${out5Metrics.missing},partial=${out5Metrics.partial},edgesVsBase=${out5Metrics.edgesVsBase},diffVsBase=${out5Metrics.diffVsBase})=${out5Metrics.verdict}`);
   return result;
 }
 
@@ -282,45 +444,96 @@ const VARIANTS = [
   { key: 'old', engine: 'old', url: ENGINES.old.tall, label: 'old engine (control)' },
   { key: 'plain', engine: 'new', url: ENGINES.new.tall, label: 'React Flow, no flags' },
   { key: 'wc', engine: 'new', url: ENGINES.new.tall + '&wc=1', label: 'React Flow, wc=1' },
-  { key: 'wc-contain', engine: 'new', url: ENGINES.new.tall + '&wc=1&contain=1', label: 'React Flow, wc=1&contain=1' },
+  { key: 'no-iframes', engine: 'new', url: ENGINES.new.tall + '&off=iframes', label: 'React Flow, off=iframes' },
+  { key: 'live-wc', engine: 'new', url: ENGINES.new.tall + '&livewc=1', label: 'React Flow, livewc=1' },
+  { key: 'freeze', engine: 'new', url: ENGINES.new.tall + '&freeze=1', label: 'React Flow, freeze=1' },
 ];
-const RUNS = 2;
+
+function median(nums) {
+  const s = nums.filter((n) => typeof n === 'number' && isFinite(n)).slice().sort((a, b) => a - b);
+  if (!s.length) return null;
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : +((s[mid - 1] + s[mid]) / 2).toFixed(3);
+}
+function mode(vals) {
+  const counts = new Map();
+  vals.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1));
+  let best = vals[0], bestN = 0;
+  for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+  return best;
+}
+
+function printRunTable(run, rows) {
+  const col = (s, w) => String(s).padStart(w);
+  console.log(`\n${'='.repeat(120)}\nRUN ${run} — speed`);
+  console.log('variant'.padEnd(12) + col('p95in', 8) + col('p95out', 8) + col('maxIn', 8) + col('drIn', 6) + col('drOut', 6) + col('busyMs', 9) + col('p95VsOld', 10) + col('maxVsOld', 10) + col('busyVsOld', 11) + '  SPEED');
+  rows.forEach((r) => {
+    const busyMs = +(r.zoomIn.busyMs + r.zoomOut.busyMs).toFixed(1);
+    const sp = r.speed;
+    console.log(r.variant.padEnd(12) + col(r.zoomIn.p95, 8) + col(r.zoomOut.p95, 8) + col(r.zoomIn.max, 8) + col(r.zoomIn.dropped, 6) + col(r.zoomOut.dropped, 6) + col(busyMs, 9)
+      + col(sp ? sp.p95InVsOld : '-', 10) + col(sp ? sp.maxInVsOld : '-', 10) + col(sp ? sp.busyVsOld : '-', 11) + '  ' + (sp ? sp.verdict : '-'));
+  });
+  console.log(`\nRUN ${run} — blank`);
+  console.log('variant'.padEnd(12) + col('baseEdge', 9) + col('missing', 8) + col('partial', 8) + col('skipped', 8) + col('edgesVB', 8) + col('diffVB', 8) + '  @out'.padEnd(7) + col('edgesVB5', 9) + col('diffVB5', 8) + '  @5s');
+  rows.forEach((r) => {
+    console.log(r.variant.padEnd(12) + col(r.baseEdgeMean, 9) + col(r.out.missing, 8) + col(r.out.partial, 8) + col(r.out.skipped, 8) + col(r.out.edgesVsBase, 8) + col(r.out.diffVsBase, 8) + '  ' + r.out.verdict.padEnd(7)
+      + col(r.out5.edgesVsBase, 9) + col(r.out5.diffVsBase, 8) + '  ' + r.out5.verdict);
+  });
+}
+
+function printMedianTable(allRuns) {
+  console.log(`\n${'='.repeat(120)}\nMEDIAN OF ${allRuns.length} RUNS`);
+  const col = (s, w) => String(s).padStart(w);
+  console.log('variant'.padEnd(12) + col('p95in', 8) + col('drIn', 6) + col('busy', 8) + col('p95VsOld', 10) + col('busyVsOld', 11) + col('SPEED', 7)
+    + col('missing', 9) + col('partial', 9) + col('edgesVB', 9) + col('diffVB', 8) + '  @out'.padEnd(7) + '  @5s');
+  for (const v of VARIANTS) {
+    const rowsForV = allRuns.map((run) => run.rows.find((r) => r.variant === v.key)).filter(Boolean);
+    if (!rowsForV.length) continue;
+    const p95in = median(rowsForV.map((r) => r.zoomIn.p95));
+    const drIn = median(rowsForV.map((r) => r.zoomIn.dropped));
+    const busy = median(rowsForV.map((r) => +(r.zoomIn.busyMs + r.zoomOut.busyMs).toFixed(1)));
+    const p95VsOld = rowsForV[0].speed ? median(rowsForV.map((r) => r.speed.p95InVsOld)) : '-';
+    const busyVsOld = rowsForV[0].speed ? median(rowsForV.map((r) => r.speed.busyVsOld)) : '-';
+    const speed = rowsForV[0].speed ? mode(rowsForV.map((r) => r.speed.verdict)) : '-';
+    const missing = median(rowsForV.map((r) => r.out.missing));
+    const partial = median(rowsForV.map((r) => r.out.partial));
+    const edgesVB = median(rowsForV.map((r) => r.out.edgesVsBase));
+    const diffVB = median(rowsForV.map((r) => r.out.diffVsBase));
+    const vOut = mode(rowsForV.map((r) => r.out.verdict));
+    const vOut5 = mode(rowsForV.map((r) => r.out5.verdict));
+    console.log(v.key.padEnd(12) + col(p95in, 8) + col(drIn, 6) + col(busy, 8) + col(p95VsOld, 10) + col(busyVsOld, 11) + col(speed, 7)
+      + col(missing, 9) + col(partial, 9) + col(edgesVB, 9) + col(diffVB, 8) + '  ' + String(vOut).padEnd(7) + '  ' + vOut5);
+  }
+}
+
+const RUN = Number(process.argv[2]);
+if (![1, 2, 3].includes(RUN)) { console.error('usage: node spike/wc-check.mjs <1|2|3>'); process.exit(2); }
 
 const c = await launch();
-const allRuns = [];
 try {
-  // Validity guard (as tall-check.mjs): measured once, on the first page.
-  await c.open(ENGINES.old.tall, "try { localStorage.clear(); } catch {}");
-  await c.until(`${ENGINES.old.count} >= 10`, 60000);
-  await sleep(1000);
-  const idle = await c.evaluate(IDLE_PROBE);
-  console.log(`idle rAF: fps=${idle.fps.toFixed(1)} visibility=${idle.visibility}`);
-  if (idle.visibility !== 'visible' || idle.fps < MIN_IDLE_FPS) {
-    if (!ALLOW_THROTTLED) {
-      console.error(`INVALID: screen not visible or rAF throttled (fps=${idle.fps.toFixed(1)}, visibility=${idle.visibility})`);
-      c.stop(4);
-    }
-    console.error(`WARNING: numbers are not valid (fps=${idle.fps.toFixed(1)}, visibility=${idle.visibility}) — SPIKE_ALLOW_THROTTLED=1 is set, continuing anyway`);
-  }
+  const rows = [];
+  for (const v of VARIANTS) rows.push(await inoutProbe(c, v, RUN));
 
-  for (let run = 1; run <= RUNS; run++) {
-    console.log(`\n===== RUN ${run}/${RUNS} =====`);
-    const rows = [];
-    for (const v of VARIANTS) rows.push(await inoutProbe(c, v));
-    allRuns.push({ run, rows });
-  }
+  const oldRow = rows.find((r) => r.variant === 'old');
+  rows.forEach((r) => {
+    if (r.variant === 'old') return;
+    const busy = r.zoomIn.busyMs + r.zoomOut.busyMs, oldBusy = oldRow.zoomIn.busyMs + oldRow.zoomOut.busyMs;
+    const p95InVsOld = +(r.zoomIn.p95 / oldRow.zoomIn.p95).toFixed(3);
+    const maxInVsOld = +(r.zoomIn.max / oldRow.zoomIn.max).toFixed(3);
+    r.speed = {
+      p95InVsOld, maxInVsOld, busyVsOld: +(busy / oldBusy).toFixed(3),
+      verdict: (r.zoomIn.p95 <= 1.10 * oldRow.zoomIn.p95 && r.zoomIn.max <= 1.10 * oldRow.zoomIn.max) ? 'PASS' : 'FAIL',
+    };
+  });
 
-  writeFileSync(path.join(outDir, 'wc-check.json'), JSON.stringify({ variants: VARIANTS, runs: allRuns }, null, 2));
+  writeFileSync(path.join(outDir, `wc-check-r${RUN}.json`), JSON.stringify({ run: RUN, variants: VARIANTS, rows }, null, 2));
 
-  for (const { run, rows } of allRuns) {
-    console.log(`\n${'='.repeat(104)}\nRUN ${run}`);
-    const col = (s, w) => String(s).padStart(w);
-    console.log('variant'.padEnd(12) + col('p95in', 8) + col('p95out', 8) + col('drIn', 6) + col('drOut', 6) + col('max', 7) + col('busyMs', 9) + col('cards', 7) + col('missing', 9) + col('partial', 9) + '  verdict');
-    rows.forEach((r) => {
-      const maxAll = Math.max(r.zoomIn.max, r.zoomOut.max);
-      const busyMs = +(r.zoomIn.busyMs + r.zoomOut.busyMs).toFixed(1);
-      console.log(r.variant.padEnd(12) + col(r.zoomIn.p95, 8) + col(r.zoomOut.p95, 8) + col(r.zoomIn.dropped, 6) + col(r.zoomOut.dropped, 6) + col(maxAll, 7) + col(busyMs, 9) + col(r.cards, 7) + col(r.missing, 9) + col(r.partial, 9) + '  ' + r.verdict);
-    });
+  printRunTable(RUN, rows);
+
+  const files = [1, 2, 3].map((n) => path.join(outDir, `wc-check-r${n}.json`));
+  if (files.every((f) => existsSync(f))) {
+    const allRuns = files.map((f) => JSON.parse(readFileSync(f, 'utf8')));
+    printMedianTable(allRuns);
   }
 
   c.stop(0);

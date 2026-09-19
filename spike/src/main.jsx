@@ -17,6 +17,16 @@ function buildCss(opts) {
   const containDecl = opts && opts.contain ? ';contain:layout paint' : '';
   const cvDecl = off.has('cv') ? '' : ';content-visibility:auto';
   const wcRule = opts && opts.wc ? '.react-flow__viewport{will-change:transform}\n' : '';
+  // Task 3d `freeze=1`: while a gesture runs (App's onMoveStart/onMoveEnd
+  // toggle the `sp-gesture` class on the root, imperatively via
+  // classList — no React state, so the toggle itself costs one style
+  // recalculation, not a re-render of every node), live iframes go
+  // `visibility:hidden` and their placeholder (normally hidden, kept
+  // mounted alongside the iframe) shows instead. The iframe itself stays
+  // mounted throughout, so it never reloads.
+  const freezeRule = opts && opts.freeze
+    ? '.sp-freeze-ph{display:none}\n.sp-gesture .sp-live-if{visibility:hidden}\n.sp-gesture .sp-freeze-ph{display:grid}\n'
+    : '';
   return `
 .sp-root{width:100%;height:100%;background:#f0eee9}
 .sp-win{background:#fff;border-radius:10px;${shadowDecl}overflow:hidden;font:600 18px/1 system-ui,sans-serif;color:#2b2622${containDecl}}
@@ -27,7 +37,7 @@ function buildCss(opts) {
 .sp-shield{position:absolute;inset:0}
 .sp-note{background:#fff3a8;padding:24px;font:400 22px/1.45 system-ui,sans-serif;white-space:pre-wrap;box-sizing:border-box}
 .react-flow__handle{opacity:0}
-${wcRule}`;
+${wcRule}${freezeRule}`;
 }
 
 const WindowNode = memo(({ id, data }) => {
@@ -35,6 +45,12 @@ const WindowNode = memo(({ id, data }) => {
   const bodyStyle = data.cis
     ? { width: data.w, height: data.h, containIntrinsicSize: `${data.w}px ${data.h}px` }
     : { width: data.w, height: data.h };
+  // Task 3d `livewc=1`: will-change:transform on the live iframe ELEMENT
+  // only (not the viewport) — each live iframe becomes its own small GPU
+  // layer, instead of one world-sized layer.
+  const ifStyle = data.livewc
+    ? { width: data.w, height: data.h, border: 0, display: 'block', willChange: 'transform' }
+    : { width: data.w, height: data.h, border: 0, display: 'block' };
   // `data.handles` is null by default (render all 8, as always). Set by the
   // `handles` off-flag to the exact source/target sides this node's edges
   // actually use, so unused handles are not rendered at all.
@@ -51,9 +67,9 @@ const WindowNode = memo(({ id, data }) => {
     <div className="sp-win" style={{ width: data.w, height: data.h + HEAD }}>
       <div className="sp-head"><span className={'sp-dot' + (live ? ' on' : '')} />{data.title}</div>
       <div className="sp-body" style={bodyStyle}>
-        {live
-          ? <iframe src={data.src} title={data.title} style={{ width: data.w, height: data.h, border: 0, display: 'block' }} />
-          : <div className="sp-ph">{data.title}</div>}
+        {live && <iframe src={data.src} title={data.title} className={data.freeze ? 'sp-live-if' : undefined} style={ifStyle} />}
+        {live && data.freeze && <div className="sp-ph sp-freeze-ph">{data.title}</div>}
+        {!live && <div className="sp-ph">{data.title}</div>}
         <div className="sp-shield" />
       </div>
       {handleEls}
@@ -84,6 +100,8 @@ function build(data, page, base, opts) {
       w: a.w, h: a.h, title: a.title || a.file, src: base + a.file,
       handles: off.has('handles') ? (neededHandles.get(a.file) || new Set()) : null,
       cis: !!(opts && opts.cis),
+      livewc: !!(opts && opts.livewc),
+      freeze: !!(opts && opts.freeze),
     },
   }));
   (data.annotations || []).filter((n) => n.page === page).forEach((n) => nodes.push({
@@ -112,21 +130,40 @@ function App({ data, page, base, opts }) {
     if (budgetOverride !== undefined) args.push(budgetOverride);
     return args;
   }), [budgetOverride]);
+  // Task 3d `freeze=1`: mark the root as "in a gesture" imperatively
+  // (classList, not React state) for the CSS in buildCss's freezeRule to
+  // key off, from onMoveStart to onMoveEnd. Only wired up when the flag is
+  // set, so the default page's behaviour (and cost) is unchanged.
+  const freeze = !!(opts && opts.freeze);
+  const onMoveStart = useCallback(() => {
+    if (freeze) wrap.current.classList.add('sp-gesture');
+  }, [freeze]);
+  const onMoveEnd = useCallback(() => {
+    if (freeze) wrap.current.classList.remove('sp-gesture');
+    kick();
+  }, [freeze, kick]);
   return (
     <div ref={wrap} className="sp-root">
       <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={nodeTypes}
         minZoom={0.05} maxZoom={4} panOnScroll zoomOnPinch nodesConnectable={false} fitView
         onInit={(inst) => { rf.current = inst; window.rf = inst; kick(); }}
-        onMove={kick} onMoveEnd={kick} onNodeDragStop={kick}>
+        onMove={kick} onMoveStart={onMoveStart} onMoveEnd={onMoveEnd} onNodeDragStop={kick}>
         {!off.has('bg') && <Background gap={26} />}
       </ReactFlow>
     </div>
   );
 }
 
+// Task 3d's two new flags (`livewc`, `freeze`) are read here, directly from
+// the URL, instead of being added to spike/index.html's own opts-building
+// (like the Task 3b ablation flags off/cis/wc/contain are) — so this file
+// alone is enough to turn them on, and the default page (no query flags)
+// renders exactly as before: params.get(...) is null, so both stay false.
 export function mount(el, { data, page, base = './', opts = {} }) {
+  const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+  const merged = { ...opts, livewc: !!opts.livewc || params.get('livewc') === '1', freeze: !!opts.freeze || params.get('freeze') === '1' };
   const style = document.createElement('style');
-  style.textContent = rfCss + buildCss(opts);
+  style.textContent = rfCss + buildCss(merged);
   document.head.appendChild(style);
-  createRoot(el).render(<App data={data} page={page} base={base} opts={opts} />);
+  createRoot(el).render(<App data={data} page={page} base={base} opts={merged} />);
 }
