@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Design canvas</title>
+<body style="margin:0">
+<div id="root" style="height:100vh"></div>
+<select id="dc-page" title="Page" hidden style="position:fixed;z-index:60;top:10px;right:10px;font:13px system-ui,sans-serif"></select>
+<script src="./design-canvas.js"></script>
+<script>
+  // Put this file and design-canvas.js beside canvas.json. ?page=<id> opens a
+  // page; else the list at the top right picks one (it shows for 2+ pages).
+  const root = document.getElementById('root');
+  fetch('./canvas.json').then((r) => r.json()).then((data) => {
+    const pick = document.getElementById('dc-page');
+    data.pages.forEach((p) => pick.add(new Option(p.name || p.id, p.id)));
+    pick.value = new URLSearchParams(location.search).get('page') || sessionStorage.getItem('dc-page') || data.pages[0].id;
+    pick.hidden = data.pages.length < 2;
+    pick.onchange = () => { sessionStorage.setItem('dc-page', pick.value); location.reload(); };
+    window.dcCanvas = DesignCanvas.mount(root, { data, page: pick.value });
+  }).catch(() => { window.dcCanvas = DesignCanvas.mount(root, {}); });   // the canvas shows the error
+</script>

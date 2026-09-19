@@ -1,0 +1,65 @@
+/* The canvas root. The dots are 26 screen px apart at every zoom, so they are
+   the root's background, behind the React Flow layers, and never move. */
+.dc-root{position:relative;width:100%;height:100%;overflow:hidden;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#f0eee9 radial-gradient(rgba(70,58,46,.16) 1px,transparent 1px) 0 0/26px 26px}
+.dc-root .react-flow{background:transparent}
+/* Spike rule 1: the world never gets its own GPU layer. With one, a zoom-in
+   and then a zoom-out on a big page loses content (spike report). */
+.dc-root .react-flow__viewport{will-change:auto}
+.dc-root .react-flow__node-head{pointer-events:none}
+.dc-root .react-flow__node-window:has(.dc-menu){z-index:1000 !important}
+.dc-root .react-flow__handle{opacity:0;width:14px;height:14px;min-width:0;min-height:0;border:0;background:#c96442}
+/* The arrows keep their screen width: --dc-inv-zoom is 1 / zoom. */
+.dc-root .react-flow__edge-path{stroke:#b9a991;stroke-linecap:round;stroke-width:max(calc(2px * min(var(--dc-inv-zoom,1),2)),calc(1px * var(--dc-inv-zoom,1)))}
+.dc-root .react-flow__edge:hover .react-flow__edge-path{stroke:#c96442}
+.dc-flowlabel{position:absolute;font:600 18px/1 Inter,-apple-system,system-ui,sans-serif;color:#6b6456;background:#fff;border:1px solid #e5e0d7;border-radius:999px;padding:8px 16px;box-shadow:0 1px 2px rgba(40,32,22,.07);white-space:nowrap;pointer-events:all}
+/* A page is a window: a header with the name and the page options, then the
+   screen inset in the body. The chrome is world px: it grows with the card. */
+.dc-win{position:relative;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 1px 3px rgba(40,32,22,.08),0 12px 30px -14px rgba(40,32,22,.35)}
+.dc-winhead{display:flex;align-items:center;gap:14px;padding:0 22px;cursor:grab;user-select:none;border-bottom:1px solid rgba(40,32,22,.07)}
+.dc-winhead:active{cursor:grabbing}
+/* No transition on the dot or the card: a transition in the world repaints
+   the whole world on each of its frames (old engine, tests/regressions.js). */
+.dc-dot{flex:0 0 12px;height:12px;border-radius:6px;background:#cfc9bf}
+.dc-win[data-live="1"] .dc-dot{background:#12a594}
+.dc-wintitle{flex:1 1 auto;min-width:0;display:flex;align-items:center;overflow:hidden}
+.dc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:22px;font-weight:600;letter-spacing:-.3px;color:#1e1b16;line-height:1.2}
+.dc-bar{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:4px;border-radius:11px;background:rgba(40,32,22,.05);box-shadow:inset 0 0 0 1px rgba(40,32,22,.05)}
+.dc-bar hr{flex:0 0 1px;width:1px;height:20px;margin:0 2px;border:0;background:rgba(40,32,22,.12)}
+.dc-chips{flex:0 0 auto;display:flex;gap:6px}
+.dc-sizes{flex:0 0 auto;display:inline-flex;gap:2px;padding:2px;background:#fff;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
+.dc-size{border:0;padding:6px 10px;border-radius:6px;background:transparent;font:600 12px/1 inherit;font-family:inherit;color:rgba(60,50,40,.65);cursor:pointer;letter-spacing:.02em}
+.dc-size:hover{color:#2a251f}
+.dc-size.dc-on{background:#12a594;color:#fff}
+.dc-btns{flex:0 0 auto;display:flex;gap:2px;align-items:center}
+.dc-kebab,.dc-openbtn{width:28px;height:28px;border-radius:7px;border:none;cursor:pointer;padding:0;background:transparent;color:rgba(60,50,40,.65);display:flex;align-items:center;justify-content:center;font:inherit}
+.dc-kebab:hover,.dc-openbtn:hover{background:#fff;color:#1e1b16;box-shadow:inset 0 0 0 1px rgba(40,32,22,.07)}
+.dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:5px;min-width:180px;z-index:10}
+.dc-menu button{display:block;width:100%;padding:9px 12px;border:0;background:transparent;border-radius:6px;font-family:inherit;font-size:14px;font-weight:500;line-height:1.2;color:#29261b;cursor:pointer;text-align:left;white-space:nowrap}
+.dc-menu button:hover{background:rgba(0,0,0,.05)}
+.dc-menu button:disabled{opacity:.5;cursor:default}
+.dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:5px 3px}
+.dc-menu .dc-danger{color:#c96442}
+.dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}
+.dc-menu-error{padding:6px 12px;max-width:260px;font-size:12px;line-height:1.4;color:#c96442;white-space:normal}
+.dc-card{position:relative;isolation:isolate;contain:layout paint;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)}
+.dc-card *{scrollbar-width:none}
+.dc-card *::-webkit-scrollbar{display:none}
+/* Spike rule 2: each live screen is its own small GPU layer, so a zoom only
+   scales it and never rasters it again. */
+.dc-card iframe{display:block;border:0;background:#fff;will-change:transform}
+/* The shield: an iframe swallows wheel and pinch, so a clear layer sits over
+   the screen. A click opens the screen's own file. */
+.dc-shield{position:absolute;inset:0;cursor:pointer}
+.dc-grab .dc-shield{cursor:grab}
+.dc-placeholder{width:100%;height:100%;background:repeating-linear-gradient(135deg,#f6f4f0 0 12px,#eeece7 12px 24px);display:flex;align-items:center;justify-content:center;color:#9a958c;font:500 14px ui-monospace,Menlo,monospace}
+.dc-note{box-sizing:border-box;background:#fef4a8;padding:14px 16px;font-size:13px;line-height:1.5;color:#5a4a2a;white-space:pre-wrap;box-shadow:0 2px 8px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);transform:rotate(-1deg)}
+/* The section head keeps its screen size up to 1.75x, by transform: a
+   transform never reflows the world. It grows up from its bottom edge. */
+.dc-sectionhead{transform:scale(min(var(--dc-inv-zoom,1),1.75));transform-origin:bottom left;white-space:nowrap}
+.dc-headtitle{font-size:28px;font-weight:600;color:rgba(40,30,20,.85);letter-spacing:-.4px;margin-bottom:6px}
+.dc-headsub{font-size:16px;color:rgba(60,50,40,.6)}
+/* Shown only when no content is on screen. */
+.dc-backto{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:7px;padding:9px 15px 9px 12px;border:1px solid #e5e0d7;border-radius:999px;background:#fff;box-shadow:0 2px 6px rgba(40,32,22,.08),0 18px 40px -14px rgba(40,32,22,.45);font-family:inherit;font-size:13px;font-weight:600;color:#3c3228;cursor:pointer;animation:dc-backto-in .18s cubic-bezier(.2,.7,.3,1) both}
+.dc-backto:hover{background:#faf8f5}
+@keyframes dc-backto-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+.dc-error{padding:24px;font:14px/1.5 ui-monospace,Menlo,monospace;color:#c96442}

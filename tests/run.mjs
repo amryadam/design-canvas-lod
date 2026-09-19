@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const chromePath = process.argv[2] || process.env.CHROME
+// node tests/run.mjs [chrome-path] [--page=tests/rf/regressions.html]
+const args = process.argv.slice(2);
+const pageArg = args.find((a) => a.startsWith('--page='));
+const suitePage = pageArg ? pageArg.slice('--page='.length) : 'tests/regressions.html';
+const chromePath = args.find((a) => !a.startsWith('--')) || process.env.CHROME
   || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((r) => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
@@ -34,7 +38,7 @@ ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.
 const send = (method, params = {}) => new Promise((r) => { pending.set(++id, r); ws.send(JSON.stringify({ id, method, params })); });
 
 await send('Page.enable'); await send('Runtime.enable');
-await send('Page.navigate', { url: `http://127.0.0.1:${httpPort}/tests/regressions.html` });
+await send('Page.navigate', { url: `http://127.0.0.1:${httpPort}/${suitePage}` });
 const res = await send('Runtime.evaluate', {
   awaitPromise: true, returnByValue: true,
   expression: `(async () => {
