@@ -3,28 +3,35 @@
 **Date:** 2026-09-19
 **Spec:** `2026-09-19-react-flow-canvas-design.md` (Phase 0 — the spike gate)
 **Plan:** `../plans/2026-09-19-react-flow-spike.md`
-**Spike code:** branch `spike/react-flow`, commit `f5778f5`, worktree
+**Spike code:** branch `spike/react-flow`, commit `0b2705a`, worktree
 `design-canvas-lod-wt/spike-react-flow`. It is throwaway and is never merged.
 
 ## Summary
 
-- **The spike passes, with one condition.** React Flow must hide the live
-  iframes while a pan or a zoom runs (`freeze`), and must NOT put
-  `will-change: transform` on its viewport. In that form it has no tall-page
-  blank, it passes the frame-time rule in every run of the sample-page bench,
-  and it does about 40% less main-thread work than the old engine on the
-  tall page.
-- React Flow as it ships, with 8 live iframes visible during a zoom, is
+- **The spike passes the agreed rule on one condition, on the evidence
+  taken.** React Flow must hide the live iframes while a pan or a zoom runs
+  (`freeze`), and must NOT put `will-change: transform` on its viewport. In
+  that form it had no tall-page blank in 6 of 6 runs, and it does 0.62–0.75 ×
+  the old engine's main-thread work on the tall page. On the sample-page
+  bench it passed the zoom rule in 5 of 6 runs and the pan rule in 6 of 6.
+  The plain spike, for comparison, passed the zoom rule in 1 of 6.
+- React Flow as it ships, with 8 live iframes painted during a zoom, is
   slower than the old engine: a small gap on the sample page, 2.6–2.8 × the
   work on the tall page. The cause is the live iframes, which Chrome rasters
   again at each zoom step. It is not React Flow's own rendering.
 - `will-change: transform` on the React Flow viewport gives the old engine's
   speed and brings a blank back: 91% of the arrows are gone after a zoom-in
-  and zoom-out, and they are still gone 5 s later.
+  and zoom-out, and the picture does not repair itself in 5 s.
 - The old engine's tall-page blank is reproduced on this machine for the
   first time outside claude.ai/design, by a zoom-in and then a zoom-out.
-- `freeze` changes the look: live screens show their placeholder during a
-  gesture and come back when it ends. The user must judge that.
+- **The layer-limit fix that is already on `fix-canvas-layer-limit`
+  (`e5b6fa4`, `08b443c`) does not cure that sequence.** It drops the world's
+  GPU layer at the zoomed-in peak, as designed, and promotes it again on the
+  way out; the bottom rows are still missing after the zoom-out, in 3 of 3
+  runs.
+- `freeze` changes the look: during a pan or a zoom a live screen shows its
+  placeholder (its name on white), and the live screen comes back when the
+  gesture ends. The user must judge that.
 
 ## Conditions
 
@@ -44,7 +51,8 @@ none of the sample-page differences below.
 ## Frame times — the sample page
 
 11 screens (the old engine folds one variant, so it has 10 slots), 12 flows,
-8 live iframes in both engines at the start. Zoom: 90 `ctrl+wheel` ticks, one
+8 live iframes in both engines at the start of the zoom (the pan, at scale
+1, ran with 3 live iframes in both engines). Zoom: 90 `ctrl+wheel` ticks, one
 for each frame, 45 in and 45 out, each tick a factor of e^0.06 (fit scale
 0.053 → 0.79 → 0.053). Pan: 60 frames at scale 1, 40 screen px for each
 frame. The script calibrates the two engines to equal gestures and refuses to
@@ -96,8 +104,30 @@ Source: `spike/out/frames-plain-again*.json`, `frames-freeze-1*.json`,
 | `livewc=1` | new, old | 8.0 / 8.2 (1.03) | 13.9 / 8.8 (0.63) | 2 / 0 | 151.1 / 155.8 (1.03) | PASS | PASS |
 
 The plain spike fails the zoom rule in 3 of its 4 runs. With either flag it
-passes in all runs and drops no frame. Two runs for each flag is a small
-sample.
+passes in both of its runs and drops no frame. Two runs for each flag is a
+small sample.
+
+A later session repeated the bench after a bug in `freeze` was corrected (the
+placeholder was clipped, so a live card was blank white during a gesture and
+the cost of painting the placeholders was not measured). It also ran against
+the old engine WITH the layer-limit fix (`old-fixed`: `design-canvas.jsx`
+from `08b443c`, copied beside the original). Ratios are new / old for the
+zoom gesture. Source: `spike/out/frames-*freeze*`, `frames-*old-fixed*`.
+
+| Spike flags | Baseline | Order | p95 ratio | max ratio | busyMs ratio | ZOOM | PAN |
+|---|---|---|---|---|---|---|---|
+| `freeze=1` | old | old, new | 0.92 | 0.66 | 0.69 | PASS | PASS |
+| `freeze=1` | old | new, old | 1.13 | 0.62 | 0.52 | FAIL | PASS |
+| `freeze=1` | old-fixed | old, new | 1.07 | 0.99 | 1.25 | PASS | PASS |
+| `freeze=1` | old-fixed | new, old | 1.01 | 0.62 | 0.77 | PASS | PASS |
+| none | old-fixed | old, new | 1.73 | 1.05 | 1.53 | FAIL | PASS |
+| none | old-fixed | new, old | 1.04 | 1.70 | 1.08 | FAIL | PASS |
+
+`freeze` engaged in every run: 8 of 8 live iframes hidden at the middle of
+the zoom and 0 hidden 1.5 s after it; 3 of 3 hidden at the middle of the pan
+and 0 after. Over the two sessions `freeze=1` passes the zoom rule in 5 of 6
+runs; the one FAIL is on p95 (1.13) with `max` and `busyMs` well under the
+old engine's. The plain spike passes it in 1 of 6.
 
 ## Where the zoom cost comes from — the ablation
 
@@ -206,11 +236,43 @@ first `wc-check.mjs` run. The three later runs gave the same pictures.
   `assets/2026-09-19-spike-rf-wc-before.png`,
   `assets/2026-09-19-spike-rf-wc-after.png` — the bottom-right card keeps a
   thin strip and loses its body; the bottom-left card has a notch; every
-  arrow is gone; the text is soft. The picture 5 s later is the same, so
-  this is lasting damage, not a texture that waits for a re-raster. The
-  damage differs from the old engine's: the old engine loses rows of cards
-  and keeps its arrows; React Flow keeps its cards and loses its arrows. No
-  root cause was established for either.
+  arrow is gone; the text is soft. The picture 5 s later is byte-identical
+  to the picture at 1 s, in every variant, damaged or not. Nothing
+  invalidated the layer in between, so this shows that the damage does not
+  repair itself; whether a forced re-raster would repair it was not tested.
+  The damage differs from the old engine's: the old engine loses rows of
+  cards and keeps its arrows; React Flow keeps its cards and loses its
+  arrows. React Flow's arrow loss has no established root cause. The old
+  engine's is established outside this spike: a promoted world layer that
+  crosses the GPU max texture size
+  (`../plans/2026-09-09-canvas-layer-limit.md`).
+
+### The old engine with the layer-limit fix
+
+Three more runs of the same probe, after the `freeze` placeholder bug was
+corrected, with `old-fixed` as a second control. Median of 3. Source:
+`spike/out/wc-check-f1.json`, `-f2`, `-f3`.
+
+| Variant | zoom-in p95 | dropped in | busyMs | busy vs old | missing | partial | edgesVsBase | at 1 s | at 5 s | world `will-change` at fit / peak / after |
+|---|---|---|---|---|---|---|---|---|---|---|
+| old engine | 7.9 | 0 | 279.7 | – | 6 | 10 | 1.00 | BLANK | BLANK | transform / transform / transform |
+| old engine + layer-limit fix | 8.2 | 0 | 268.7 | 0.94 | 6 | 13 | 1.01 | BLANK | BLANK | transform / auto / transform |
+| React Flow, plain | 20.9 | 26 | 742.1 | 2.60 | 0 | 0 | 1 | OK | OK | – |
+| React Flow, `freeze=1` | 7.6 | 0 | 212.5 | 0.75 | 0 | 0 | 1 | OK | OK | – |
+
+The fix engages: the world loses its GPU layer at the zoomed-in peak. It is
+promoted again during the zoom-out, and after the zoom-out the bottom rows
+are missing as before (full-resolution crop checked: row 9 cut at the tile
+edges, row 10 gone, arrows drawn). One run had a single 127 ms frame in the
+fixed engine's zoom-in, which did not repeat. The fix was written for the
+static case "the layer is over the limit at this zoom"; this probe shows the
+damage appears when the world is promoted again at a small scale after it
+was zoomed in. Why is not established here.
+
+With the placeholder now painted, `freeze=1` costs 0.75 × the old engine's
+work (0.62 × before the correction). During the gesture a live card shows
+its name on white, the same as a card that is not live
+(`spike/out/wc4-freeze-f2-gesture.png`, checked).
 
 One automated reading was wrong and is corrected here. The first check
 compared one pixel fraction over the whole content, and a reviewer read the
@@ -238,8 +300,8 @@ compares the rendering, not identical text.
   measured.
 - `freeze` was measured for cost and for the blank, not for how it looks or
   feels. With a real pinch, `onMoveStart` and `onMoveEnd` timing can differ.
-- Small samples: two runs for each flag on the sample page, three on the
-  tall page. p95 over 88 frames is the fifth-worst frame and is bimodal
+- Small samples: two to four runs for each configuration on the sample page,
+  three to six on the tall page. p95 over 88 frames is the fifth-worst frame and is bimodal
   (~8 ms or ~13.8 ms), so `dropped` and `busyMs` are the steadier signals.
 - One transient failure in each of three scripts on a first run (a driver
   not yet injected, a fit against a not-yet-stable layout, one off-screen
@@ -252,35 +314,56 @@ compares the rendering, not identical text.
 
 **Recommendation: GO, on one condition, and subject to the user's check.**
 
-By the approved rule: the tall page has no blank (static steps, and the
-harder in-out gesture), the control reproduced the blank, and zoom and pan
-pass on the sample page — but only with `freeze=1` (4 of 4 runs) or
-`livewc=1` (4 of 4 runs). The plain spike fails zoom in 3 of 4 runs. On the
-tall page `freeze=1` passes 2 of 3 runs at the 1.10 line and does 0.62 × the
-old engine's work; `livewc=1` fails there on one long frame in each run.
+By the approved rule (no blank on the tall page; spike zoom and pan p95 and
+max ≤ 1.10 × the old engine's on the sample page):
 
-Thus the condition, which becomes a requirement of the phase 1 spec:
+- Tall page: React Flow without a world layer had no blank in any run, on
+  the static steps and on the harder in-out gesture. The control reproduced
+  the blank in every run.
+- Sample page: with `freeze=1` the spike passed pan in 6 of 6 runs and zoom
+  in 5 of 6 (the FAIL: p95 1.13, with `max` 0.62 and work 0.52 of the old
+  engine's). The plain spike passed zoom in 1 of 6. The bench's own noise is
+  ~10% and its p95 is bimodal, so these counts are the floor of what the rule
+  can decide.
+
+The condition, which becomes a requirement of the phase 1 spec:
 
 1. The live iframes are hidden while a pan or a zoom runs, and stay mounted
    (`freeze`). `liveBudget.js` already must not mount or drop during a
    gesture; this adds "and not painted during one".
-2. No `will-change: transform` on the React Flow viewport, ever. It brings a
-   blank back.
+2. No `will-change: transform` on the React Flow viewport, ever.
+
+What bounds this GO:
+
+- **The cheapest competing option was measured and does not pass.** The old
+  engine with the layer-limit fix is as fast as the old engine and still
+  blanks after a zoom-in and zoom-out. A further fix is possible in the old
+  engine too — both levers found here (no promoted world; no live iframes
+  painted during a gesture) belong to the page, not to the library — but it
+  is not written, and "old engine, never promoted, with `freeze`" was not
+  measured. If the only goal were the performance bugs, that unmeasured
+  option could be cheaper than a migration. The second goal, less custom
+  code, is what the migration serves either way.
+- `freeze` on the tall page is at the 1.10 line on p95 (run by run: 1.05,
+  0.91, 1.13 before the placeholder correction) while doing 0.62–0.75 × the
+  work. The tall page's criterion in the rule is "no blank", which it meets.
+- One machine, synthetic wheel events, a synthetic tall page.
 
 What the user must judge in the check (Task 6 of the plan), because no
 number here can:
 
-- Is it acceptable that live screens show their placeholder during a pan or
-  a zoom and come back when it ends? The old engine keeps them visible. If
-  it is not acceptable, `livewc=1` keeps them visible and passed the
-  sample-page bench, but it is not proven on the tall page.
-- Does the real "Users and roles" page stay drawn after a zoom-in and
-  zoom-out in claude.ai/design? Open `spike.html?page=<id>&freeze=1`.
+- Is it acceptable that a live screen shows its placeholder during a pan or
+  a zoom and comes back when the gesture ends? The old engine keeps it
+  visible. If it is not acceptable, `livewc=1` keeps the screens visible and
+  passed the sample-page bench (2 of 2), but on the tall page it had one long
+  frame in each run (max 1.3–1.6 × the old engine's).
+- Does the real "Users and roles" page stay drawn after a zoom-in and then a
+  zoom-out in claude.ai/design? Open `spike.html?page=<id>&freeze=1`. Do the
+  same gesture on the current canvas first, to see the blank that this
+  replaces.
 
-What the spike changes in the design spec, if GO: the ranking "the live
-iframes stay the largest cost, and no library changes that" holds, and the
-answer is `freeze`, not a GPU layer for the world. The fallback plan
-(`../plans/2026-09-09-canvas-layer-limit.md`) stays valid for the old engine
-if the answer is NO-GO. In both cases `spike/wc-check.mjs` is worth keeping
-as a regression check: it is the first check that reproduces the blank
-outside claude.ai/design.
+For the fallback plan (`../plans/2026-09-09-canvas-layer-limit.md`): its
+Task 2 (the user's deploy-and-check) should use the same in-out gesture,
+because this spike shows the fix as committed does not survive it here. In
+both cases `spike/wc-check.mjs` is worth keeping as a regression check: it
+is the first check that reproduces the blank outside claude.ai/design.
