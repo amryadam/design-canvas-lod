@@ -383,3 +383,44 @@ Result: **GO.** The spike removes the blank on the real page. The `freeze`
 look is rejected, so phase 1 must keep the live screens visible during a
 gesture. `freeze` cannot be the answer as it is. The replacement is decided
 before the phase 1 plan is written.
+
+### Second check: `live-wc`
+
+The user ran `spike-livewc.html` (`will-change: transform` on each live
+iframe, no `freeze`) with the same gesture.
+
+| Question | Answer |
+|---|---|
+| a. Does the bottom of the page blank or flicker? | "no" |
+| b. Do the live screens stay visible during the gesture? | "no" — they changed to their name on white |
+| c. Is it as smooth as the current canvas? | "smooth" |
+
+A window shows its name on white only when the live budget drops its
+iframe, so the cause was the spike's simplified budget, not the rendering. A
+human zoom is several pinches with pauses. The spike ran a pass 150 ms after
+each pause, and with the zoom anchored at the pointer the view middle moved,
+so a different set of 8 screens became "nearest the middle". The spike has
+none of the old engine's protections (hysteresis, touch mark, no pass while
+the world moves). The benches never showed it, because each of their zooms
+was one continuous stroke.
+
+A local check with 6 pinches in and 6 out, each at a different point, with
+400 ms pauses (`spike/sticky-check.mjs`, commit `483ee72`): the spike's
+budget made 29 passes and turned 18 on-screen live screens into their
+placeholder; a `sticky` budget (a live window on screen is never dropped; a
+pass runs only 600 ms after the last move and never during a gesture) made 3
+passes and turned 0.
+
+### Third check: `live-wc` with the `sticky` budget
+
+The user ran `spike-livewc-sticky.html` with the same gesture, in several
+pinches.
+
+| Question | Answer |
+|---|---|
+| a. Does the bottom of the page blank or flicker? | "no" |
+| b. Do the screens that were live before the gesture stay live during it and after it? | "yes" |
+| c. Is it smooth? | "yes" |
+
+**Final result: GO**, with `live-wc` and the `sticky` budget. `freeze` is
+not used. The design spec is updated with these requirements.
