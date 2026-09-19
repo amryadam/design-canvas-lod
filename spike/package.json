@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && cp host.html dist/spike.html"
+    "build": "vite build && cp host.html dist/spike.html && cp host-freeze.html dist/spike-freeze.html && cp host-livewc.html dist/spike-livewc.html && cp host-plain.html dist/spike-plain.html"
   },
   "dependencies": {
     "@xyflow/react": "12.11.6",

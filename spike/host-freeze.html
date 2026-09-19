@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rf spike · freeze</title>
+<body style="margin:0;font:13px system-ui,sans-serif">
+<div id="bar" style="position:fixed;z-index:9;top:8px;left:8px;background:#fff;border:1px solid #ccc;border-radius:6px;padding:4px 8px">
+  React Flow spike · freeze · page <select id="pick"></select>
+</div>
+<div id="root" style="height:100vh"></div>
+<script src="./spike.js"></script>
+<script>
+  // No query string needed: the flags are fixed in this file, and the page
+  // comes from the list (it opens "Users and roles" first when it exists).
+  const OPTS = { freeze: true };
+  const KEY = 'rf-spike-page';
+  fetch('./canvas.json').then((r) => r.json()).then((d) => {
+    const pick = document.getElementById('pick');
+    d.pages.forEach((p) => pick.add(new Option(p.name || p.id, p.id)));
+    const wanted = new URLSearchParams(location.search).get('page') || sessionStorage.getItem(KEY)
+      || (d.pages.find((p) => /users?\s*(and|&)\s*roles?/i.test(p.name || '')) || d.pages[0]).id;
+    pick.value = wanted;
+    pick.onchange = () => { sessionStorage.setItem(KEY, pick.value); location.reload(); };
+    RFSpike.mount(document.getElementById('root'), { data: d, page: pick.value, base: './', opts: OPTS });
+  }).catch((e) => { document.getElementById('root').textContent = 'canvas.json did not load: ' + e; });
+</script>
