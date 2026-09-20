@@ -97,10 +97,22 @@ describe('createLiveBudget', () => {
     expect(b.liveIds()).toHaveLength(1);
     b.dispose();
   });
-  it('frees a hold whose end was lost', () => {
+  it('holds a long gesture that keeps moving, past the watchdog', () => {
+    // A pan and a card drag each send one start only. Their frames are what
+    // tells the watchdog the gesture still runs.
+    const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
+    b.moveStart();
+    for (let i = 0; i < 20; i++) { vi.advanceTimersByTime(400); b.ping(); }   // 8 s of motion
+    expect(b.liveIds()).toEqual([]);
+    b.moveEnd(); vi.advanceTimersByTime(600);
+    expect(b.liveIds()).toHaveLength(1);
+    b.dispose();
+  });
+  it('frees a hold whose end was lost and whose motion stopped', () => {
     // A second touch finger aborts a card drag: no onNodeDragStop follows.
     const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
-    b.dragStart(); vi.advanceTimersByTime(4999);
+    b.dragStart(); vi.advanceTimersByTime(3000); b.ping();
+    vi.advanceTimersByTime(4999);
     expect(b.liveIds()).toEqual([]);
     vi.advanceTimersByTime(1 + 600);
     expect(b.liveIds()).toHaveLength(1);

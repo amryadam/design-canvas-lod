@@ -156,10 +156,14 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   }, [content, pane]);
 
   const onMoveStart = useCallback(() => budget.moveStart(), [budget]);
+  // Each frame of the gesture tells the budget the gesture still runs: a pan
+  // sends one start only, so the budget's lost-end watchdog needs the frames
+  // to tell a long gesture from a hold whose end never came (liveBudget.js).
   const onMove = useCallback((e, vp) => {
+    budget.ping();
     inv(vp.zoom);
     if (lostRef.current && anyOnScreen(contentBoxes(), vp, pane())) setLost(false);
-  }, [inv, contentBoxes, pane]);
+  }, [budget, inv, contentBoxes, pane]);
   const onMoveEnd = useCallback((e, vp) => {
     budget.moveEnd();
     inv(vp.zoom, true);
@@ -180,6 +184,8 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   // A card drag holds the budget on its own flag, so the end of a pan that
   // runs at the same time cannot free it (see liveBudget.js).
   const onNodeDragStart = useCallback((e, node) => { dragStartPos.current = { x: node.position.x, y: node.position.y }; budget.dragStart(); }, [budget]);
+  // A drag sends one start too, so each of its frames pings the budget.
+  const onNodeDrag = useCallback(() => budget.ping(), [budget]);
   const onNodeDragStop = useCallback((e, node) => {
     budget.touch(node.id);
     budget.dragEnd();
@@ -257,7 +263,7 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
         <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           defaultEdgeOptions={EDGE_DEFAULTS} onNodesChange={onNodesChange} onInit={setRf}
           onMoveStart={onMoveStart} onMove={onMove} onMoveEnd={onMoveEnd}
-          onNodeDragStart={onNodeDragStart} onNodeDragStop={onNodeDragStop}
+          onNodeDragStart={onNodeDragStart} onNodeDrag={onNodeDrag} onNodeDragStop={onNodeDragStop}
           edgesReconnectable onReconnect={onReconnect}
           nodeDragThreshold={DC.nodeDragThreshold}
           minZoom={DC.minZoom} maxZoom={DC.maxZoom}

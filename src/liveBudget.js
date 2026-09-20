@@ -85,8 +85,12 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
   const schedule = () => { clearTimeout(timer); timer = holds.size ? 0 : setTimeout(run, cfg.settleMs); };
   // An end can be lost: a second touch finger aborts a card drag, and no
   // onNodeDragStop follows. That flag would then hold the budget for ever, so
-  // a watchdog frees every flag after cfg.holdMaxMs with no start and no end.
-  // A drag that stands still longer than that can therefore see one mount.
+  // a watchdog frees every flag after cfg.holdMaxMs of SILENCE — no start, no
+  // end and no frame of movement. The frames matter: a pane drag-pan, a
+  // trackpad pan and a card drag each send one start only, so a watchdog that
+  // counted starts alone would free the hold in the middle of any gesture
+  // longer than cfg.holdMaxMs and let a pass mount an iframe inside it, which
+  // spike rule 3 forbids. `ping` is what each frame of a gesture calls.
   const armHold = () => {
     clearTimeout(hold);
     hold = holds.size ? setTimeout(() => { holds.clear(); hold = 0; schedule(); }, cfg.holdMaxMs) : 0;
@@ -104,6 +108,9 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
     // A card drag, which React Flow reports on its own callbacks.
     dragStart: () => grab('drag'),
     dragEnd: () => free('drag'),
+    // One frame of a gesture that still runs. It only re-arms the watchdog,
+    // so it is cheap enough for every frame, and it does nothing at rest.
+    ping: () => { if (holds.size) armHold(); },
     touch: (id) => { touched.set(id, now()); },
     dispose: () => { clearTimeout(timer); clearTimeout(hold); timer = 0; hold = 0; subs.clear(); },
     // Read by the browser suite only: the number of passes that ran. A pass
