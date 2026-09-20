@@ -90,6 +90,14 @@ test('the world has no GPU layer and each live screen has its own', async () => 
   frames.forEach((f) => check(getComputedStyle(f).willChange === 'transform', 'a live iframe has will-change: ' + getComputedStyle(f).willChange));
 });
 
+test('a page with no window reports that it is fitted', async () => {
+  // Nothing to fit, but the flag must still turn: a host, or a check, that
+  // waits on it would wait for ever.
+  mount({ pages: [{ id: 'empty', name: 'Empty' }], artboards: [], annotations: [], flows: [] });
+  await ready(4000);
+  check(!host.querySelector('.react-flow__node'), 'a node drew on a page with no window');
+});
+
 test('a canvas.json with no artboards shows the error, not a white page', async () => {
   // The file parses, so the fetch path is happy; the shape is wrong. Before
   // the guard, readPage threw inside a useMemo and React unmounted the root.

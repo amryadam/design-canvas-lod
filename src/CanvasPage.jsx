@@ -110,7 +110,13 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   // The first view: the saved one, else a fit. It waits for the restore.
   const [fitted, setFitted] = useState(false);
   useEffect(() => {
-    if (fitted || !rf || !nodes.length) return;
+    if (fitted || !rf || !built) return;
+    // A page with no window and no note has nothing to fit, but `fitted` must
+    // still become true: a host, or a check, that waits on it would wait for
+    // ever. `built` is the node list the page will get, so an empty `nodes`
+    // during the first render cannot be read as an empty page.
+    if (!built.length) { setFitted(true); return; }
+    if (!nodes.length) return;
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(viewKey) || 'null'); } catch {}
     const view = saved && [saved.x, saved.y, saved.zoom].every(Number.isFinite)
@@ -119,7 +125,7 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
     rf.setViewport(view);
     inv(view.zoom, true);
     setFitted(true);
-  }, [fitted, rf, nodes, viewKey, pane, inv]);
+  }, [fitted, rf, built, nodes, viewKey, pane, inv]);
 
   // The host protocol. hostOpts is read once, at start.
   const hostRef = useRef(null);
