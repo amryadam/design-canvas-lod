@@ -114,7 +114,72 @@ test('a chip click changes the file and the size, and the arrow follows', async 
   check(pathOf() !== d0, 'the arrow did not follow the new size');
 });
 
+// An arrow end drag through the DOM. React Flow puts a reconnect anchor
+// (a transparent circle) on each end of the arrow; its mousedown opens a
+// connection that then listens for mousemove and mouseup on the DOCUMENT
+// (@xyflow/system, XYHandle.onPointerDown). The drop reads the handle under
+// the pointer with elementFromPoint, so the pointer must land on the handle.
+const anchorOf = (edgeId, end) => host.querySelector(`.react-flow__edge[data-id="${edgeId}"] .react-flow__edgeupdater-${end}`);
+const handleOf = (nodeId, type, side) => nodeEl(nodeId).querySelector(`.react-flow__handle.${type}[data-handleid="${side}"]`);
+const middleOf = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+async function dragEnd(anchor, target) {
+  const [x0, y0] = middleOf(anchor), [x1, y1] = middleOf(target);
+  const at = (type, x, y, node) => node.dispatchEvent(new MouseEvent(type, {
+    clientX: x, clientY: y, button: 0, buttons: type === 'mouseup' ? 0 : 1, bubbles: true, cancelable: true, view: window,
+  }));
+  at('mousedown', x0, y0, anchor);
+  for (let i = 1; i <= 6; i++) { at('mousemove', x0 + ((x1 - x0) * i) / 6, y0 + ((y1 - y0) * i) / 6, document); await frame(); }
+  // What the drop really lands on, read the way React Flow reads it: a check
+  // that sees nothing change must know the pointer was on the handle.
+  const under = document.elementFromPoint(x1, y1);
+  at('mouseup', x1, y1, document);
+  await wait(200);
+  check(under === target, 'the drop landed on ' + (under && under.className) + ', not on the handle');
+}
+
+test('an arrow end drag on the handle moves the arrow side', async () => {
+  mount(await sample()); await ready();
+  const from = 'ZatcaProfile.dc.html', to = 'ZatcaCode.dc.html';
+  const e = rf().getEdges().find((x) => x.source === from && x.target === to);
+  check(e.sourceHandle === 'r' && e.targetHandle === 'l', 'the arrow does not start at r → l: ' + JSON.stringify(e));
+  // Both windows on screen at a zoom where a handle is a real target.
+  const a = rf().getNode(from), b = rf().getNode(to);
+  const zoom = 0.22;
+  rf().setViewport({ zoom, x: 640 - ((a.position.x + b.position.x + b.width) / 2) * zoom, y: 450 - ((a.position.y + a.height / 2 + b.position.y + b.height / 2) / 2) * zoom });
+  await wait(400);
+  check(anchorOf(e.id, 'target'), 'no reconnect anchor on the arrow end');
+
+  // The target end onto the top handle of the same window.
+  await dragEnd(anchorOf(e.id, 'target'), handleOf(to, 'target', 't'));
+  check(rf().getEdge(e.id).targetHandle === 't', 'the target end did not move to t: ' + rf().getEdge(e.id).targetHandle);
+  check(rf().getEdge(e.id).target === to, 'the drag changed the window the arrow ends on');
+  const sides = Object.values(h.api.state().arrowSides);
+  check(sides.length === 1 && sides[0].ts === 't', 'the saved sides are ' + JSON.stringify(h.api.state().arrowSides));
+
+  // The source end onto the bottom handle of its own window.
+  await dragEnd(anchorOf(e.id, 'source'), handleOf(from, 'source', 'b'));
+  check(rf().getEdge(e.id).sourceHandle === 'b', 'the source end did not move to b: ' + rf().getEdge(e.id).sourceHandle);
+  check(Object.values(h.api.state().arrowSides)[0].fs === 'b', 'the saved sides are ' + JSON.stringify(h.api.state().arrowSides));
+
+  // A drop on another window is refused: an arrow end moves to another side
+  // of the same window only. Three windows on screen, so the third one's
+  // handle is a real drop target.
+  const other = 'ZatcaProgress.dc.html';
+  const wide = 0.17;
+  rf().setViewport({ zoom: wide, x: 640 - 3600 * wide, y: 450 - 1500 * wide });
+  await wait(400);
+  const before = JSON.stringify(h.api.state().arrowSides);
+  await dragEnd(anchorOf(e.id, 'target'), handleOf(other, 'target', 'l'));
+  check(rf().getEdge(e.id).target === to, 'a drop on another window moved the arrow: ' + rf().getEdge(e.id).target);
+  check(rf().getEdge(e.id).targetHandle === 't', 'a drop on another window changed the side: ' + rf().getEdge(e.id).targetHandle);
+  check(JSON.stringify(h.api.state().arrowSides) === before, 'a drop on another window changed the saved sides: ' + JSON.stringify(h.api.state().arrowSides));
+});
+
 test('an arrow side change is saved, and the menu resets it', async () => {
+  // The DOM path is the check above. This one calls the same callback
+  // through the test shim (CanvasPage.jsx, api.reconnect), because it needs a
+  // reconnect that names another window AND two other sides in one answer, a
+  // shape no single drag can make, and because it then resets from the menu.
   mount(await sample()); await ready();
   const from = 'ZatcaProfile.dc.html', to = 'ZatcaCode.dc.html';
   const e = rf().getEdges().find((x) => x.source === from && x.target === to);
