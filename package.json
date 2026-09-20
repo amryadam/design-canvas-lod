@@ -1,5 +1,5 @@
 {
-  "name": "design-canvas-lod",
+  "name": "design-canvas",
   "private": true,
   "scripts": {
     "build": "vite build --config vite.config.mjs && cp src/canvas.html dist/canvas.html",

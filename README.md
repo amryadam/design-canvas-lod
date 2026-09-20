@@ -1,4 +1,4 @@
-# design-canvas-lod
+# design-canvas
 
 A pan/zoom canvas page for a claude.ai/design project, built on React Flow.
 Each screen of the project is a window on the canvas. The screens nearest the
