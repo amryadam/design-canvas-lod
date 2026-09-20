@@ -14,6 +14,7 @@ export const BUDGET = {
   touchBias: DC.touchBias,
   settleMs: DC.stickySettleMs,
   mountGapMs: DC.mountGapMs,
+  holdMaxMs: DC.moveHoldMaxMs,
 };
 
 export const boxesOf = (nodes) => nodes.filter((n) => n.type === 'window')
@@ -54,11 +55,20 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
   const live = new Set();
   const touched = new Map();
   const subs = new Set();
-  let moving = false, timer = 0, passes = 0;
+  // The hold on a pass is one flag for each KIND of gesture, not one flag for
+  // all of them and not a depth counter. Two kinds overlap — a card drag
+  // inside a pan, a pinch that starts while a drag still runs — and one kind
+  // ending must not free another. A depth counter cannot do this work:
+  // React Flow reports a start for each wheel tick but only one end for the
+  // whole gesture (@xyflow/system, createPanZoomEndHandler waits 150 ms and
+  // drops the ends between the ticks), so the starts and the ends of a pinch
+  // never balance.
+  const holds = new Set();
+  let timer = 0, passes = 0, hold = 0;
   const emit = () => subs.forEach((fn) => fn());
   const run = () => {
     timer = 0;
-    if (moving) return;
+    if (holds.size) return;
     passes++;
     const { view, pane, boxes } = read();
     const target = rankLive(live, view, pane, boxes, touched, now(), cfg);
@@ -72,16 +82,30 @@ export function createLiveBudget({ read, cfg = BUDGET, now = () => performance.n
     }
     if (changed) emit();
   };
-  const schedule = () => { clearTimeout(timer); timer = moving ? 0 : setTimeout(run, cfg.settleMs); };
+  const schedule = () => { clearTimeout(timer); timer = holds.size ? 0 : setTimeout(run, cfg.settleMs); };
+  // An end can be lost: a second touch finger aborts a card drag, and no
+  // onNodeDragStop follows. That flag would then hold the budget for ever, so
+  // a watchdog frees every flag after cfg.holdMaxMs with no start and no end.
+  // A drag that stands still longer than that can therefore see one mount.
+  const armHold = () => {
+    clearTimeout(hold);
+    hold = holds.size ? setTimeout(() => { holds.clear(); hold = 0; schedule(); }, cfg.holdMaxMs) : 0;
+  };
+  const grab = (kind) => { holds.add(kind); clearTimeout(timer); timer = 0; armHold(); };
+  const free = (kind) => { holds.delete(kind); armHold(); schedule(); };
   return {
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
     isLive: (id) => live.has(id),
     liveIds: () => [...live],
     schedule,
-    moveStart: () => { moving = true; clearTimeout(timer); timer = 0; },
-    moveEnd: () => { moving = false; schedule(); },
+    // The view: a pan, a zoom or a pinch.
+    moveStart: () => grab('move'),
+    moveEnd: () => free('move'),
+    // A card drag, which React Flow reports on its own callbacks.
+    dragStart: () => grab('drag'),
+    dragEnd: () => free('drag'),
     touch: (id) => { touched.set(id, now()); },
-    dispose: () => { clearTimeout(timer); timer = 0; subs.clear(); },
+    dispose: () => { clearTimeout(timer); clearTimeout(hold); timer = 0; hold = 0; subs.clear(); },
     // Read by the browser suite only: the number of passes that ran. A pass
     // that changes nothing emits nothing, so this is its only trace.
     passes: () => passes,

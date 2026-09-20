@@ -167,10 +167,12 @@ function Page({ data, pageId, stateFile, base, hostOpts, onApi }) {
   // small to be one, saves nothing and the card goes back to where it
   // started.
   const dragStartPos = useRef(null);
-  const onNodeDragStart = useCallback((e, node) => { dragStartPos.current = { x: node.position.x, y: node.position.y }; budget.moveStart(); }, [budget]);
+  // A card drag holds the budget on its own flag, so the end of a pan that
+  // runs at the same time cannot free it (see liveBudget.js).
+  const onNodeDragStart = useCallback((e, node) => { dragStartPos.current = { x: node.position.x, y: node.position.y }; budget.dragStart(); }, [budget]);
   const onNodeDragStop = useCallback((e, node) => {
     budget.touch(node.id);
-    budget.moveEnd();
+    budget.dragEnd();
     const start = dragStartPos.current;
     dragStartPos.current = null;
     if (start && Math.hypot(node.position.x - start.x, node.position.y - start.y) < DC.dropTolerance) {

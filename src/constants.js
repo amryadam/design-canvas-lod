@@ -38,6 +38,7 @@ export const DC = {
   touchBias: 1e6,       // px a touched window counts as nearer
   stickySettleMs: 600,  // quiet time before a pass (spike rule 3)
   mountGapMs: 60,       // one iframe mount per gap
+  moveHoldMaxMs: 5000,  // a hold with no start and no end this long was lost
   // Saved state.
   stateTimeoutMs: 1500, // give up on the state file read
   saveDebounceMs: 400,  // wait after the last edit before the file write

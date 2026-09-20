@@ -58,7 +58,10 @@ its drag) keeps its place for 4 s, but never outranks a window on screen. A
 window mounts only within 600 px of the view, and a live window drops beyond
 1600 px. A live window that is on screen never drops. A pass runs 600 ms
 after the last move, never during a pan, a zoom or a drag, and mounts one
-iframe each 60 ms.
+iframe each 60 ms. A view gesture and a card drag hold the pass each on their
+own, so the end of one does not free the other. A hold with no start and no
+end for 5 s is taken as lost, so a drag that never reports its end cannot
+stop the budget.
 
 Three rendering rules hold, and the checks guard them:
 - The React Flow viewport has no `will-change`. With it, a zoom-in and then a

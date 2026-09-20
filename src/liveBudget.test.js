@@ -70,6 +70,42 @@ describe('createLiveBudget', () => {
     b.moveEnd(); vi.advanceTimersByTime(600);
     expect(b.liveIds()).toHaveLength(1);
   });
+  it('keeps the hold of a card drag when a pan that overlaps it ends', () => {
+    const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
+    b.dragStart(); b.moveStart();
+    b.moveEnd(); vi.advanceTimersByTime(4000);
+    expect(b.liveIds()).toEqual([]);
+    b.dragEnd(); vi.advanceTimersByTime(600);
+    expect(b.liveIds()).toHaveLength(1);
+    b.dispose();
+  });
+  it('keeps the hold of a pan when a card drag that overlaps it ends', () => {
+    const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
+    b.moveStart(); b.dragStart();
+    b.dragEnd(); vi.advanceTimersByTime(4000);
+    expect(b.liveIds()).toEqual([]);
+    b.moveEnd(); vi.advanceTimersByTime(600);
+    expect(b.liveIds()).toHaveLength(1);
+    b.dispose();
+  });
+  it('frees the view on one end, because a pinch starts for each tick', () => {
+    // React Flow reports a start for each wheel tick and one end for the
+    // gesture, so the hold must not count the starts.
+    const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
+    for (let i = 0; i < 6; i++) b.moveStart();
+    b.moveEnd(); vi.advanceTimersByTime(600);
+    expect(b.liveIds()).toHaveLength(1);
+    b.dispose();
+  });
+  it('frees a hold whose end was lost', () => {
+    // A second touch finger aborts a card drag: no onNodeDragStop follows.
+    const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible }), now: () => Date.now() });
+    b.dragStart(); vi.advanceTimersByTime(4999);
+    expect(b.liveIds()).toEqual([]);
+    vi.advanceTimersByTime(1 + 600);
+    expect(b.liveIds()).toHaveLength(1);
+    b.dispose();
+  });
   it('tells the subscribers of each change', () => {
     const b = createLiveBudget({ read: () => ({ view: V, pane: P, boxes: tenVisible.slice(0, 2) }), now: () => Date.now() });
     const heard = vi.fn();
