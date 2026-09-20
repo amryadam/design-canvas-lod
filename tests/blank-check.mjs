@@ -33,7 +33,7 @@ const blankOutDir = path.join(outDir, 'blank');
 // C1 pattern (tall-check.mjs's waitView): read the engine's own view back and
 // assert it landed — scale within 0.5%, x/y within 1px. Used here as the
 // base/out "same view" guard: if the gesture's zoom-out did not return to
-// base's exact view, re-fit (deterministic — see fitNew below) before the
+// base's exact view, re-fit (deterministic — see fitPage below) before the
 // shot; if it still does not match, the row is INVALID rather than silently
 // measured against the wrong view.
 const READ_VIEW = `(() => { const v = window.dcCanvas.api.rf.getViewport(); return { x: v.x, y: v.y, scale: v.zoom }; })()`;
@@ -42,7 +42,7 @@ async function ensureView(c, v, wantView, label, allowRefit) {
   let got = await c.evaluate(READ_VIEW);
   if (viewMatches(got, wantView)) return { view: got, refit: false, invalid: false };
   if (allowRefit) {
-    await fitNew(c, v.url);
+    await fitPage(c, v.url);
     got = await c.evaluate(READ_VIEW);
     if (viewMatches(got, wantView)) return { view: got, refit: true, invalid: false };
   }
@@ -78,13 +78,13 @@ async function checkIdle(c, label) {
   return idle;
 }
 
-const NEW_FIT_EXPR = `(() => {
+const FIT_EXPR = `(() => {
   const b = dcCanvas.api.rf.getNodesBounds(dcCanvas.api.rf.getNodes().filter((n) => n.type === 'window'));
   const zoom = Math.max(0.05, Math.min(4, Math.min(innerWidth * 0.9 / b.width, innerHeight * 0.9 / b.height)));
   dcCanvas.api.rf.setViewport({ x: innerWidth / 2 - (b.x + b.width / 2) * zoom, y: innerHeight / 2 - (b.y + b.height / 2) * zoom, zoom });
   return zoom;
 })()`;
-async function fitNew(c, url) {
+async function fitPage(c, url) {
   // Deviation: guards `dcCanvas`/`api` with `&&` (instead of a bare
   // `!!window.dcCanvas.api.rf`) so this check cannot throw while the page's
   // onApi callback has not filled `api` yet (main.jsx starts it at null).
@@ -92,7 +92,7 @@ async function fitNew(c, url) {
     await c.open(url);
     await c.until(`${ENGINES.new.count} >= 10 && window.dcCanvas && dcCanvas.api && dcCanvas.api.fitted`);
   }
-  await c.evaluate(NEW_FIT_EXPR);
+  await c.evaluate(FIT_EXPR);
   await c.evaluate(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
   await sleep(1500);
 }
@@ -114,17 +114,17 @@ const TICKS = (sel, zoomExpr, deltaY, maxN, target, cx, cy) => {
   })()`;
 };
 
-const OLD_DY = 6, TICK = 0.06;
-const ZOOM_EXPR = { new: 'window.dcCanvas.api.rf.getZoom()' };
+const CAL_DY = 6, TICK = 0.06;   // dy is calibrated below against this reference tick
+const ZOOM_EXPR = 'window.dcCanvas.api.rf.getZoom()';
 
-async function calibrateNewDy(c, url) {
-  const zoomExpr = ZOOM_EXPR.new, cx = VIEW.width / 2, cy = VIEW.height / 2;
+async function calibrateDy(c, url) {
+  const zoomExpr = ZOOM_EXPR, cx = VIEW.width / 2, cy = VIEW.height / 2;
   const tryTarget = async (sel) => {
     const z0 = await c.evaluate(zoomExpr);
     await c.evaluate(`(async () => {
       const frame = () => new Promise((r) => requestAnimationFrame(r));
       document.querySelector('${sel}').dispatchEvent(new WheelEvent('wheel', {
-        deltaMode: 0, deltaY: -${OLD_DY}, clientX: ${cx}, clientY: ${cy}, ctrlKey: true, bubbles: true, cancelable: true }));
+        deltaMode: 0, deltaY: -${CAL_DY}, clientX: ${cx}, clientY: ${cy}, ctrlKey: true, bubbles: true, cancelable: true }));
       await frame(); await frame();
     })()`);
     return (await c.evaluate(zoomExpr)) / z0;
@@ -133,13 +133,13 @@ async function calibrateNewDy(c, url) {
   let ratio = await tryTarget(target);
   if (!(ratio > 1.01)) {
     const primaryTarget = target, primaryRatio = ratio;
-    await fitNew(c, url);
+    await fitPage(c, url);
     target = '.react-flow__renderer';
     ratio = await tryTarget(target);
     if (!(ratio > 1.01)) throw new Error(`blank-check inout probe: a synthetic ctrl+wheel on ${primaryTarget} (ratio ${primaryRatio}) or ${target} (ratio ${ratio}) did not zoom the new engine`);
   }
-  const dy = OLD_DY * TICK / Math.log(ratio);
-  await fitNew(c, url);
+  const dy = CAL_DY * TICK / Math.log(ratio);
+  await fitPage(c, url);
   return { target, dy };
 }
 
@@ -332,8 +332,8 @@ async function diffVsBaseOf(c, baseB64, outB64) { return c.evaluate(DIFF_VS_BASE
 // matches base (re-fit once if not, else INVALID) -> out screenshot -> wait
 // 5s more -> out5 screenshot (permanence).
 async function inoutProbe(c, v) {
-  await fitNew(c, v.url);
-  const { target, dy } = await calibrateNewDy(c, v.url);
+  await fitPage(c, v.url);
+  const { target, dy } = await calibrateDy(c, v.url);
 
   await checkIdle(c, `${v.key} before`);
 
@@ -348,13 +348,13 @@ async function inoutProbe(c, v) {
   const baseView = await c.evaluate(READ_VIEW);
   const base = await shot('base', true);
 
-  const zin = await c.evaluate(TICKS(target, ZOOM_EXPR.new, -dy, INOUT_MAX_TICKS, INOUT_TARGET_SCALE, cx, cy));
+  const zin = await c.evaluate(TICKS(target, ZOOM_EXPR, -dy, INOUT_MAX_TICKS, INOUT_TARGET_SCALE, cx, cy));
   await shot('in', false);
 
   const nOut = zin.n, half1 = Math.floor(nOut / 2), half2 = nOut - half1;
-  const batch1 = await c.evaluate(TICKS(target, ZOOM_EXPR.new, dy, half1, null, cx, cy));
+  const batch1 = await c.evaluate(TICKS(target, ZOOM_EXPR, dy, half1, null, cx, cy));
   await shot('mid', false);
-  const batch2 = await c.evaluate(TICKS(target, ZOOM_EXPR.new, dy, half2, null, cx, cy));
+  const batch2 = await c.evaluate(TICKS(target, ZOOM_EXPR, dy, half2, null, cx, cy));
 
   await sleep(1000);
   const outCheck = await ensureView(c, v, baseView, 'out', true);
