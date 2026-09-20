@@ -62,6 +62,40 @@ test('an embedded canvas posts the zoom once per settled gesture', async () => {
   check(zooms().length === n0 + 2, 'the probe did not post the zoom again');
 });
 
+test('a pinch settles once, not once for each wheel tick', async () => {
+  // The README promises one __dc_zoom post for each settled gesture, and
+  // onMoveEnd does the post and the saved-view write. React Flow keeps the
+  // end of a gesture to one call: with panOnScroll its end handler waits
+  // 150 ms and drops the ends between the ticks (@xyflow/system,
+  // createPanZoomEndHandler). Nothing held that promise before this check, so
+  // a library change would send a burst of posts and 20 saved-view writes.
+  const posts = [];
+  mount(await grid(6), { host: { embedded: true, post: (m) => posts.push(m) } });
+  await ready(); await wait(600);
+  const zooms = () => posts.filter((m) => m.type === '__dc_zoom');
+  const n0 = zooms().length;
+  const realSet = Storage.prototype.setItem;
+  let writes = 0;
+  Storage.prototype.setItem = function (k, v) {
+    if (String(k).startsWith('dc2-view:')) writes++;
+    return realSet.call(this, k, v);
+  };
+  try {
+    for (let i = 0; i < 20; i++) { wheel({ deltaY: -6, ctrlKey: true }); await frame(); }
+    await wait(600);
+    check(zooms().length === n0 + 1, (zooms().length - n0) + ' __dc_zoom posts for one pinch of 20 ticks');
+    check(writes === 1, writes + ' saved-view writes for one pinch of 20 ticks');
+    // The mouse-wheel path is the canvas's own (CanvasPage.jsx calls
+    // setViewport), so it is counted on its own.
+    const n1 = zooms().length;
+    writes = 0;
+    for (let i = 0; i < 20; i++) { wheel({ deltaY: -120 }); await frame(); }
+    await wait(600);
+    check(zooms().length === n1 + 1, (zooms().length - n1) + ' __dc_zoom posts for one mouse-wheel zoom of 20 notches');
+    check(writes === 1, writes + ' saved-view writes for one mouse-wheel zoom of 20 notches');
+  } finally { Storage.prototype.setItem = realSet; }
+});
+
 test('a top-level canvas posts nothing to the host', async () => {
   const posts = [];
   mount(await sample(), { host: { post: (m) => posts.push(m) } });
