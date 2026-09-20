@@ -6,6 +6,7 @@
     "test:unit": "vitest run --config vitest.config.mjs",
     "test:browser": "npm run build && node tests/run.mjs",
     "test:blank": "npm run build && node tests/blank-check.mjs && node tests/blank-check.mjs --control",
+    "test:live-paint": "npm run build && node tests/live-paint-check.mjs && node tests/live-paint-check.mjs --control",
     "test": "npm run test:unit && npm run test:browser",
     "perf": "npm run build && node perf/frames.mjs"
   },

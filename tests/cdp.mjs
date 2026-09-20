@@ -41,7 +41,15 @@ export async function launch() {
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((r) => (ws.onopen = r));
   let id = 0; const pending = new Map();
-  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } };
+  // Events the caller asked for, by method name. tests/live-paint-check.mjs
+  // listens to Page.screencastFrame this way.
+  const listeners = new Map();
+  const on = (method, fn) => { listeners.set(method, fn); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
+    if (m.method && listeners.has(m.method)) listeners.get(m.method)(m.params);
+  };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const mid = ++id;
     const timer = setTimeout(() => { pending.delete(mid); reject(new Error('send timeout: ' + method)); }, 30000);
@@ -88,5 +96,5 @@ export async function launch() {
 
   await send('Page.enable'); await send('Runtime.enable'); await send('Performance.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: VIEW.width, height: VIEW.height, deviceScaleFactor: VIEW.dpr, mobile: false });
-  return { send, evaluate, until, open, screenshot, busy, stop };
+  return { send, on, evaluate, until, open, screenshot, busy, stop };
 }

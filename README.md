@@ -60,11 +60,17 @@ window mounts only within 600 px of the view, and a live window drops beyond
 after the last move, never during a pan, a zoom or a drag, and mounts one
 iframe each 60 ms.
 
-Two rendering rules hold, and the checks guard them:
+Three rendering rules hold, and the checks guard them:
 - The React Flow viewport has no `will-change`. With it, a zoom-in and then a
   zoom-out on a big page loses content.
 - Each live iframe has `will-change: transform`, so a zoom does not raster
   the screens again.
+- A live screen stays painted through a gesture. A live card never carries
+  `content-visibility`, because Chrome can skip a card that has it, and a
+  skipped card is not painted and loses its iframe's layer. Its iframe does
+  not defer its load either, because the budget mounts the iframe early on
+  purpose. A placeholder card keeps `content-visibility: auto`, where it costs
+  nothing to skip.
 
 The React Flow spike measured why (its report is on branch
 `fix-canvas-layer-limit`, `docs/superpowers/specs/2026-09-19-react-flow-spike-report.md`).
@@ -97,6 +103,7 @@ A canvas in an iframe talks to its host with `postMessage`, target origin
 | `npm run test:unit` | The Vitest unit tests of the pure modules |
 | `npm run test:browser` | Builds, then runs `tests/regressions.html` in headless Chrome (`node tests/run.mjs`) |
 | `npm run test:blank` | Builds, then runs the tall-page blank check in a headful Chrome with the GPU on, and its control |
+| `npm run test:live-paint` | Builds, then measures, frame by frame, that no live screen loses its pixels during a pinch, and runs its control. `--url=<path>` runs it on another page |
 | `npm run perf` | Builds, then measures zoom and pan frame times in a headful Chrome |
 
 `perf/bench.js` is a console harness: open the sample, paste the file into the

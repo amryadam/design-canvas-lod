@@ -102,9 +102,17 @@ function WindowNode({ id, data }) {
           </div>
         </div>
         <div className="dc-winbody" style={{ padding: DC.winPad, background: DC.winBody }}>
-          <div className="dc-card" style={{ width, height, contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px` }}>
+          {/* Spike rule 4: a live card must always be painted. Chrome can skip
+              the subtree of a content-visibility card, and a skipped subtree
+              loses the paint and the layer that rule 2 gives the iframe, so
+              the property goes on the placeholder card only. For the same
+              reason the iframe never defers its load: the budget mounts it
+              early, up to DC.mountMargin outside the view, so that the screen
+              is ready before the user reaches it. */}
+          <div className="dc-card" style={live ? { width, height }
+            : { width, height, contentVisibility: 'auto', containIntrinsicSize: `${width}px ${height}px` }}>
             {live
-              ? <iframe key={href} src={href} title={screenTitle} loading="lazy" style={{ width, height }} />
+              ? <iframe key={href} src={href} title={screenTitle} style={{ width, height }} />
               : <div className="dc-placeholder">{screenTitle}</div>}
             <div className="dc-shield" title="Open to edit" onClick={() => { if (href) location.href = href; }} />
           </div>
