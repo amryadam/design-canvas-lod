@@ -13,14 +13,17 @@ test('the sample draws its windows, note, head and arrows', async () => {
 test('the live iframes stay inside the budget under pan and zoom', async () => {
   mount(await grid(24));
   await ready(); await wait(1600);
+  // The whole grid is on screen at the fit, so the budget fills every one of
+  // its 8 places. A band of 1..8 would let a regression to one live screen
+  // through (perf/results.md records 8 at zoom 0.05-0.25).
   const n0 = iframes();
-  check(n0 >= 1 && n0 <= 8, n0 + ' live iframes at the fit');
+  check(n0 === 8, n0 + ' live iframes at the fit, want 8');
   const id = host.querySelectorAll('.react-flow__node-window')[8].dataset.id;
   const node = rf().getNode(id);
   rf().setViewport({ zoom: 0.5, x: 640 - (node.position.x + node.width / 2) * 0.5, y: 450 - (node.position.y + node.height / 2) * 0.5 });
   await wait(1600);
   const n1 = iframes();
-  check(n1 >= 1 && n1 <= 8, n1 + ' live iframes after the zoom');
+  check(n1 === 8, n1 + ' live iframes after the zoom, want 8');
   check(liveIds().includes(id), 'the window in the middle of the view is not live');
 });
 
@@ -35,7 +38,7 @@ test('no iframe mounts or drops during a wheel gesture', async () => {
   mo.disconnect();
   check(changes === 0, changes + ' iframe mounts or drops during the gesture');
   await wait(1600);
-  check(iframes() <= 8, iframes() + ' live iframes after the gesture');
+  check(iframes() === 8, iframes() + ' live iframes after the gesture, want 8');
 });
 
 test('a zoom in several pinches keeps each on-screen live window live', async () => {
@@ -76,11 +79,14 @@ test('a zoom in several pinches keeps each on-screen live window live', async ()
 test('the world has no GPU layer and each live screen has its own', async () => {
   // Spike rules 1 and 2.
   mount(await grid(6));
-  await ready(); await wait(1200);
+  await ready();
+  // Six windows, all on screen at the fit, so all six are live: fewer would
+  // mean the budget stopped filling its places.
+  await until(() => host.querySelectorAll('.dc-card iframe').length === 6, 5000);
   const wc = getComputedStyle(host.querySelector('.react-flow__viewport')).willChange;
   check(wc === 'auto', 'the viewport has will-change: ' + wc);
   const frames = [...host.querySelectorAll('.dc-card iframe')];
-  check(frames.length > 0, 'no live iframe');
+  check(frames.length === 6, frames.length + ' live iframes on a page of 6 windows, want 6');
   frames.forEach((f) => check(getComputedStyle(f).willChange === 'transform', 'a live iframe has will-change: ' + getComputedStyle(f).willChange));
 });
 
