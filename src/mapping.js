@@ -17,12 +17,25 @@ export const windowBox = (screen, size) => ({
 });
 export const screenOf = (position) => ({ x: position.x + DC.winPad, y: position.y + DC.winHead + DC.winPad });
 
+// The shape canvas.json must have, as a message or null. A file that parses
+// but holds something else drew a white page with no message before: readPage
+// threw inside a useMemo, and React 18 then unmounted the whole root.
+// CanvasPage shows this message in the .dc-error row the failed fetch uses.
+export function dataError(data, pageId) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return 'canvas.json is not an object';
+  if (!Array.isArray(data.artboards)) return 'canvas.json has no artboards list';
+  if (!Array.isArray(data.pages) || !data.pages.length) return 'canvas.json has no pages list';
+  if (pageId && !data.pages.some((p) => p && p.id === pageId)) return `canvas.json has no page ${pageId}`;
+  return null;
+}
+
 // canvas.json → the page as authored. Variants fold into their primary
 // window. Flows drawn on a variant land on the primary; a flow that then
 // loops back on itself, a duplicate, and a flow to a screen that is not on
-// the page are dropped.
+// the page are dropped. The lists are read with a guard, so a file that
+// dataError did not see cannot throw here.
 export function readPage(data, pageId, { base = './', warn = console.warn } = {}) {
-  const onPage = data.artboards.filter((a) => a.page === pageId);
+  const onPage = (data.artboards || []).filter((a) => a.page === pageId);
   const { primaryOf, axesOf } = cpVariants(onPage);
   const boards = onPage.filter((a) => primaryOf(a.file) === a.file);
   const sizesOf = Object.fromEntries(boards.map((b) => [b.file, [b]]));

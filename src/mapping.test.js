@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readPage, buildNodes, buildEdges, actions, flowKey, screenOf, windowBox } from './mapping.js';
+import { readPage, buildNodes, buildEdges, actions, flowKey, screenOf, windowBox, dataError } from './mapping.js';
 
 const empty = () => ({ updatedAt: 0, positions: {}, variants: {}, arrowSides: {}, deleted: [] });
 const DATA = {
@@ -23,6 +23,23 @@ const DATA = {
 const page = (warn = () => {}) => readPage(DATA, 'p', { base: './s/', warn });
 const K0 = flowKey({ from: 'SignIn.dc.html', to: 'Home.dc.html', label: 'Next' });
 const K1 = flowKey({ from: 'Home.dc.html', to: 'SignIn.dc.html', label: 'Back' });
+
+describe('dataError', () => {
+  it('names what a canvas.json of the wrong shape is missing', () => {
+    expect(dataError(DATA, 'p')).toBe(null);
+    expect(dataError(DATA)).toBe(null);
+    expect(dataError(null)).toContain('not an object');
+    expect(dataError([])).toContain('not an object');
+    expect(dataError({ pages: [{ id: 'p' }] })).toContain('artboards');
+    expect(dataError({ artboards: [] })).toContain('pages');
+    expect(dataError({ artboards: [], pages: [] })).toContain('pages');
+    expect(dataError(DATA, 'gone')).toContain('gone');
+  });
+  it('lets readPage answer an empty page instead of throwing', () => {
+    expect(() => readPage({}, 'p', { warn: () => {} })).not.toThrow();
+    expect(readPage({}, 'p', { warn: () => {} }).windows).toEqual([]);
+  });
+});
 
 describe('readPage', () => {
   it('folds the variants into their primary window', () => {

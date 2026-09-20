@@ -84,6 +84,16 @@ test('the world has no GPU layer and each live screen has its own', async () => 
   frames.forEach((f) => check(getComputedStyle(f).willChange === 'transform', 'a live iframe has will-change: ' + getComputedStyle(f).willChange));
 });
 
+test('a canvas.json with no artboards shows the error, not a white page', async () => {
+  // The file parses, so the fetch path is happy; the shape is wrong. Before
+  // the guard, readPage threw inside a useMemo and React unmounted the root.
+  h = DesignCanvas.mount(host, { data: { pages: [{ id: 't' }] }, page: 't' });
+  await until(() => host.querySelector('.dc-error'));
+  const text = host.querySelector('.dc-error').textContent;
+  check(text.includes('artboards'), 'error text: ' + text);
+  check(host.querySelectorAll('.react-flow__node').length === 0, 'a node drew on a page with no artboards');
+});
+
 test('a canvas.json that does not load shows the error', async () => {
   window.fetch = async (url, init) => (String(url).endsWith('canvas.json') ? new Response('', { status: 404 }) : realFetch(url, init));
   h = DesignCanvas.mount(host, { page: 't' });

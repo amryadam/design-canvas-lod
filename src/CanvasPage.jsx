@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, applyNodeChanges, MarkerType } from '@xyflow/react';
 import { DC } from './constants.js';
 import { PageCtx } from './context.js';
-import { readPage, buildNodes, buildEdges, actions, screenOf } from './mapping.js';
+import { readPage, buildNodes, buildEdges, actions, screenOf, dataError } from './mapping.js';
 import { createLiveBudget, boxesOf } from './liveBudget.js';
 import { restoreState, createSaver, stateKey } from './persist.js';
 import { fitView, anyOnScreen, isMouseWheel, zoomAround, createInvZoom } from './view.js';
@@ -36,6 +36,10 @@ export function CanvasPage({ page: pageId, data: given, stateFile, base = './', 
   }, [given]);
   if (error) return <div className="dc-root dc-error">canvas.json did not load: {error}</div>;
   if (!data) return <div className="dc-root" />;
+  // A file that parses but has another shape gets the same row, with the name
+  // of what is missing. Without it the page went white and said nothing.
+  const bad = dataError(data, pageId);
+  if (bad) return <div className="dc-root dc-error">{bad}</div>;
   const id = pageId || (data.pages && data.pages[0] && data.pages[0].id);
   const file = stateFile || `.design-canvas.${id}.v2.state.json`;
   return <Page key={id + '\n' + file} data={data} pageId={id} stateFile={file} base={base} hostOpts={host} onApi={onApi} />;
