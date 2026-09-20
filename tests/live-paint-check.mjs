@@ -5,11 +5,16 @@
 // The probe: open the page -> fit -> wait for the budget to fill its places ->
 // measure every live card while nothing moves (the REST reading) -> pinch:
 // zoom in with synthetic ctrl+wheel ticks, one tick for each animation frame,
-// so windows leave the view, then zoom out again, so they come back. A
-// screencast records EVERY composited frame of both legs, so a card that goes
-// blank for one frame cannot hide between two screenshots. The two legs
-// follow each other with no pause, so the budget starts no pass inside the
-// gesture and the live set holds from the first frame to the last.
+// so windows leave the view, then zoom out again, so they come back. The two
+// legs follow each other with no pause, so the budget starts no pass inside
+// the gesture and the live set holds from the first frame to the last.
+//
+// A screencast records the frames of both legs. Chrome sends one image for
+// each frame it can encode and that the check acknowledges in time, so the
+// record is DENSE but NOT COMPLETE: about three of four driven frames in the
+// runs measured so far. A blank of one frame can therefore be missed, while a
+// blank that lasts two frames or more cannot. Each run prints what it really
+// got, so the reader never has to trust the word "every".
 //
 // The metric is per card and per frame: `ink` is the fraction of the card's
 // own pixels that are NOT one of the flat colours the page paints where
@@ -110,7 +115,7 @@ const DRIVE = (sel, deltaY, n, cx, cy) => `(() => {
 })()`;
 
 // ---- PNG ----
-// The screencast gives one PNG for each composited frame. They are measured
+// The screencast gives one PNG for each frame it sends. They are measured
 // here, in Node, so no image goes back into the page.
 function decodePng(buf) {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
@@ -247,7 +252,7 @@ try {
   cards.forEach((cd, i) => console.log(`  rest ${cd.id}: ink=${rest[i].ink} n=${rest[i].n}`));
   if (!judged.length) { console.error('INVALID: no live card holds enough content at rest to be judged'); c.stop(4); }
 
-  // Every composited frame of the gesture.
+  // The frames of the gesture, as many as the screencast sends.
   const shots = [];
   c.on('Page.screencastFrame', (p) => {
     shots.push({ t: p.metadata.timestamp * 1000 - timeOrigin, buf: Buffer.from(p.data, 'base64') });
